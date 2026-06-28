@@ -280,7 +280,7 @@ None
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         manage_prog = (
-            "manage.sh" if "manage" in sys.argv else None
+            "manage.sh" if "manage" in sys.argv and "test" not in sys.argv else None
         )
         manage_parser = subparsers.add_parser(
             "manage",
@@ -1078,6 +1078,13 @@ None
             url = getattr(args, "url", "")
             if not url:
                 log_error("Usage: leedevkit skills add <git-url> [--version main]")
+                return
+            if not url.startswith(("http://", "https://", "git@")):
+                catalog = self._load_skills_catalog()
+                if url in catalog:
+                    log_error(f"'{url}' is in the skills catalog. Use: leedevkit skills install {url}")
+                else:
+                    log_error(f"'{url}' is not a valid URL. Provide a git URL or use: leedevkit skills install <name>")
                 return
             version = getattr(args, "version", "main")
             name = url.rstrip("/").split("/")[-1].replace(".git", "")
