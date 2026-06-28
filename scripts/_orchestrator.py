@@ -824,17 +824,18 @@ class Orchestrator:
         root = Path.cwd()
         devkit = _find_devkit_root()
 
-        # 1. Create test.sh wrapper
-        test_sh = root / "test.sh"
-        if not test_sh.exists() or force:
-            test_sh.write_text(
-                "#!/bin/bash\n"
-                "# Delegates to leedevkit orchestrator\n"
-                'DEVKIT_ROOT="${DEVKIT_HOME:-$HOME/.leedevkit/current}"\n'
-                'exec "$DEVKIT_ROOT/bin/test.sh" "$@"\n'
-            )
-            test_sh.chmod(0o755)
-            log_success("Created test.sh")
+        # 1. Create test.sh + manage.sh wrappers
+        for script in ["test.sh", "manage.sh"]:
+            path = root / script
+            if not path.exists() or force:
+                path.write_text(
+                    "#!/bin/bash\n"
+                    "# Delegates to leedevkit orchestrator\n"
+                    'DEVKIT_ROOT="${DEVKIT_HOME:-$HOME/.leedevkit/current}"\n'
+                    f'exec "$DEVKIT_ROOT/bin/{script}" "$@"\n'  # noqa: S608
+                )
+                path.chmod(0o755)
+                log_success(f"Created {script}")
 
         # 2. Create leedevkit.toml if missing
         config_toml = root / "leedevkit.toml"
