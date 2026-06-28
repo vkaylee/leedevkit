@@ -755,3 +755,31 @@ class TestHandleTestSummary:
             orch.print_test_summary("all")
 
 
+
+
+class TestSkillsAddValidation:
+    def test_skills_add_rejects_catalog_name(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        monkeypatch.setenv("DEVKIT_HOME", str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent))
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="add", url="ui-ux-pro-max", version="main")
+            orch.handle_skills(args)
+
+    def test_skills_add_rejects_plain_name(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        monkeypatch.setenv("DEVKIT_HOME", str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent))
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="add", url="not-a-url", version="main")
+            orch.handle_skills(args)
+
+    def test_skills_install_empty_name(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="install", name=None)
+            orch.handle_skills(args)
