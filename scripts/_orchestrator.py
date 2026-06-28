@@ -976,7 +976,7 @@ class Orchestrator:
         # Auto-install community skills from leedevkit.toml
         self.handle_skills(argparse.Namespace(skills_action="install"))
 
-        log_success("Project initialized. Run ./test.sh --help to start.")
+        log_success("Project initialized. Run ./leedevkit --help to start.")
 
     def _load_skills_catalog(self) -> dict:
         """Load the curated skills catalog from devkit."""
