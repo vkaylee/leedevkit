@@ -1,0 +1,54 @@
+# =============================================================================
+# LeeAttend Devkit — Project Profile Schema
+# =============================================================================
+# Copy to your project root as `.devkit.toml` and fill in the values.
+# Unset fields inherit from the devkit default (templates/.devkit.default.toml).
+
+[project]
+name = "MyProject"               # display name
+namespace = "myproject"           # docker compose project prefix
+languages = ["rust", "typescript"] # ["rust", "typescript", "python", "go"]
+
+# ── Services ───────────────────────────────────────────────────────────────
+# Each service maps to a Docker Compose service + build context.
+# Inherited from devkit default; add/override here.
+
+[services.apiserver]
+dockerfile = "./apiserver"
+lang = "rust"
+ports = [3000]
+health_check = "/api/v1/health"
+cargo = true
+
+[services.webdashboard]
+dockerfile = "./webdashboard"
+lang = "typescript"
+ports = [5173]
+bun = true
+
+# ── Targets ────────────────────────────────────────────────────────────────
+# Logical groups of services for test/manage commands.
+# `./test.sh api` tests all services in the "api" target.
+
+[targets]
+api = ["apiserver", "agent-main"]
+web = ["webdashboard"]
+all = ["apiserver", "agent-main", "webdashboard"]
+
+# ── Test phases ────────────────────────────────────────────────────────────
+# Custom test phases specific to this project.
+# `cargo test`, `bun test` are auto-detected from service.lang.
+
+[phases.custom]
+# Example custom phases:
+# integration = { services = ["apiserver"], cmd = "cargo nextest run --test '*'", timeout = 600 }
+# e2e = { services = ["webdashboard"], cmd = "bunx playwright test", timeout = 900 }
+
+# ── AI Context ─────────────────────────────────────────────────────────────
+[ai]
+# Rule files to load for AI agents (relative to .agent/rules/).
+# The devkit provides base rules; add project-specific ones here.
+extra_rules = []
+
+# Override manifest: which devkit rules to replace/extend.
+override_manifest = ".agent/overrides.yaml"

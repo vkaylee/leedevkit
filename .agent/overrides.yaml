@@ -1,0 +1,32 @@
+# =============================================================================
+# AI Agent Rule Override Manifest
+# =============================================================================
+# Controls which devkit base rules are used, replaced, or extended.
+#
+# Priority chain (highest to lowest):
+#   1. project/.agent/rules/<name>.md      (project override)
+#   2. devkit/.agent/rules/<name>.md       (devkit base)
+#
+# Actions:
+#   replace: rules — project version replaces devkit entirely
+#   add: rules     — project-only rules (no devkit counterpart)
+#   extend: rules  — project appends to devkit (both loaded)
+
+# ── Replace: project version takes full priority ───────────────────────────
+replace: []
+# Example: replace the entire database rules with project-specific version
+# replace:
+#   - database-rules.md
+
+# ── Add: project-specific rules not in devkit ──────────────────────────────
+add: []
+# Example: add PCI-DSS compliance rules for this project
+# add:
+#   - security/pci-dss.md
+#   - deployment/gcp-cloud-run.md
+
+# ── Extend: project augments devkit (both loaded, project last) ────────────
+extend: []
+# Example: keep devkit database rules + add project-specific supplement
+# extend:
+#   - database-rules.md  # loads: devkit base → project supplement
