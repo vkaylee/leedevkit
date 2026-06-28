@@ -1,5 +1,5 @@
 #!/bin/bash
-# LeeAttend Enterprise Test Proxy
+# LeeDevKit Enterprise Test Proxy
 # Ensures venv is ready and delegates to the Python Orchestrator.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

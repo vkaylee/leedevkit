@@ -88,7 +88,7 @@ def lifecycle_up(mode: str = "all") -> bool:
     _run(compose_base + profiles + up_cmd, silent=True, capture=False)
 
     # Health check
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
 
     containers_to_check = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
@@ -169,7 +169,7 @@ def sweep_stale_environments() -> None:
     max_age_mins = int(os.environ.get("TEST_CLEANUP_MAX_AGE_MINUTES", "15"))
     engine = _get_engine()
     age_filter = f"until={max_age_mins}m"
-    prefix = "leeattend-test"
+    prefix = "leedevkit-test"
 
     try:
         if engine == "podman":
@@ -270,7 +270,7 @@ def lifecycle_down(mode: str = "all") -> None:
     profiles = resolve_lifecycle_profiles(mode)
     env = bootstrap_env(mode)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
     engine = _get_engine()
 
     # With dynamic project names (per-run isolation), we can safely and aggressively

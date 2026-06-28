@@ -1,8 +1,8 @@
 """Test function modules — Python equivalents of _test-lint.sh, _test-unit.sh,
 _test-integration.sh, _test-coverage.sh.
 
-Provides leeattend_run_lint(), leeattend_run_unit(), leeattend_run_integration(),
-and leeattend_run_coverage() called directly by the orchestrator.
+Provides leedevkit_run_lint(), leedevkit_run_unit(), leedevkit_run_integration(),
+and leedevkit_run_coverage() called directly by the orchestrator.
 
 All user-provided strings interpolated into shell commands are escaped via
 shlex.quote() to prevent shell injection through --pattern args.
@@ -31,7 +31,7 @@ def _safe_pattern_quoted(pattern: str) -> str:
     return ""
 
 
-def leeattend_run_lint(component_filter: str = "", mode: str = "all", fix: bool = False) -> bool:
+def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool = False) -> bool:
     """Run linting (fmt check/clippy/eslint). Use fix=True to auto-format."""
     tasks: list[tuple[str, str, list[str]]] = []
 
@@ -106,7 +106,7 @@ def leeattend_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
     return run_parallel_ordered("Linting", component_filter, tasks)
 
 
-def leeattend_run_unit(
+def leedevkit_run_unit(
     component_filter: str = "",
     mode: str = "all",
     test_pattern: str = "",
@@ -139,7 +139,7 @@ def leeattend_run_unit(
     return run_parallel_ordered("Unit Tests", component_filter, tasks)
 
 
-def leeattend_run_integration(
+def leedevkit_run_integration(
     component_filter: str = "", mode: str = "all", test_pattern: str = ""
 ) -> bool:
     """Run integration and E2E tests (cargo nextest --test, playwright)."""
@@ -151,7 +151,7 @@ def leeattend_run_integration(
     if mode in ("all", "api", "integration") and "web" not in component_filter:
         # API server startup is handled by the lifecycle/container health check
         # Integration tests use the already-running apiserver container
-        db_url = "postgres://test_user:test_password@db_system:5432/leeattend_test_template"
+        db_url = "postgres://test_user:test_password@db_system:5432/leedevkit_test_template"
         pkg_name = "agent" if component_filter == "agent-main" else component_filter
         pkg_flag = (
             f"--package {pkg_name}"
@@ -181,13 +181,13 @@ def leeattend_run_integration(
     return run_parallel_ordered("Integration & E2E", component_filter, tasks)
 
 
-def leeattend_run_coverage(
+def leedevkit_run_coverage(
     component_filter: str = "", mode: str = "all", unit_only: bool = False
 ) -> bool:
     """Run test coverage (cargo llvm-cov, vitest coverage)."""
     tasks: list[tuple[str, str, list[str]]] = []
 
-    coverage_env = "RUSTC_WRAPPER='' DATABASE_URL='postgres://test_user:test_password@db_system:5432/leeattend_test_template'"
+    coverage_env = "RUSTC_WRAPPER='' DATABASE_URL='postgres://test_user:test_password@db_system:5432/leedevkit_test_template'"
 
     if mode in ("all", "api", "integration"):
         pkg_name = "agent" if component_filter == "agent-main" else component_filter

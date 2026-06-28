@@ -23,7 +23,7 @@ except ImportError:
         env = os.environ.get("DEVKIT_HOME")
         if env:
             return Path(env)
-        home = Path.home() / ".leeattend-devkit" / "current"
+        home = Path.home() / ".leedevkit" / "current"
         if home.exists():
             return home
         raise FileNotFoundError("Cannot locate devkit")

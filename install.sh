@@ -1,14 +1,14 @@
 #!/bin/bash
-# leeattend-devkit installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/vkaylee/leeattend-devkit/main/install.sh | bash
+# leedevkit installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
 
 set -euo pipefail
 
-REPO="vkaylee/leeattend-devkit"
+REPO="vkaylee/leedevkit"
 VERSION="${1:-latest}"
-INSTALL_DIR="${DEVKIT_HOME:-$HOME/.leeattend-devkit}"
+INSTALL_DIR="${DEVKIT_HOME:-$HOME/.leedevkit}"
 
-echo "🚀 Installing leeattend-devkit $VERSION..."
+echo "🚀 Installing leedevkit $VERSION..."
 
 # Create install directory
 mkdir -p "$INSTALL_DIR"
@@ -51,7 +51,7 @@ fi
 ln -sfn "$VERSION_DIR" "$INSTALL_DIR/current"
 
 echo ""
-echo "✅ leeattend-devkit $VERSION_TAG installed"
+echo "✅ leedevkit $VERSION_TAG installed"
 echo "   Location: $VERSION_DIR"
 echo ""
 echo "   To use in your project:"

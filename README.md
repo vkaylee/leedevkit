@@ -1,4 +1,4 @@
-# leeattend-devkit
+# leedevkit
 
 Enterprise Developer Experience Kit for AI-first multi-service projects.
 
@@ -14,11 +14,11 @@ Enterprise Developer Experience Kit for AI-first multi-service projects.
 
 ```bash
 # Install (choose one)
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leeattend-devkit/main/install.sh | bash
-# OR: pip install leeattend-devkit
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+# OR: pip install leedevkit
 
 # In your project root
-leeattend-devkit init
+leedevkit init
 
 # Start developing
 ./test.sh all
@@ -27,7 +27,7 @@ leeattend-devkit init
 ## Architecture
 
 ```
-~/.leeattend-devkit/
+~/.leedevkit/
 ├── v0.1.0/                    ← versioned install
 │   ├── scripts/               ← orchestrator core
 │   ├── .agent/                ← AI rules + agents
@@ -41,8 +41,8 @@ my-project/
 ├── .agent/
 │   ├── overrides.yaml         ← rule inheritance manifest
 │   └── rules/                 ← project-specific AI rules
-├── test.sh → ~/.leeattend-devkit/current/bin/test.sh
-└── manage.sh → ~/.leeattend-devkit/current/bin/manage.sh
+├── test.sh → ~/.leedevkit/current/bin/test.sh
+└── manage.sh → ~/.leedevkit/current/bin/manage.sh
 ```
 
 ## Inheritance & Override
@@ -65,9 +65,9 @@ extend:                        # Load both (devkit → project)
 ./test.sh all --json            # Machine-readable output for AI agents
 ./test.sh api --pattern auth    # Filter tests by name
 ./manage.sh up dev              # Start dev environment
-leeattend-devkit doctor         # Verify installation health
-leeattend-devkit verify         # Check file integrity (tamper detection)
-leeattend-devkit upgrade        # Update to latest version
+leedevkit doctor         # Verify installation health
+leedevkit verify         # Check file integrity (tamper detection)
+leedevkit upgrade        # Update to latest version
 ```
 
 ## License

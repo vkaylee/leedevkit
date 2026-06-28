@@ -25,13 +25,13 @@ from _bootstrap import (
 from _lifecycle import lifecycle_down
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _test_modules import (
-    leeattend_run_coverage,
-    leeattend_run_integration,
-    leeattend_run_lint,
-    leeattend_run_unit,
+    leedevkit_run_coverage,
+    leedevkit_run_integration,
+    leedevkit_run_lint,
+    leedevkit_run_unit,
 )
 
-# LeeAttend Enterprise Orchestrator Core
+# LeeDevKit Enterprise Orchestrator Core
 # ==============================================================================
 
 
@@ -70,7 +70,7 @@ class Orchestrator:
         )
         self.parser = argparse.ArgumentParser(
             prog=prog_name,
-            description="LeeAttend Enterprise Orchestrator",
+            description="LeeDevKit Enterprise Orchestrator",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples:\n  ./test.sh --all\n  ./manage.sh up dev\n  ./manage.sh sync:api",
         )
@@ -84,8 +84,8 @@ class Orchestrator:
         self.dry_run = False
         self.env_vars: dict[str, str] = {
             "USE_DOCKER": "true",
-            "COMPOSE_PROJECT_NAME": "leeattend-test",
-            "PODMAN_COMPOSE_PROJECT_NAME": "leeattend-test",
+            "COMPOSE_PROJECT_NAME": "leedevkit-test",
+            "PODMAN_COMPOSE_PROJECT_NAME": "leedevkit-test",
             "PROJECT_ROOT": str(PROJECT_ROOT),
             "CONTAINER_ENGINE": self.engine,
             "DOCKER_COMPOSE_CMD": " ".join(self.compose_engine),
@@ -192,7 +192,7 @@ class Orchestrator:
             "test",
             prog=test_prog,
             parents=[parent_parser],
-            description="LeeAttend Enterprise Test Orchestrator - Automatically handles environments, mocking, and parallel execution.",
+            description="LeeDevKit Enterprise Test Orchestrator - Automatically handles environments, mocking, and parallel execution.",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples for AI Agents:\n  ./test.sh all                 # Run full-stack test suite (lint, unit, e2e)\n  ./test.sh webdashboard --unit-only # Run only frontend unit tests\n  ./test.sh api --pattern auth       # Run backend tests matching 'auth'\n  ./test.sh infra               # Verify project configuration and linting\n\nNotes for AI: Always prefer specific targets (e.g., 'apiserver') over 'all' for faster feedback.
   ./test.sh api --lint-only --fix  # Auto-fix formatting before committing
@@ -252,7 +252,7 @@ class Orchestrator:
             "manage",
             prog=manage_prog,
             parents=[parent_parser],
-            description="LeeAttend Infrastructure & Environment Manager",
+            description="LeeDevKit Infrastructure & Environment Manager",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples for AI Agents:\n  ./manage.sh up dev         # Start development environment\n  ./manage.sh db:setup       # Initialize database and run migrations\n  ./manage.sh sync:api       # Sync OpenAPI schema from backend to frontend\n  ./manage.sh logs apiserver # View backend logs",
         )
@@ -311,7 +311,7 @@ class Orchestrator:
 
             # Use dynamic project name for perfect run isolation
             suffix = uuid.uuid4().hex[:8]
-            project_name = f"leeattend-test-{suffix}"
+            project_name = f"leedevkit-test-{suffix}"
             self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
             self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
             os.environ["COMPOSE_PROJECT_NAME"] = project_name
@@ -359,7 +359,7 @@ class Orchestrator:
         args.component = component_filter
 
         self.active_mode = mode
-        log_info(f"🚀 Starting LeeAttend Test Suite for [{target}] in mode [{mode}]")
+        log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
 
         if getattr(args, "timeout", None):
             timeout_str = str(args.timeout)
@@ -458,22 +458,22 @@ class Orchestrator:
         log_info(f"🔹 Running {phase_name}...")
         func_map: dict[str, typing.Callable[..., typing.Any]] = {
             "Startup": lambda: _lifecycle_up(mode),
-            "Linting": lambda: leeattend_run_lint(
+            "Linting": lambda: leedevkit_run_lint(
                 getattr(args, "component", "") or "",
                 mode,
                 fix=getattr(args, "fix", False),
             ),
-            "Unit Tests": lambda: leeattend_run_unit(
+            "Unit Tests": lambda: leedevkit_run_unit(
                 getattr(args, "component", "") or "",
                 mode,
                 test_pattern=getattr(args, "pattern", "") or "",
             ),
-            "Integration Tests": lambda: leeattend_run_integration(
+            "Integration Tests": lambda: leedevkit_run_integration(
                 getattr(args, "component", "") or "",
                 mode,
                 test_pattern=getattr(args, "pattern", "") or "",
             ),
-            "Coverage": lambda: leeattend_run_coverage(
+            "Coverage": lambda: leedevkit_run_coverage(
                 getattr(args, "component", "") or "", mode, getattr(args, "unit_only", False)
             ),
             "Database Setup": self.handle_db_setup_phase,
@@ -637,7 +637,7 @@ class Orchestrator:
 
         compose_cmd = self.compose_engine + [
             "-p",
-            self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test"),
+            self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
         ]
 
         if tool in ["cargo", "diesel"]:
@@ -709,7 +709,7 @@ class Orchestrator:
             stdin=subprocess.DEVNULL,
             check=False,
         )
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
         return any(project_name in n and service in n for n in res.stdout.splitlines())
 
     def _handle_run_npm(
@@ -792,7 +792,7 @@ class Orchestrator:
         log_success("✨ Infrastructure is Premium Grade!")
 
     def handle_doctor(self) -> None:
-        log_info("🩺 Running LeeAttend System Doctor...")
+        log_info("🩺 Running LeeDevKit System Doctor...")
         engine = self.engine
         log_success(f"✅ Container Engine: {engine}")
 
@@ -819,7 +819,7 @@ class Orchestrator:
                 check=False,
             )
             names = res.stdout.splitlines()
-            for r in ["leeattend-dev-db", "leeattend-dev-api"]:
+            for r in ["leedevkit-dev-db", "leedevkit-dev-api"]:
                 if any(r in n for n in names):
                     log_success(f"✅ Container {r}: Running")
 
@@ -830,12 +830,12 @@ class Orchestrator:
             self.engine,
             "exec",
             "-t",
-            "leeattend-dev-db",
+            "leedevkit-dev-db",
             "psql",
             "-U",
             "lee",
             "-d",
-            "leeattend",
+            "leedevkit",
             "-c",
             sql,
         ]
@@ -855,7 +855,7 @@ class Orchestrator:
             self.compose_engine
             + [
                 "-p",
-                self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test"),
+                self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
                 "-f",
                 str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
                 "run",
@@ -875,16 +875,16 @@ class Orchestrator:
         if env == "dev":
             return [
                 "-p",
-                "leeattend-dev",
+                "leedevkit-dev",
                 "-f",
                 "docker-compose.yml",
                 "-f",
                 ".compose/docker-compose.dev.yml",
             ]
         if env == "test":
-            project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+            project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
             return ["-p", project_name, "-f", ".compose/docker-compose.test.yml"]
-        return ["-p", "leeattend", "-f", "docker-compose.yml"]
+        return ["-p", "leedevkit", "-f", "docker-compose.yml"]
 
     def execute_safe(
         self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800
@@ -961,7 +961,7 @@ class Orchestrator:
         _lifecycle_up("infra-db")
         _lifecycle_up("infra-redis")
 
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
         db_container = f"{project_name}_db_system_1"
 
         # Wait for database container to be ready
@@ -1038,7 +1038,7 @@ class Orchestrator:
 
         # Create template database
         log_info("Creating template database...")
-        create_sql = "DROP DATABASE IF EXISTS leeattend_test_template; CREATE DATABASE leeattend_test_template;"
+        create_sql = "DROP DATABASE IF EXISTS leedevkit_test_template; CREATE DATABASE leedevkit_test_template;"
         subprocess.run(
             [
                 self.engine,
@@ -1088,7 +1088,7 @@ class Orchestrator:
 
         # Run migrations on template database
         log_info("Running migrations on template database...")
-        template_db_url = "postgres://test_user:test_password@db_system:5432/leeattend_test_template?sslmode=disable"
+        template_db_url = "postgres://test_user:test_password@db_system:5432/leedevkit_test_template?sslmode=disable"
         template_cmd = self.compose_engine + [
             "-p",
             project_name,
@@ -1113,8 +1113,8 @@ class Orchestrator:
         self.execute_safe(template_cmd)
 
         # Revoke connect on template to prevent hangs
-        revoke_sql = "REVOKE CONNECT ON DATABASE leeattend_test_template FROM public;"
-        terminate_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'leeattend_test_template' AND pid <> pg_backend_pid();"
+        revoke_sql = "REVOKE CONNECT ON DATABASE leedevkit_test_template FROM public;"
+        terminate_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'leedevkit_test_template' AND pid <> pg_backend_pid();"
         subprocess.run(
             [
                 self.engine,
@@ -1157,7 +1157,7 @@ class Orchestrator:
 
     def handle_prebuild_phase(self) -> bool:
         log_info("Building test Docker images...")
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
         build_cmd = self.compose_engine + [
             "-p",
             project_name,

@@ -23,7 +23,7 @@ def _build_compose_cmd(
 ) -> list[str]:
     """Build a full compose command list."""
     if project_name is None:
-        project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+        project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
     if compose_file is None:
         compose_file = PROJECT_ROOT / ".compose" / "docker-compose.test.yml"
     return COMPOSE_CMD + ["-p", project_name, "-f", str(compose_file)] + extra_args

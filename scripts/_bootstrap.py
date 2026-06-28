@@ -1,4 +1,4 @@
-"""LeeAttend Internal Bootstrap — Python equivalent of _bootstrap.sh.
+"""LeeDevKit Internal Bootstrap — Python equivalent of _bootstrap.sh.
 
 Centralizes container engine detection, compose tool selection, profile
 injection, and environment variable setup. Used by the Python Orchestrator
@@ -116,7 +116,7 @@ def bootstrap_env(mode: str = "all") -> dict[str, str]:
     """
     engine = detect_engine()
     compose_cmd = detect_compose_cmd()
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
 
     profiles = resolve_profiles(mode)
 

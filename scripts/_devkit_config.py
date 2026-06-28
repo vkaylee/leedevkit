@@ -35,20 +35,20 @@ def _find_devkit_root() -> Path:
         _DEVKIT_ROOT = Path(env)
         return _DEVKIT_ROOT
 
-    # 2. ~/.leeattend-devkit/current symlink
-    home = Path.home() / ".leeattend-devkit" / "current"
+    # 2. ~/.leedevkit/current symlink
+    home = Path.home() / ".leedevkit" / "current"
     if home.exists():
         _DEVKIT_ROOT = home
         return _DEVKIT_ROOT
 
-    # 3. Bundled: ./leeattend-devkit/ relative to project root
-    bundled = _find_project_root() / "leeattend-devkit"
+    # 3. Bundled: ./leedevkit/ relative to project root
+    bundled = _find_project_root() / "leedevkit"
     if bundled.exists():
         _DEVKIT_ROOT = bundled
         return _DEVKIT_ROOT
 
     raise FileNotFoundError(
-        "Cannot locate leeattend-devkit. Set DEVKIT_HOME or install to ~/.leeattend-devkit"
+        "Cannot locate leedevkit. Set DEVKIT_HOME or install to ~/.leedevkit"
     )
 
 
