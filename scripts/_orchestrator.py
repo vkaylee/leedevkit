@@ -83,16 +83,12 @@ class Orchestrator:
         self.results: dict[
             str, dict[str, typing.Any]
         ] = {}  # phase -> {status, duration, details}
-        prog_name = (
-            "manage.sh"
-            if "manage" in sys.argv
-            else ("test.sh" if "test" in sys.argv else "orchestrator")
-        )
+        prog_name = "leedevkit"
         self.parser = argparse.ArgumentParser(
             prog=prog_name,
             description="LeeDevKit Enterprise Orchestrator",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="Examples:\n  ./test.sh --all\n  ./manage.sh up dev\n  ./manage.sh sync:api",
+            epilog="Examples:\n  leedevkit test all\n  leedevkit manage up dev\n  leedevkit manage sync:api",
         )
         # Mapping tool names to their target service in docker-compose.test.yml
         self.tool_map = {
@@ -209,7 +205,7 @@ class Orchestrator:
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         test_prog = (
-            "test.sh" if "test.sh" in sys.argv[0] or "test" in sys.argv else None
+None
         )
         test_parser = subparsers.add_parser(
             "test",
@@ -218,12 +214,12 @@ class Orchestrator:
             description="LeeDevKit Enterprise Test Orchestrator - Automatically handles environments, mocking, and parallel execution.",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples for AI Agents:\n"
-            "  ./test.sh all                 # Full suite\n"
-            "  ./test.sh api --lint-only     # Quick format + lint\n"
-            "  ./test.sh api --lint-only --fix # Auto-fix formatting\n"
-            "  ./test.sh all --json          # Machine-readable output\n"
+            "  leedevkit test all                 # Full suite\n"
+            "  leedevkit test infra --lint-only   # Quick format + lint\n"
+            "  leedevkit test infra --lint-only --fix # Auto-fix formatting\n"
+            "  leedevkit test all --json          # Machine-readable output\n"
             "\n"
-            "Tips: prefer specific targets (e.g. 'apiserver') over 'all' for faster feedback.",
+            "Tips: prefer specific targets for faster feedback.",
         )
         # Dynamically resolve valid targets from leedevkit.toml (or fall back to defaults)
         targets = _resolve_targets()
@@ -284,7 +280,7 @@ class Orchestrator:
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         manage_prog = (
-            "manage.sh" if "manage.sh" in sys.argv[0] or "manage" in sys.argv else None
+            "manage.sh" if "manage" in sys.argv else None
         )
         manage_parser = subparsers.add_parser(
             "manage",
@@ -292,7 +288,7 @@ class Orchestrator:
             parents=[parent_parser],
             description="LeeDevKit Infrastructure & Environment Manager",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="Examples for AI Agents:\n  ./manage.sh up dev         # Start development environment\n  ./manage.sh db:setup       # Initialize database and run migrations\n  ./manage.sh sync:api       # Sync OpenAPI schema from backend to frontend\n  ./manage.sh logs apiserver # View backend logs",
+            epilog="Examples for AI Agents:\n  leedevkit manage up dev         # Start development environment\n  leedevkit manage db:setup       # Initialize database and run migrations\n  leedevkit manage sync:api       # Sync OpenAPI schema from backend to frontend\n  leedevkit manage logs apiserver # View backend logs",
         )
         manage_cmd_sub = manage_parser.add_subparsers(dest="subcommand", required=True)
 
@@ -506,7 +502,7 @@ class Orchestrator:
             log_success(
                 "\n💡 Tip: Isolated phase completed successfully! Run the full suite to verify everything:"
             )
-            log_success(f"   ./test.sh {target_name}\n")
+            log_success(f"   leedevkit test {target_name}\n")
 
     def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
         if self.dry_run:
@@ -595,15 +591,15 @@ class Orchestrator:
             if not is_single_phase:
                 if phase_name == "Linting":
                     log_warn(
-                        f"\n💡 Tip: To quickly verify only linting/formatting fixes, run:\n   ./test.sh {target} --lint-only\n"
+                        f"\n💡 Tip: To quickly verify only linting/formatting fixes, run:\n   leedevkit test {target} --lint-only\n"
                     )
                 elif phase_name == "Unit Tests":
                     log_warn(
-                        f"\n💡 Tip: To focus on unit tests and skip linting/e2e, run:\n   ./test.sh {target} --unit-only\n"
+                        f"\n💡 Tip: To focus on unit tests and skip linting/e2e, run:\n   leedevkit test {target} --unit-only\n"
                     )
                 elif phase_name == "Integration Tests":
                     log_warn(
-                        f"\n💡 Tip: To focus on integration/E2E tests only, run:\n   ./test.sh {target} --e2e-only\n"
+                        f"\n💡 Tip: To focus on integration/E2E tests only, run:\n   leedevkit test {target} --e2e-only\n"
                     )
             # Continue to next phase instead of immediate exit — AI needs all results
             if phase_name != "Linting":  # lint failures are non-blocking
@@ -886,7 +882,7 @@ class Orchestrator:
         log_success("✨ Infrastructure is Premium Grade!")
 
     def handle_init(self, force: bool = False) -> None:
-        """Set up project: leedevkit.toml, .agent symlinks, test.sh."""
+        """Set up project: leedevkit wrapper, leedevkit.toml, .agent symlinks."""
         from pathlib import Path
 
         from _devkit_config import _find_devkit_root
