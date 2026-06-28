@@ -60,6 +60,20 @@ def log_error(msg: str, file: typing.TextIO = sys.stderr) -> None:
     print(f"{Colors.RED}{Colors.BOLD}❌ {msg}{Colors.NC}", file=file, flush=True)
 
 
+def _resolve_targets() -> list[str]:
+    """Resolve valid test targets from .devkit.toml, falling back to defaults."""
+    try:
+        from _devkit_config import load_project_config
+
+        cfg = load_project_config()
+        targets = cfg.get("targets", {})
+        if targets:
+            return list(targets.keys())
+    except Exception:
+        pass
+    return ["all", "api", "web", "apiserver", "agent-main", "webdashboard", "infra"]
+
+
 class Orchestrator:
     def __init__(self) -> None:
         self.results: dict[str, dict[str, typing.Any]] = {}  # phase -> {status, duration, details}
@@ -202,10 +216,12 @@ class Orchestrator:
             "\n"
             "Tips: prefer specific targets (e.g. 'apiserver') over 'all' for faster feedback.",
         )
+        # Dynamically resolve valid targets from .devkit.toml (or fall back to defaults)
+        targets = _resolve_targets()
         test_parser.add_argument(
             "target",
-            choices=["all", "api", "web", "apiserver", "agent-main", "webdashboard", "infra"],
-            help="Target domain ('all', 'api', 'web') or specific component ('apiserver', 'webdashboard', 'infra')",
+            choices=targets,
+            help=f"Target: {', '.join(targets)}",
         )
         test_parser.add_argument(
             "--lint-only", action="store_true", help="Run only code formatting and linting checks"
