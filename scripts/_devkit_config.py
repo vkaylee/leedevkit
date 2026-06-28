@@ -182,9 +182,15 @@ def resolve_ai_rules(project_root: Path | None = None) -> list[Path]:
         project_root = _find_project_root()
     devkit_root = _find_devkit_root()
 
+    # Read AI paths from leedevkit.toml, falling back to defaults
+    cfg = load_project_config()
+    ai_cfg = cfg.get("ai", {})
+    rules_rel = ai_cfg.get("rules_dir", ".agent/rules")
+    manifest_rel = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
+
     devkit_rules_dir = devkit_root / ".agent" / "rules"
-    project_rules_dir = project_root / ".agent" / "rules"
-    manifest_path = project_root / ".agent" / "overrides.yaml"
+    project_rules_dir = project_root / rules_rel
+    manifest_path = project_root / manifest_rel
 
     manifest: dict[str, Any] = _load_yaml(manifest_path) or {}
     replace: list[str] = manifest.get("replace", [])
