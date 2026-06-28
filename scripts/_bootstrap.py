@@ -1,4 +1,4 @@
-"""LeeDevKit Internal Bootstrap — Python equivalent of _bootstrap.sh.
+"""LeeAttend Internal Bootstrap — Python equivalent of _bootstrap.sh.
 
 Centralizes container engine detection, compose tool selection, profile
 injection, and environment variable setup. Used by the Python Orchestrator
@@ -9,8 +9,19 @@ import os
 import shutil
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+# Resolve the actual project root from CWD, not the devkit install location.
+# Walks up from current directory looking for .devkit.toml or .git.
+def _find_project_root() -> Path:
+    cwd = Path.cwd()
+    for parent in [cwd, *cwd.parents]:
+        if (parent / ".devkit.toml").exists() or (parent / ".git").exists():
+            return parent
+    # Fallback: devkit bundled mode (project root = devkit parent)
+    return Path(__file__).resolve().parent.parent
+
+
+PROJECT_ROOT = _find_project_root()
+SCRIPTS_DIR = Path(__file__).resolve().parent  # always where the orchestrator scripts live
 
 
 def _which(cmd: str) -> str | None:
@@ -116,7 +127,7 @@ def bootstrap_env(mode: str = "all") -> dict[str, str]:
     """
     engine = detect_engine()
     compose_cmd = detect_compose_cmd()
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
 
     profiles = resolve_profiles(mode)
 
