@@ -18,16 +18,17 @@ SCRIPT_DIR="$(cd "$(dirname "$RESOLVED")/.." && pwd)"
 PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
 
 if [ $# -eq 0 ]; then
-    echo "LeeDevKit — Enterprise DevKit for AI-first projects"
+    echo "leedevkit — Enterprise DevKit for AI-first projects"
     echo ""
     echo "Usage: leedevkit <command> [args...]"
     echo ""
     echo "Commands:"
     echo "  test     Run tests       (leedevkit test infra --lint-only)"
     echo "  manage   Infra & config  (leedevkit manage up dev)"
-    echo "  init     Initialize project"
+    echo "  init     Initialize a project with leedevkit"
     echo "  doctor   System health check"
-    echo "  skills   Community skill management"
+    echo "  skills   Browse and install community skills"
+    echo "  version  Show devkit version"
     echo ""
     echo "Run 'leedevkit <command> --help' for details."
     exit 0

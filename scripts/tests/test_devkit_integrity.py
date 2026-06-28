@@ -170,3 +170,55 @@ class TestVerifyDevkit:
         (tmp_path / "a.txt").write_text("modified")
         result = verify_devkit(tmp_path)
         assert "a.txt" in [m[0] for m in result.modified]
+
+
+class TestGenerateManifestEdgeCases:
+    def test_manifest_with_subdirs(self, tmp_path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "nested.py").write_text("x=1")
+        (tmp_path / "VERSION").write_text("1.0")
+        manifest = generate_manifest(tmp_path)
+        assert "sub/nested.py" in manifest["files"]
+
+
+class TestVerificationResultEdgeCases:
+    def test_report_with_all_issues(self):
+        r = VerificationResult()
+        r.no_manifest = False
+        r.modified = [("a.py", "abc", "def")]
+        r.missing = ["b.py"]
+        r.extra = ["c.py"]
+        r.ok = ["d.py"]
+        report = r.report()
+        assert "FAILED" in report
+        assert "Modified" in report
+        assert "Missing" in report
+        assert "Unknown files" in report
+
+    def test_report_extra_files(self):
+        r = VerificationResult()
+        r.ok = ["a.py"]
+        r.extra = ["mystery.py"]
+        assert r.is_clean is False
+        assert "mystery.py" in r.report()
+
+
+class TestVerifyDevkitEdgeCases:
+    def test_verify_with_extra_files(self, tmp_path):
+        (tmp_path / "a.txt").write_text("hello")
+        write_manifest(tmp_path)
+        (tmp_path / "new_file.txt").write_text("surprise")
+        result = verify_devkit(tmp_path)
+        assert "new_file.txt" in result.extra
+
+    def test_verify_with_missing_file(self, tmp_path):
+        (tmp_path / "a.txt").write_text("hello")
+        manifest_path = write_manifest(tmp_path)
+        # Manually add a ghost file to manifest
+        import json
+        data = json.loads(manifest_path.read_text())
+        data["files"]["ghost.py"] = "abc123"
+        manifest_path.write_text(json.dumps(data))
+        result = verify_devkit(tmp_path)
+        assert "ghost.py" in result.missing

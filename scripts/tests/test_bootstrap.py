@@ -208,3 +208,13 @@ class TestBootstrapEnv:
         env = bootstrap_env()
         assert env["PROJECT_ROOT"] == str(BOOTSTRAP_ROOT)
         assert (BOOTSTRAP_ROOT / "scripts").as_posix() == SCRIPTS_DIR.as_posix()
+
+
+class TestProjectRootFallback:
+    def test_fallback_to_script_parent(self, tmp_path, monkeypatch):
+        """When no leedevkit.toml or .git, falls back to script parent dir."""
+        monkeypatch.chdir(tmp_path)
+        from _bootstrap import _find_project_root
+        root = _find_project_root()
+        # Falls back to the scripts directory's parent
+        assert root is not None

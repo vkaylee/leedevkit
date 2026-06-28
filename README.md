@@ -21,6 +21,9 @@ Installs to `~/.leedevkit/<version>/` with `current` symlink.
 ## Quick Start
 
 ```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+
 # Initialize a project
 cd my-project && git init
 leedevkit init
@@ -34,15 +37,13 @@ leedevkit test all                  # full suite across all targets
 # Infrastructure management
 leedevkit manage up dev             # start dev environment
 leedevkit manage down dev           # stop dev environment
-leedevkit manage doctor             # health check: config, containers, .agent symlinks
-leedevkit manage init               # re-initialize project
+leedevkit doctor                    # health check: config, containers, .agent symlinks
 
 # Skills catalog
-leedevkit skills list               # browse curated skill catalog
-leedevkit skills install ui-ux-pro-max  # install by name
+leedevkit skills list               # browse built-in + community catalog
+leedevkit skills install <name>     # install community skill by name
 leedevkit skills add <git-url>      # install external skill
-leedevkit skills remove <name>      # remove a skill
-leedevkit skills update             # pull latest for all skills
+leedevkit skills update             # pull latest for all installed skills
 
 # Version
 leedevkit version                   # show devkit version
@@ -57,9 +58,7 @@ my-project/
 ├── .leedevkit/               # gitignored — regenerated cache
 │   └── skills.d/             # cloned community skills (like node_modules)
 ├── .agent/ → devkit          # AI context (symlinks to devkit)
-├── test.sh → devkit          # CLI wrappers
-├── manage.sh → devkit
-└── leedevkit → devkit
+└── leedevkit → devkit          # CLI wrapper
 ```
 
 ## leedevkit.toml
