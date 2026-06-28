@@ -67,10 +67,12 @@ def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
         # Add custom Python linters (run on host as apiserver container lacks Python)
         import sys
 
-        clean_code_cmd = [sys.executable, "scripts/lint_clean_code.py"]
+        from _bootstrap import SCRIPTS_DIR
+
+        clean_code_cmd = [sys.executable, str(SCRIPTS_DIR / "lint_clean_code.py")]
         tasks.append(("rust-backend-clean-code-linter", "apiserver", clean_code_cmd))
 
-        tenant_isolation_cmd = [sys.executable, "scripts/lint_tenant_isolation.py"]
+        tenant_isolation_cmd = [sys.executable, str(SCRIPTS_DIR / "lint_tenant_isolation.py")]
         tasks.append(("rust-backend-tenant-isolation-linter", "apiserver", tenant_isolation_cmd))
 
     if mode in ("all", "web"):
