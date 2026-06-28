@@ -56,7 +56,7 @@ class TestInitFlow:
             timeout=30,
             env={**os.environ, "DEVKIT_HOME": dk},
         )
-        assert (tmp_path / "test.sh").exists() or (tmp_path / "manage.sh").exists()
+        assert (tmp_path / "leedevkit").exists()
 
 
 class TestDoctor:
