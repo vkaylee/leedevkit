@@ -1,7 +1,7 @@
 # =============================================================================
 # LeeDevKit Devkit — Project Profile Schema
 # =============================================================================
-# Copy to your project root as `.devkit.toml` and fill in the values.
+# Copy to your project root as `leedevkit.toml` and fill in the values.
 # Unset fields inherit from the devkit default (templates/.devkit.default.toml).
 
 [project]

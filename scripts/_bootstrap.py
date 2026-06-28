@@ -10,11 +10,11 @@ import shutil
 from pathlib import Path
 
 # Resolve the actual project root from CWD, not the devkit install location.
-# Walks up from current directory looking for .devkit.toml or .git.
+# Walks up from current directory looking for leedevkit.toml or .git.
 def _find_project_root() -> Path:
     cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
-        if (parent / ".devkit.toml").exists() or (parent / ".git").exists():
+        if (parent / "leedevkit.toml").exists() or (parent / ".git").exists():
             return parent
     # Fallback: devkit bundled mode (project root = devkit parent)
     return Path(__file__).resolve().parent.parent

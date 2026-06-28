@@ -61,7 +61,7 @@ def log_error(msg: str, file: typing.TextIO = sys.stderr) -> None:
 
 
 def _resolve_targets() -> list[str]:
-    """Resolve valid test targets from .devkit.toml, falling back to defaults."""
+    """Resolve valid test targets from leedevkit.toml, falling back to defaults."""
     try:
         from _devkit_config import load_project_config
 
@@ -216,7 +216,7 @@ class Orchestrator:
             "\n"
             "Tips: prefer specific targets (e.g. 'apiserver') over 'all' for faster feedback.",
         )
-        # Dynamically resolve valid targets from .devkit.toml (or fall back to defaults)
+        # Dynamically resolve valid targets from leedevkit.toml (or fall back to defaults)
         targets = _resolve_targets()
         test_parser.add_argument(
             "target",

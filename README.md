@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh |
 ## Project Setup
 
 ```toml
-# .devkit.toml
+# leedevkit.toml
 [services.apiserver]
 dockerfile = "./apiserver"
 lang = "rust"

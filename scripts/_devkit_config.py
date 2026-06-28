@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Devkit configuration cascade engine.
 
-Loads `.devkit.toml` from the project root and merges it with the devkit
+Loads `leedevkit.toml` from the project root and merges it with the devkit
 default template. Implements a strict priority chain:
 
-    1. Project .devkit.toml       (highest)
+    1. Project leedevkit.toml       (highest)
     2. Devkit default template    (base fallback)
     3. Auto-detected values       (lowest)
 
@@ -53,10 +53,10 @@ def _find_devkit_root() -> Path:
 
 
 def _find_project_root() -> Path:
-    """Walk up from cwd until we find .devkit.toml or .git."""
+    """Walk up from cwd until we find leedevkit.toml or .git."""
     cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
-        if (parent / ".devkit.toml").exists() or (parent / ".git").exists():
+        if (parent / "leedevkit.toml").exists() or (parent / ".git").exists():
             return parent
     return cwd
 
@@ -132,7 +132,7 @@ def load_project_config() -> dict[str, Any]:
         config = _load_toml(default_path)
 
     # Layer 2: Project override
-    project_path = project_root / ".devkit.toml"
+    project_path = project_root / "leedevkit.toml"
     if project_path.exists():
         project_config = _load_toml(project_path)
         config = deep_merge(config, project_config)
