@@ -31,7 +31,9 @@ def _safe_pattern_quoted(pattern: str) -> str:
     return ""
 
 
-def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool = False) -> bool:
+def leedevkit_run_lint(
+    component_filter: str = "", mode: str = "all", fix: bool = False
+) -> bool:
     """Run linting (fmt check/clippy/eslint). Use fix=True to auto-format."""
     tasks: list[tuple[str, str, list[str]]] = []
 
@@ -60,7 +62,9 @@ def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
             mode=mode,
         )
         task_name = (
-            f"rust-backend-clippy-{component_filter}" if component_filter else "rust-backend-clippy"
+            f"rust-backend-clippy-{component_filter}"
+            if component_filter
+            else "rust-backend-clippy"
         )
         tasks.append((task_name, "apiserver", backend_cmd))
 
@@ -72,8 +76,13 @@ def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
         clean_code_cmd = [sys.executable, str(SCRIPTS_DIR / "lint_clean_code.py")]
         tasks.append(("rust-backend-clean-code-linter", "apiserver", clean_code_cmd))
 
-        tenant_isolation_cmd = [sys.executable, str(SCRIPTS_DIR / "lint_tenant_isolation.py")]
-        tasks.append(("rust-backend-tenant-isolation-linter", "apiserver", tenant_isolation_cmd))
+        tenant_isolation_cmd = [
+            sys.executable,
+            str(SCRIPTS_DIR / "lint_tenant_isolation.py"),
+        ]
+        tasks.append(
+            ("rust-backend-tenant-isolation-linter", "apiserver", tenant_isolation_cmd)
+        )
 
     if mode in ("all", "web"):
         lint_cmd = build_compose_exec(
@@ -83,7 +92,9 @@ def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
         )
         tasks.append(("webdashboard-lint", "webdashboard", lint_cmd))
 
-        typecheck_cmd = build_compose_exec("webdashboard", "bun run type-check", mode=mode)
+        typecheck_cmd = build_compose_exec(
+            "webdashboard", "bun run type-check", mode=mode
+        )
         tasks.append(("webdashboard-typecheck", "webdashboard", typecheck_cmd))
 
         i18n_cmd = build_compose_exec("webdashboard", "bun run check-i18n", mode=mode)
@@ -91,7 +102,9 @@ def leedevkit_run_lint(component_filter: str = "", mode: str = "all", fix: bool 
 
     if mode == "all":
         sync_cmd = build_compose_exec(
-            "apiserver", "cargo run -- gen-openapi > /workspace/shared/openapi.json", mode=mode
+            "apiserver",
+            "cargo run -- gen-openapi > /workspace/shared/openapi.json",
+            mode=mode,
         )
         sync_cmd2 = build_compose_exec(
             "webdashboard",
@@ -129,8 +142,12 @@ def leedevkit_run_unit(
         )
         db_url = "postgres://test_user:test_password@localhost:5432/test_database?sslmode=disable"
         backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {_safe_pattern(test_pattern)} {shard_flag} --no-tests=pass"
-        backend_cmd = build_compose_exec("apiserver", backend, workdir="/workspace", mode=mode)
-        task_name = f"rust-backend-{component_filter}" if component_filter else "rust-backend"
+        backend_cmd = build_compose_exec(
+            "apiserver", backend, workdir="/workspace", mode=mode
+        )
+        task_name = (
+            f"rust-backend-{component_filter}" if component_filter else "rust-backend"
+        )
         tasks.append((task_name, "apiserver", backend_cmd))
 
     if mode in ("all", "web"):
@@ -153,7 +170,9 @@ def leedevkit_run_integration(
     if mode in ("all", "api", "integration") and "web" not in component_filter:
         # API server startup is handled by the lifecycle/container health check
         # Integration tests use the already-running apiserver container
-        db_url = "postgres://test_user:test_password@db_system:5432/leedevkit_test_template"
+        db_url = (
+            "postgres://test_user:test_password@db_system:5432/leedevkit_test_template"
+        )
         pkg_name = "agent" if component_filter == "agent-main" else component_filter
         pkg_flag = (
             f"--package {pkg_name}"
@@ -168,9 +187,13 @@ def leedevkit_run_integration(
             f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' {_safe_pattern(test_pattern)} "
             f"--no-tests={no_tests_flag}"
         )
-        backend_cmd = build_compose_exec("apiserver", backend, workdir=workdir, mode=mode)
+        backend_cmd = build_compose_exec(
+            "apiserver", backend, workdir=workdir, mode=mode
+        )
         task_name = (
-            f"rust-backend-int-{component_filter}" if component_filter else "rust-backend-int"
+            f"rust-backend-int-{component_filter}"
+            if component_filter
+            else "rust-backend-int"
         )
         tasks.append((task_name, "apiserver", backend_cmd))
 
@@ -224,7 +247,11 @@ def leedevkit_run_coverage(
             else "rust-backend-coverage"
         )
         tasks.append(
-            (task_name, "apiserver", build_compose_exec("apiserver", apiserver_cov, mode=mode))
+            (
+                task_name,
+                "apiserver",
+                build_compose_exec("apiserver", apiserver_cov, mode=mode),
+            )
         )
 
     if mode in ("all", "web"):

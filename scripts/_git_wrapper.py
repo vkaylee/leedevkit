@@ -53,7 +53,9 @@ def main() -> None:  # noqa: PLR0912
 
         if messages:
             # We found commit messages, write them to a file
-            fd, temp_path = tempfile.mkstemp(prefix="git_ai_msg_", suffix=".txt", dir="/tmp")
+            fd, temp_path = tempfile.mkstemp(
+                prefix="git_ai_msg_", suffix=".txt", dir="/tmp"
+            )
             temp_files.append(temp_path)
 
             with os.fdopen(fd, "w", encoding="utf-8") as f:

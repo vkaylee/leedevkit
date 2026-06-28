@@ -19,6 +19,7 @@ from pathlib import Path
 try:
     from _devkit_config import _find_devkit_root
 except ImportError:
+
     def _find_devkit_root() -> Path:
         env = os.environ.get("DEVKIT_HOME")
         if env:
@@ -162,7 +163,9 @@ def verify_devkit(devkit_root: Path | None = None) -> VerificationResult:
         return result
 
     expected = manifest.get("files", {})
-    actual_files = {str(f.relative_to(devkit_root)): f for f in _walk_files(devkit_root)}
+    actual_files = {
+        str(f.relative_to(devkit_root)): f for f in _walk_files(devkit_root)
+    }
 
     for rel_path, expected_hash in expected.items():
         if rel_path not in actual_files:
@@ -197,5 +200,5 @@ if __name__ == "__main__":  # pragma: no cover
         print(f"Devkit root: {devkit_root}")
         result = verify_devkit(devkit_root)
         print(result.report())
-        print(f"\nVersion: {_read_manifest(devkit_root) or {} }")
+        print(f"\nVersion: {_read_manifest(devkit_root) or {}}")
         sys.exit(0 if result.is_clean else 1)

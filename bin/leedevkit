@@ -1,0 +1,66 @@
+#!/bin/bash
+# LeeDevKit — unified CLI entry point
+# Usage: leedevkit [command] [args...]
+#
+# Commands:
+#   test    Run test suite (./test.sh)
+#   manage  Infrastructure management (./manage.sh)
+#   init    Initialize project (alias: manage init)
+#   doctor  System health check (alias: manage doctor)
+#   skills  Manage community skills (alias: manage skills)
+
+set -euo pipefail
+
+RESOLVED="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$RESOLVED")/.." && pwd)"
+
+# Ensure venv and get python path
+PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
+
+if [ $# -eq 0 ]; then
+    echo "LeeDevKit — Enterprise DevKit for AI-first projects"
+    echo ""
+    echo "Usage: leedevkit <command> [args...]"
+    echo ""
+    echo "Commands:"
+    echo "  test     Run tests       (leedevkit test infra --lint-only)"
+    echo "  manage   Infra & config  (leedevkit manage up dev)"
+    echo "  init     Initialize project"
+    echo "  doctor   System health check"
+    echo "  skills   Community skill management"
+    echo ""
+    echo "Run 'leedevkit <command> --help' for details."
+    exit 0
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+    test)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" test "$@"
+        ;;
+    manage)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage "$@"
+        ;;
+    init)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage init "$@"
+        ;;
+    doctor)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage doctor "$@"
+        ;;
+    skills)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage skills "$@"
+        ;;
+    version|--version|-v)
+        cat "$SCRIPT_DIR/VERSION"
+        ;;
+    help|--help|-h)
+        exec "$0"  # show usage above
+        ;;
+    *)
+        echo "Unknown command: $COMMAND"
+        echo "Run 'leedevkit' without arguments for usage."
+        exit 1
+        ;;
+esac

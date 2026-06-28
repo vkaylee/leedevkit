@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
 
 # Add scripts to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -86,7 +85,9 @@ def test_check_private_fields() -> None:
     assert lint_clean_code.check_private_fields("test.rs", structs_err) == 1
 
     # 3. Tuple struct with private fields -> 0 errors
-    structs_tuple_ok = [{"name": "TupleObj", "body": "String, i32", "line_no": 1, "type": "tuple"}]
+    structs_tuple_ok = [
+        {"name": "TupleObj", "body": "String, i32", "line_no": 1, "type": "tuple"}
+    ]
     assert lint_clean_code.check_private_fields("test.rs", structs_tuple_ok) == 0
 
     # 4. Tuple struct with public fields -> 1 error

@@ -23,7 +23,7 @@ coverage.xml
 *.log
 
 # ── Skills (cloned on demand) ──
-.agent/skills.d/
+.leedevkit/
 
 # ── IDE & Editor ──
 .vscode/

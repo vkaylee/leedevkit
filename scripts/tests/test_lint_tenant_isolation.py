@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
 
 # Add scripts to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -194,7 +193,9 @@ def test_main_warning(mock_exit: MagicMock, mock_path_cls: MagicMock) -> None:
 
 @patch("lint_tenant_isolation.Path")
 @patch("sys.exit")
-def test_main_query_no_workspace_ref(mock_exit: MagicMock, mock_path_cls: MagicMock) -> None:
+def test_main_query_no_workspace_ref(
+    mock_exit: MagicMock, mock_path_cls: MagicMock
+) -> None:
     mock_repo_dir = MagicMock()
     mock_repo_dir.exists.return_value = True
     mock_worker_dir = MagicMock()
@@ -275,7 +276,11 @@ def test_find_files_to_scan() -> None:
     mock_other_file.name = "other.rs"
     mock_other_file.parent = MagicMock()
 
-    mock_repo_dir.rglob.return_value = [mock_mod_file, mock_diesel_file, mock_other_file]
+    mock_repo_dir.rglob.return_value = [
+        mock_mod_file,
+        mock_diesel_file,
+        mock_other_file,
+    ]
 
     mock_worker_dir = MagicMock()
     mock_worker_dir.exists.return_value = True

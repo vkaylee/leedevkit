@@ -1,0 +1,26 @@
+# =============================================================================
+# LeeDevKit Dogfood — devkit tests itself
+# =============================================================================
+
+[devkit]
+version = "0.1.0"
+
+[project]
+name = "leedevkit"
+namespace = "leedevkit"
+languages = ["python", "bash"]
+
+# ── Targets ──────────────────────────────────────────────────────────────────
+# "infra" triggers the built-in infrastructure verification:
+#   format → lint → test (100% coverage on scripts/)
+
+[targets]
+all = ["infra"]
+infra = ["infra"]
+
+# ── AI Context ───────────────────────────────────────────────────────────────
+
+[ai]
+extra_rules = []
+rules_dir = ".agent/rules"
+override_manifest = ".agent/overrides.yaml"

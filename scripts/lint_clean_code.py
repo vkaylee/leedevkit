@@ -41,7 +41,9 @@ def extract_structs(content: str) -> list[dict[str, Any]]:
                         break
                 body_chars.append(char)
             body = "".join(body_chars)
-            structs.append({"name": name, "body": body, "line_no": line_no, "type": "tuple"})
+            structs.append(
+                {"name": name, "body": body, "line_no": line_no, "type": "tuple"}
+            )
             continue
 
         # Otherwise it should be a normal struct with curly braces
@@ -70,7 +72,9 @@ def extract_structs(content: str) -> list[dict[str, Any]]:
 
         if body_end_idx != -1:
             body = "".join(body_chars)
-            structs.append({"name": name, "body": body, "line_no": line_no, "type": "normal"})
+            structs.append(
+                {"name": name, "body": body, "line_no": line_no, "type": "normal"}
+            )
     return structs
 
 
@@ -129,7 +133,9 @@ def check_pure_domain_separation(filename: str, content: str) -> int:
             clean_line = re.sub(r"/\*.*?\*/", "", clean_line).strip()
 
             if re.search(pattern, clean_line):
-                print(f"❌ ERROR: Pure Domain file {filename}:{idx + 1} references {description}.")
+                print(
+                    f"❌ ERROR: Pure Domain file {filename}:{idx + 1} references {description}."
+                )
                 print(f"   Line: {line.strip()}")
                 errors += 1
 

@@ -50,7 +50,9 @@ def test_commit_without_message(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_commit_with_space_separated_m(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit -m 'message'."""
-    monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-a", "-m", "Hello world"])
+    monkeypatch.setattr(
+        sys, "argv", ["_git_wrapper.py", "commit", "-a", "-m", "Hello world"]
+    )
 
     with (
         mock.patch("subprocess.call", return_value=0) as mock_call,
@@ -82,7 +84,10 @@ def test_commit_with_attached_m(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit -m'message'."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-mFix issue"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -98,7 +103,10 @@ def test_commit_with_attached_message(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit --message='message'."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "--message=Hello"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -116,7 +124,10 @@ def test_commit_with_multiple_messages(monkeypatch: pytest.MonkeyPatch) -> None:
         sys, "argv", ["_git_wrapper.py", "commit", "-m", "Title", "--message", "Body"]
     )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -130,10 +141,15 @@ def test_commit_with_multiple_messages(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_commit_with_special_characters(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit with emojis, quotes, and symbols."""
-    special_msg = "Fix bug 🐛\nAdded 'quotes' and \"double quotes\"!\n$VAR and `backticks`"
+    special_msg = (
+        "Fix bug 🐛\nAdded 'quotes' and \"double quotes\"!\n$VAR and `backticks`"
+    )
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-m", special_msg])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -147,9 +163,14 @@ def test_commit_with_special_characters(monkeypatch: pytest.MonkeyPatch) -> None
 def test_commit_with_multiline_string(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit with actual newlines in a single -m."""
     multiline_msg = "Line 1\nLine 2\n\nLine 4"
-    monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "--message", multiline_msg])
+    monkeypatch.setattr(
+        sys, "argv", ["_git_wrapper.py", "commit", "--message", multiline_msg]
+    )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -164,7 +185,10 @@ def test_commit_with_empty_message(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test git commit with an empty string message."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-m", ""])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -181,7 +205,10 @@ def test_commit_with_missing_message_value(monkeypatch: pytest.MonkeyPatch) -> N
     but since it checks i+1 < len, it shouldn't IndexError."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-m"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -209,7 +236,10 @@ def test_commit_with_mixed_message_flags(monkeypatch: pytest.MonkeyPatch) -> Non
         ],
     )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -225,7 +255,10 @@ def test_commit_with_complex_unicode(monkeypatch: pytest.MonkeyPatch) -> None:
     unicode_msg = "Thử nghiệm unicode 測試 🚀 (CJK, Viet, Emoji, RTL ‮test‬)"  # noqa: PLE2502
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-m", unicode_msg])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -241,10 +274,21 @@ def test_commit_with_interleaved_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
-        ["_git_wrapper.py", "commit", "--amend", "--quiet", "-m", "Msg", "--author=Test"],
+        [
+            "_git_wrapper.py",
+            "commit",
+            "--amend",
+            "--quiet",
+            "-m",
+            "Msg",
+            "--author=Test",
+        ],
     )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -297,7 +341,10 @@ def test_commit_auto_inject_no_gpg_sign(monkeypatch: pytest.MonkeyPatch) -> None
     """Test that --no-gpg-sign is automatically injected."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-m", "Msg"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -306,9 +353,14 @@ def test_commit_auto_inject_no_gpg_sign(monkeypatch: pytest.MonkeyPatch) -> None
 
 def test_commit_with_existing_no_gpg_sign(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that --no-gpg-sign is not injected twice."""
-    monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "--no-gpg-sign", "-m", "Msg"])
+    monkeypatch.setattr(
+        sys, "argv", ["_git_wrapper.py", "commit", "--no-gpg-sign", "-m", "Msg"]
+    )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -319,15 +371,23 @@ def test_commit_with_s_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that --no-gpg-sign is not injected if -S or --gpg-sign is present."""
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "-S", "-m", "Msg"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
     assert "--no-gpg-sign" not in called_cmd
 
-    monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "commit", "--gpg-sign", "-m", "Msg"])
+    monkeypatch.setattr(
+        sys, "argv", ["_git_wrapper.py", "commit", "--gpg-sign", "-m", "Msg"]
+    )
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call2, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call2,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd2 = mock_call2.call_args[0][0]
@@ -339,7 +399,10 @@ def test_timeout_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_TIMEOUT", "300")
     monkeypatch.setattr(sys, "argv", ["_git_wrapper.py", "status"])
 
-    with mock.patch("subprocess.call", return_value=0) as mock_call, mock.patch("sys.exit"):
+    with (
+        mock.patch("subprocess.call", return_value=0) as mock_call,
+        mock.patch("sys.exit"),
+    ):
         _git_wrapper.main()
 
     called_cmd = mock_call.call_args[0][0]
@@ -350,7 +413,9 @@ def test_timeout_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestSanitizerFallbackSafety:
     """Verify _git_wrapper.py never passes empty args to git (would hang)."""
 
-    def test_sanitize_failure_keeps_original_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_sanitize_failure_keeps_original_args(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """When sanitize raises, args MUST be preserved — never replaced with [].
 
         Empty args → git interactive mode + stdin=DEVNULL → infinite hang.
@@ -369,7 +434,9 @@ class TestSanitizerFallbackSafety:
         assert "status" in called_cmd
         assert called_cmd.count("git") == 1  # "git" appears once, no empty fallback
 
-    def test_git_add_many_files_keeps_all_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_git_add_many_files_keeps_all_args(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Simulate 'git add 13 files' — all paths must survive sanitize."""
         files = [
             "webdashboard/src/components/features/leave/leave-request-row.tsx",

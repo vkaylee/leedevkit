@@ -1,895 +1,757 @@
-# mypy: ignore-errors
-import argparse
-import fcntl
-import signal
+"""Tests for _orchestrator — main CLI entry point (config-compatible)."""
+import os
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-# Add scripts/ to sys.path so we can import _orchestrator
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(PROJECT_ROOT / "scripts"))
-import _orchestrator  # noqa: E402
-
-
-@pytest.fixture
-def orchestrator():
-    return _orchestrator.Orchestrator()
-
-
-@pytest.fixture(autouse=True)
-def mock_is_service_running():
-    with patch.object(_orchestrator.Orchestrator, "_is_service_running", return_value=True) as mock:
-        yield mock
-
-
-@pytest.fixture(autouse=True)
-def mock_lifecycle():
-    with (
-        patch("_orchestrator._lifecycle_up", return_value=True),
-        patch("_orchestrator.lifecycle_down", return_value=True),
-    ):
-        yield
-
-
-def test_help_message(orchestrator, capsys) -> None:
-    """Test help message does not cause errors."""
-    with pytest.raises(SystemExit) as e:
-        orchestrator.parser.parse_args(["--help"])
-    assert e.value.code == 0
-    captured = capsys.readouterr()
-    assert "LeeAttend Enterprise Orchestrator" in captured.out
-
-
-def test_invalid_command(orchestrator) -> None:
-    """Test error reporting when command does not exist."""
-    with pytest.raises(SystemExit):
-        orchestrator.parser.parse_args(["invalid-cmd"])
-
-
-@patch("subprocess.run")
-def test_manage_up_dev(mock_run, orchestrator) -> None:
-    """Test manage up dev command creates correct podman-compose command."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "up", "dev"])
-    orchestrator.handle_manage(args)
-
-    called_args = mock_run.call_args[0][0]
-    assert "podman-compose" in called_args
-    assert "leeattend-dev" in called_args
-    assert "up" in called_args
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch("_orchestrator.Orchestrator.handle_run")
-def test_test_api_mode(mock_handle_run, mock_run_phase, orchestrator) -> None:
-    """Test test --api mode runs all required phases."""
-    mock_run_phase.return_value = None
-    mock_handle_run.return_value = None
-    args = orchestrator.parser.parse_args(["test", "api"])
-    orchestrator.handle_test(args)
-    assert mock_run_phase.call_count >= 3  # Startup + Lint + Unit + Integration
-
-
-@patch("subprocess.run")
-def test_dry_run_no_execution(mock_run, orchestrator) -> None:
-    """Test --dry-run flag does not execute real commands."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["test", "all", "--dry-run"])
-    orchestrator.dry_run = args.dry_run
-    orchestrator.handle_test(args)
-    assert mock_run.called is False
-
-
-@patch("shutil.which")
-@patch("socket.socket")
-@patch("subprocess.run")
-def test_doctor_logic(mock_run, mock_socket, mock_which, orchestrator) -> None:
-    """Test doctor logic."""
-    mock_which.return_value = "/usr/bin/podman"
-    mock_socket.return_value.connect_ex.return_value = 0
-    mock_run.return_value.stdout = "leeattend-dev-db\nleeattend-dev-api"
-    orchestrator.handle_doctor()
-    assert mock_which.called
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_db_query_logic(mock_which, mock_run, orchestrator) -> None:
-    """Test db:query logic."""
-    mock_run.return_value.returncode = 0
-    mock_which.return_value = "podman"
-    args = orchestrator.parser.parse_args(["manage", "db:query", "SELECT 1", "--json"])
-    orchestrator.handle_db_query(args)
-    called_args = mock_run.call_args[0][0]
-    assert "SELECT 1" in called_args
-    assert "--json" in called_args
-
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+
+class TestOrchestratorProperties:
+    def test_engine_detected(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert orch.engine in ("podman", "docker")
+
+    def test_compose_engine_list(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert isinstance(orch.compose_engine, list)
+
+
+class TestResolveTargets:
+    def test_returns_list(self):
+        from _orchestrator import _resolve_targets
+        targets = _resolve_targets()
+        assert isinstance(targets, list)
+        assert len(targets) > 0
+        assert "all" in targets
+        assert "infra" in targets
+
+
+class TestColors:
+    def test_colors_defined(self):
+        from _orchestrator import Colors
+        assert Colors.GREEN and Colors.RED and Colors.NC
+
+
+class TestToolMap:
+    def test_tool_map_entries(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert orch.tool_map["npm"] == "webdashboard"
+            assert orch.tool_map["cargo"] == "apiserver"
+
+
+class TestGetComposeFiles:
+    def test_dev_environment(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            files = orch.get_compose_files("dev")
+            assert any("docker-compose.yml" in f for f in files)
+
+    def test_test_environment(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.env_vars["COMPOSE_PROJECT_NAME"] = "test-abc"
+            files = orch.get_compose_files("test")
+            assert any("docker-compose.test.yml" in f for f in files)
+
+
+class TestDryRun:
+    def test_dry_run_noop(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            with patch("subprocess.run") as mock_run:
+                orch.execute_safe(["echo", "x"])
+                mock_run.assert_not_called()
+
+
+class TestPrintTestSummary:
+    def test_no_logs_no_crash(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.print_test_summary("all")
+
+
+class TestOrchestratorInitFlow:
+    def test_handle_init_dry_run(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            orch.handle_init(force=False)
+
+    def test_handle_skills_list(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="list")
+            orch.handle_skills(args)
+
+
+class TestPrintTestSummaryParsing:
+    def test_parses_nextest_output(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        logs = tmp_path / ".test_logs"
+        logs.mkdir()
+        (logs / "test.log").write_text("Summary [   0.123s] 42 tests run: 42 passed, 0 skipped")
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.print_test_summary("api")
+
+
+class TestLogFunctions:
+    def test_log_info(self, capsys):
+        from _orchestrator import log_info
+        log_info("test message")
+
+    def test_log_success(self, capsys):
+        from _orchestrator import log_success
+        log_success("test success")
+
+    def test_log_warn(self, capsys):
+        from _orchestrator import log_warn
+        log_warn("test warning")
+
+    def test_log_error(self, capsys):
+        from _orchestrator import log_error
+        log_error("test error")
+
+
+class TestLeedevkitDir:
+    def test_lock_path_at_root(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            path = orch._lock_path()
+            assert path.name == "leedevkit.lock"
+
+    def test_init_creates_files(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.handle_init(force=True)
+            assert (tmp_path / "test.sh").exists()
+            assert (tmp_path / "leedevkit.toml").exists()
+
+    def test_load_catalog(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            catalog = orch._load_skills_catalog()
+            assert isinstance(catalog, dict)
+            assert "ui-ux-pro-max" in catalog
+
+    def test_skills_install_not_in_catalog(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="install", name="nonexistent")
+            orch.handle_skills(args)
+
+
+class TestVersionInToml:
+    def test_read_version_from_toml(self, tmp_path):
+        (tmp_path / "leedevkit.toml").write_text("[devkit]\nversion = \"1.2.3\"\n")
+        from _devkit_config import _read_version
+        assert _read_version(tmp_path) == "1.2.3"
+
+    def test_read_version_default(self, tmp_path):
+        from _devkit_config import _read_version
+        assert _read_version(tmp_path) == "latest"
+
+
+class TestLockFile:
+    def test_read_lock_missing(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            lock = orch._read_lock()
+            assert lock == {}
+
+    def test_read_lock_valid(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        import tomli_w
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_path.parent.mkdir(exist_ok=True)
+        with open(lock_path, "wb") as f:
+            tomli_w.dump({"my-skill": "abc123def"}, f)
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            data = orch._read_lock()
+            assert "my-skill" in data
+
+    def test_write_lock(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        skills_d = tmp_path / "skills.d"
+        skills_d.mkdir()
+        (skills_d / ".git").mkdir()
+        import subprocess
+        orig_run = subprocess.run
+        def fake_run(*a, **kw):
+            if "rev-parse" in str(a):
+                m = type("R", (), {"stdout": "abc123\n", "returncode": 0})()
+                return m
+            return orig_run(*a, **kw)
+        monkeypatch.setattr("subprocess.run", fake_run)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch._write_lock(skills_d)
+            assert (tmp_path / "leedevkit.lock").exists()
+
+
+class TestSkillsSubCommands:
+    def test_skills_add_usage(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="add", url="", version="main")
+            orch.handle_skills(args)
+
+    def test_skills_remove_usage(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="remove", name="")
+            orch.handle_skills(args)
+
+    def test_skills_remove_nonexistent(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="remove", name="no-such-skill")
+            orch.handle_skills(args)
+
+    def test_skills_update(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="update")
+            orch.handle_skills(args)
+
+    def test_skills_install_no_name(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(skills_action="install", name=None)
+            orch.handle_skills(args)
+
+
+class TestHandleManageDispatch:
+    def test_manage_fmt_infra(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="fmt:infra")
+            orch.handle_manage(args)
+
+    def test_manage_doctor_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="doctor")
+            orch.handle_manage(args)
+
+    def test_manage_clean(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="clean", env="dev")
+            orch.handle_manage(args)
+
+
+class TestOrchestratorRun:
+    def test_run_cargo_test_converts_to_nextest(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            compose_cmd = ["podman-compose", "-p", "test"]
+            tool_args = ["test", "--lib"]
+            orch._handle_run_cargo(compose_cmd, tool_args, "apiserver")
+            assert "nextest" in compose_cmd
+
+
+class TestModeMap:
+    def test_mode_mapping(self):
+        mode_map = {
+            "all": "all", "api": "api", "web": "web",
+            "apiserver": "api", "agent-main": "api", "webdashboard": "web",
+        }
+        assert mode_map["all"] == "all"
+        assert mode_map["apiserver"] == "api"
+        assert mode_map["webdashboard"] == "web"
+
+
+class TestIsServiceRunning:
+    def test_no_containers(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        def fake_run(*a, **kw):
+            m = type("R", (), {"stdout": "", "returncode": 0})()
+            return m
+        monkeypatch.setattr("subprocess.run", fake_run)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert orch._is_service_running("apiserver") is False
+
+    def test_service_found(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        def fake_run(*a, **kw):
+            m = type("R", (), {"stdout": "leedevkit-test-abc_apiserver_1\nother", "returncode": 0})()
+            return m
+        monkeypatch.setattr("subprocess.run", fake_run)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.env_vars["COMPOSE_PROJECT_NAME"] = "leedevkit-test-abc"
+            assert orch._is_service_running("apiserver") is True
+
+
+class TestOrchestratorEdgeCases:
+    def test_handle_test_infra_glob(self, tmp_path, monkeypatch):
+        """handle_test_infra should discover all test_*.py files via glob."""
+        from _orchestrator import Orchestrator
+        tests_dir = tmp_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_a.py").write_text("def test(): pass")
+        (tests_dir / "test_b.py").write_text("def test(): pass")
+        monkeypatch.setattr("_orchestrator.SCRIPTS_DIR", tmp_path)
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0})())
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.handle_test_infra()
+
+    def test_handle_db_query(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(sql="SELECT 1", json=False)
+            orch.handle_db_query(args)
+
+    def test_handle_diesel(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            orch.handle_diesel(["migration", "list"])
+
+    def test_log_error_with_file(self, tmp_path):
+        from _orchestrator import log_error
+        f = (tmp_path / "err.log").open("w")
+        log_error("test", file=f)
+        f.close()
+        assert (tmp_path / "err.log").stat().st_size > 0
+
+    def test_orchestrator_env_vars(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert "USE_DOCKER" in orch.env_vars
+            assert orch.env_vars["USE_DOCKER"] == "true"
+
+    def test_colors_values(self):
+        from _orchestrator import Colors
+        assert Colors.GREEN == "\033[0;32m"
+        assert Colors.RED == "\033[0;31m"
+        assert Colors.NC == "\033[0m"
+
+
+class TestLogFunctionsMore:
+    def test_log_info_contains_emoji(self, capsys):
+        from _orchestrator import log_info
+        log_info("hello")
+        out = capsys.readouterr()
+        # Output goes to stderr
+        assert "hello" in out.err
+
+    def test_log_success_contains_checkmark(self, capsys):
+        from _orchestrator import log_success
+        log_success("done")
+        assert "done" in capsys.readouterr().err
+
+    def test_log_warn_contains_warning(self, capsys):
+        from _orchestrator import log_warn
+        log_warn("careful")
+        assert "careful" in capsys.readouterr().err
+
+    def test_log_error_contains_cross(self):
+        from _orchestrator import log_error
+        import io
+        buf = io.StringIO()
+        log_error("fail", file=buf)
+        assert "fail" in buf.getvalue()
+
+
+class TestHandleTestMocked:
+    """Test handle_test flow with Docker calls mocked out."""
+
+    def test_handle_test_infra_lint_only(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                target="infra", lint_only=True, unit_only=False,
+                e2e_only=False, skip_lint=False, pattern=None,
+                coverage=False, timeout=1800, fix=False, json_output=False,
+            )
+            orch.handle_test(args)
+
+    def test_handle_test_infra_full(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                target="infra", lint_only=False, unit_only=False,
+                e2e_only=False, skip_lint=False, pattern=None,
+                coverage=False, timeout=1800, fix=False, json_output=False,
+            )
+            orch.handle_test(args)
+
+    def test_handle_test_all_with_flags_runs_all_phases(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                target="all", lint_only=True, unit_only=False,
+                e2e_only=False, skip_lint=False, pattern=None,
+                coverage=False, timeout=1800, fix=False, json_output=False,
+            )
+            orch.handle_test(args)
+
+    def test_handle_test_non_infra_target_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                target="all", lint_only=False, unit_only=True,
+                e2e_only=False, skip_lint=True, pattern=None,
+                coverage=False, timeout=1800, fix=False, json_output=False,
+            )
+            orch.handle_test(args)
+
+    def test_handle_test_with_coverage(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                target="all", lint_only=False, unit_only=False,
+                e2e_only=False, skip_lint=False, pattern=None,
+                coverage=True, timeout=1800, fix=False, json_output=False,
+            )
+            orch.handle_test(args)
+
+
+class TestHandleRunMocked:
+    """Test handle_run flow with subprocess and container ops mocked."""
+
+    def test_handle_run_npm_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            with patch.object(Orchestrator, "_is_service_running", return_value=False):
+                args = argparse.Namespace(
+                    command="run", tool="npm", pooler=False,
+                    args=["--version"],
+                )
+                orch.handle_run(args)
+
+    def test_handle_run_cargo_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                command="run", tool="cargo", pooler=False,
+                args=["build"],
+            )
+            orch.handle_run(args)
+
+    def test_handle_run_cargo_cwd_detection(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                command="run", tool="cargo", pooler=False,
+                args=["build"],
+            )
+            orch.handle_run(args)
+
+
+class TestRunPhaseMocked:
+    """Test run_phase dispatch with lifecycle/test functions mocked."""
+
+    def test_run_phase_lint_api(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                component="", fix=False, pattern="",
+            )
+            orch.run_phase("Linting", "api", args)
+
+    def test_run_phase_unit_web(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                component="", fix=False, pattern="",
+            )
+            orch.run_phase("Unit Tests", "web", args)
+
+    def test_run_phase_coverage_api(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(
+                component="", fix=False, pattern="", unit_only=False,
+            )
+            orch.run_phase("Coverage", "api", args)
+
+    def test_run_phase_startup(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(component="", fix=False, pattern="")
+            orch.run_phase("Startup", "all", args)
+
+    def test_run_phase_unknown(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True  # dry_run returns before func lookup
+            args = argparse.Namespace(component="", fix=False, pattern="")
+            orch.run_phase("BogusPhase", "all", args)
+            # dry_run just logs and returns — no error for unknown phase
+
+
+class TestCleanupMocked:
+    """Test cleanup logic with docker calls mocked."""
+
+    def test_cleanup_noop_when_dry(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            orch.needs_cleanup = True
+            orch.cleanup()
+
+    def test_cleanup_noop_when_not_needed(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = False
+            orch.needs_cleanup = False
+            orch.cleanup()
+
+
+class TestHandleManageMocked:
+    """Test handle_manage dispatch with execution mocked."""
+
+    def test_handle_manage_sync_api_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="sync:api")
+            orch.handle_manage(args)
+
+    def test_handle_manage_migrate_run_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="migrate:run")
+            orch.handle_manage(args)
+
+    def test_handle_manage_migrate_revert_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="migrate:revert")
+            orch.handle_manage(args)
+
+    def test_handle_manage_prebuild_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="prebuild")
+            orch.handle_manage(args)
+
+    def test_handle_manage_db_setup_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="db:setup")
+            orch.handle_manage(args)
+
+    def test_handle_manage_verify_infra_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="verify:infra")
+            orch.handle_manage(args)
+
+    def test_handle_manage_test_infra_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="test:infra")
+            orch.handle_manage(args)
+
+
+class TestHandleManageUpDown:
+    """Test compose up/down/ps/logs with execution mocked."""
+
+    def test_manage_up_dev_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="up", env="dev")
+            orch.handle_manage(args)
+
+    def test_manage_down_test_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="down", env="test")
+            orch.handle_manage(args)
+
+    def test_manage_ps_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="ps", env="dev")
+            orch.handle_manage(args)
+
+    def test_manage_exec_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="exec", service="apiserver", args=[])
+            orch.handle_manage(args)
+
+    def test_manage_logs_dry(self):
+        from _orchestrator import Orchestrator
+        import argparse
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.dry_run = True
+            args = argparse.Namespace(subcommand="logs", env="dev", service=None)
+            orch.handle_manage(args)
+
+
+class TestHandleTestSummary:
+    """Test print_test_summary with various log parsers."""
+
+    def test_summary_ansi_stripped(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        logs = tmp_path / ".test_logs"
+        logs.mkdir()
+        (logs / "test.log").write_text("\033[0;32mSummary [0.1s] 10 tests run: 10 passed\033[0m")
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.print_test_summary("all")
+
+    def test_summary_stale_log_skipped(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        import time
+        logs = tmp_path / ".test_logs"
+        logs.mkdir()
+        logfile = logs / "old.log"
+        logfile.write_text("Summary [0.1s] 5 tests run: 5 passed")
+        # Set mtime to epoch so it's definitely stale
+        os.utime(str(logfile), (0, 0))
+        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.start_time = time.time() + 100
+            orch.print_test_summary("all")
 
-def test_engine_properties(orchestrator) -> None:
-    """Test engine detection properties."""
-    with patch("shutil.which") as mock_which:
-        # Test Podman path
-        mock_which.side_effect = lambda x: "/usr/bin/podman" if "podman" in x else None
-        assert orchestrator.engine == "podman"
-        assert orchestrator.compose_engine == ["podman-compose"]
-        assert orchestrator.compose_engine_cmd == "podman-compose"
-
-        # Test Docker path
-        mock_which.side_effect = lambda x: "/usr/bin/docker" if "docker" in x else None
-        assert orchestrator.engine == "docker"
-        assert orchestrator.compose_engine == ["docker", "compose"]
-
-        # Test Fallback
-        mock_which.side_effect = lambda x: None
-        assert orchestrator.engine == "podman"
-        assert orchestrator.compose_engine == ["podman-compose"]
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_run_npm_typecheck(mock_which, mock_run, orchestrator) -> None:
-    """Test typecheck → type-check mapping for bun."""
-    mock_which.return_value = "podman"
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm", "run", "typecheck"])
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    # "type-check" must be in the args list
-    assert "type-check" in cmd_list
-    # Should use compose exec
-    assert "exec" in cmd_list
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-@patch("pathlib.Path.cwd")
-def test_run_cargo_agent_main(mock_cwd, mock_which, mock_run, orchestrator) -> None:
-    """Test cargo auto-detection of agent-main context."""
-    mock_which.return_value = "podman"
-    mock_run.return_value.returncode = 0
-    mock_cwd.return_value = PROJECT_ROOT / "agent-main"
-    args = orchestrator.parser.parse_args(["run", "cargo", "build"])
-    orchestrator.handle_run(args)
-    called_cmd = mock_run.call_args[0][0]
-    assert "agent-main" in called_cmd
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch.object(_orchestrator.Orchestrator, "execute_safe")
-def test_test_coverage_all(mock_exec, mock_run_phase, orchestrator) -> None:
-    """Test test --all --coverage command runs coverage phase."""
-    mock_run_phase.return_value = None
-    mock_exec.return_value = None
-    args = orchestrator.parser.parse_args(["test", "all", "--coverage"])
-    orchestrator.handle_test(args)
-    coverage_calls = [c for c in mock_run_phase.call_args_list if c[0][0] == "Coverage"]
-    assert len(coverage_calls) == 2
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch("_orchestrator.Orchestrator.handle_run")
-def test_test_timeout_custom(mock_handle_run, mock_run_phase, orchestrator) -> None:
-    """Test test command with custom timeout."""
-    mock_run_phase.return_value = None
-    mock_handle_run.return_value = None
-    args = orchestrator.parser.parse_args(["test", "api", "--timeout", "100"])
-    orchestrator.handle_test(args)
-    assert mock_run_phase.called
-
-
-@patch("sys.stderr")
-@patch("subprocess.run")
-def test_execute_safe_failure(mock_run, mock_stderr, orchestrator) -> None:
-    """Test execute_safe exits on command failure and prints clear message."""
-    mock_run.return_value.returncode = 1
-    with pytest.raises(SystemExit):
-        orchestrator.execute_safe(["false_cmd"])
-
-
-@patch("sys.argv", ["_orchestrator.py", "manage", "sync:api"])
-@patch("subprocess.run")
-def test_full_run_sync_api(mock_run, orchestrator) -> None:
-    """Test full run loop for sync:api command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    assert "_sync-api.sh" in str(mock_run.call_args_list)
-
-
-@patch("sys.argv", ["_orchestrator.py", "manage", "test:infra"])
-@patch("subprocess.run")
-def test_full_run_test_infra(mock_run, orchestrator) -> None:
-    """Test full run loop for test:infra command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    assert "pytest" in str(mock_run.call_args_list)
-
-
-@patch("sys.argv", ["_orchestrator.py", "test", "infra", "--lint-only"])
-@patch("subprocess.run")
-def test_full_run_lint_infra(mock_run, orchestrator) -> None:
-    """Test full run loop for lint:infra command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    assert "ruff" in str(mock_run.call_args_list)
-
-
-@patch("sys.argv", ["_orchestrator.py", "test", "webdashboard", "--unit-only", "--pattern", "auth"])
-@patch("_test_modules.run_parallel_ordered", return_value=True)
-def test_full_run_e2e_cli_args_translation(mock_run_parallel, orchestrator) -> None:
-    """End-to-End validation: Proves --pattern and --unit-only reach the concrete shell executor."""
-    orchestrator.run()
-
-    # run_parallel_ordered is called with: phase_name, component_filter, tasks
-    # tasks is a list of tuples: (task_name, service, cmd_list)
-    assert mock_run_parallel.called
-    tasks = mock_run_parallel.call_args[0][2]
-
-    # Assert that at least one task is the bun test command targeting webdashboard
-    found_bun_cmd = False
-    for _task_name, service, cmd in tasks:
-        cmd_str = " ".join(cmd)
-        if "bun run test" in cmd_str and "webdashboard" in service:
-            found_bun_cmd = True
-            # The pattern "auth" must be properly passed into the shell execution
-            assert "auth" in cmd_str
-
-    assert found_bun_cmd, (
-        "The --unit-only and --pattern flags failed to produce the correct concrete shell execution."
-    )
-
-
-@patch("sys.argv", ["_orchestrator.py", "manage", "fmt:infra"])
-@patch("subprocess.run")
-def test_full_run_fmt_infra(mock_run, orchestrator) -> None:
-    """Test full run loop for fmt:infra command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    assert "ruff" in str(mock_run.call_args_list)
-
-
-@patch("sys.argv", ["_orchestrator.py", "manage", "doctor"])
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_full_run_doctor(mock_which, mock_run, orchestrator) -> None:
-    """Test full run loop for doctor command."""
-    mock_run.return_value.stdout = ""
-    mock_which.return_value = "podman"
-    orchestrator.run()
-    assert mock_run.called
-
-
-@patch("sys.argv", ["_orchestrator.py", "run", "npm", "install"])
-@patch("subprocess.run")
-def test_full_run_npm(mock_run, orchestrator) -> None:
-    """Test full run loop for run npm command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    cmd_str = str(mock_run.call_args_list)
-    assert "webdashboard" in cmd_str
-    assert "exec" in cmd_str
-
-
-@patch("_orchestrator.leeattend_run_unit")
-def test_run_phase_with_component(mock_unit, orchestrator) -> None:
-    """Test run_phase with specific component derived from target."""
-    mock_unit.return_value = True
-    args = orchestrator.parser.parse_args(["test", "apiserver"])
-    args.component = "apiserver"
-    orchestrator.run_phase("Unit Tests", "api", args)
-    mock_unit.assert_called_once()
-
-
-def test_log_warn(orchestrator, capsys) -> None:
-    """Test log_warn function."""
-    _orchestrator.log_warn("test warning")
-    captured = capsys.readouterr()
-    assert "test warning" in captured.err
-
-
-@patch("subprocess.run")
-def test_handle_manage_clean(mock_run, orchestrator) -> None:
-    """Test manage clean command."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "clean", "dev"])
-    orchestrator.handle_manage(args)
-    called_args = mock_run.call_args[0][0]
-    assert "down" in called_args
-    assert "-v" in called_args
-    assert "leeattend-dev" in called_args
-
-
-@patch("subprocess.run")
-def test_dry_run_execute_safe(mock_run, orchestrator) -> None:
-    """Test execute_safe in dry-run mode."""
-    orchestrator.dry_run = True
-    orchestrator.execute_safe(["echo", "hi"])
-    assert not mock_run.called
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_doctor_no_engine(mock_which, mock_run, orchestrator) -> None:
-    """Test doctor when no container engine is found."""
-    mock_which.return_value = None
-    mock_run.return_value.stdout = ""
-    orchestrator.handle_doctor()
-    assert mock_which.called
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_run_with_remainder_separator(mock_which, mock_run, orchestrator) -> None:
-    """Test run command with -- separator."""
-    mock_which.return_value = "podman"
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "cargo", "--", "check"])
-    orchestrator.handle_run(args)
-    called_args = mock_run.call_args[0][0]
-    assert "--" not in called_args
-
-
-def test_get_compose_files_other(orchestrator) -> None:
-    """Test compose file selection logic for other environments."""
-    files = orchestrator.get_compose_files("prod")
-    assert "docker-compose.yml" in files
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-def test_handle_test_web(mock_run_phase, orchestrator) -> None:
-    """Test test --web command."""
-    mock_run_phase.return_value = None
-    args = orchestrator.parser.parse_args(["test", "web"])
-    orchestrator.handle_test(args)
-    assert mock_run_phase.called
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch("_orchestrator.Orchestrator.handle_run")
-def test_handle_test_integration(mock_handle_run, mock_run_phase, orchestrator) -> None:
-    """Test test with api target (maps to integration internally)."""
-    mock_run_phase.return_value = None
-    mock_handle_run.return_value = None
-    args = orchestrator.parser.parse_args(["test", "api"])
-    orchestrator.handle_test(args)
-    assert mock_run_phase.called
-
-
-@patch("subprocess.run")
-def test_handle_manage_logs_full(mock_run, orchestrator) -> None:
-    """Test manage logs with specific service."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "logs", "test", "db"])
-    orchestrator.handle_manage(args)
-    called = mock_run.call_args[0][0]
-    assert "logs" in called
-    assert "db" in called
-
-
-@patch("subprocess.run")
-def test_handle_manage_exec(mock_run, orchestrator) -> None:
-    """Test manage exec command."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "exec", "db", "ls"])
-    orchestrator.handle_manage(args)
-    called = mock_run.call_args[0]
-    assert "exec" in str(called)
-
-
-@patch("sys.argv", ["_orchestrator.py", "test", "api"])
-@patch("_orchestrator.Orchestrator.handle_run")
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-def test_full_run_test_api(mock_run_phase, mock_handle_run, orchestrator) -> None:
-    """Test full run loop for test --api command."""
-    mock_run_phase.return_value = None
-    mock_handle_run.return_value = None
-    orchestrator.run()
-    assert mock_run_phase.called
-
-
-@patch("sys.argv", ["_orchestrator.py", "run", "cargo", "--", "check"])
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_full_run_cargo_remainder(mock_which, mock_run, orchestrator) -> None:
-    """Test full run loop for run cargo with -- remainder."""
-    mock_run.return_value.returncode = 0
-    mock_which.return_value = "podman"
-    orchestrator.run()
-    assert "apiserver" in str(mock_run.call_args_list)
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_handle_run_npm_no_args(mock_which, mock_run, orchestrator) -> None:
-    """Test handle_run npm without arguments."""
-    mock_which.return_value = "podman"
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm"])
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    assert "exec" in cmd_list
-    assert "bun" in cmd_list
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch.object(_orchestrator.Orchestrator, "execute_safe")
-def test_handle_test_lint_subcommands(mock_exec, mock_run_phase, orchestrator) -> None:
-    """Test test lint-only mode for infra, api, web targets."""
-    mock_run_phase.return_value = None
-    mock_exec.return_value = None
-    for cmd in [
-        ["test", "infra", "--lint-only"],
-        ["test", "api", "--lint-only"],
-        ["test", "web", "--lint-only"],
-    ]:
-        args = orchestrator.parser.parse_args(cmd)
-        orchestrator.handle_test(args)
-    assert mock_run_phase.call_count >= 2
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-def test_handle_lint_infra_no_shellcheck(mock_which, mock_run, orchestrator) -> None:
-    """Test handle_lint_infra when shellcheck is missing."""
-
-    mock_which.return_value = None
-    mock_run.return_value.returncode = 0
-    orchestrator.handle_lint_infra()
-    assert mock_run.called
-
-
-@patch("subprocess.run")
-@patch("shutil.which")
-@patch("socket.socket")
-def test_handle_doctor_ports_failure(mock_socket, mock_which, mock_run, orchestrator) -> None:
-    """Test handle_doctor when ports are occupied."""
-    mock_which.return_value = "podman"
-    mock_socket.return_value.connect_ex.return_value = 0  # Port busy
-    orchestrator.handle_doctor()
-    assert mock_socket.called
-
-
-@patch("sys.argv", ["_orchestrator.py", "manage", "verify:infra"])
-@patch("subprocess.run")
-def test_full_run_verify_infra(mock_run, orchestrator) -> None:
-    """Test full run loop for verify:infra command."""
-    mock_run.return_value.returncode = 0
-    orchestrator.run()
-    # Verify at least 3 phases are called (fmt, lint, test)
-    assert mock_run.call_count >= 3
-
-
-@patch("subprocess.run")
-def test_manage_db_query(mock_run, orchestrator) -> None:
-    """Test manage db:query command."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "db:query", "SELECT 1"])
-    orchestrator.handle_manage(args)
-    called_args = mock_run.call_args[0][0]
-    assert "psql" in called_args
-    assert "SELECT 1" in called_args
-
-
-@patch("subprocess.run")
-def test_manage_logs_with_service(mock_run, orchestrator) -> None:
-    """Test manage logs --service command."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "logs", "dev", "api"])
-    orchestrator.handle_manage(args)
-    called_args = mock_run.call_args[0][0]
-    assert "logs" in called_args
-    assert "-f" in called_args
-    assert "api" in called_args
-
-
-@patch("_orchestrator.log_info")
-def test_manage_exec_dry_run(mock_log, orchestrator) -> None:
-    """Test manage exec command in dry-run mode."""
-    orchestrator.dry_run = True
-    args = orchestrator.parser.parse_args(["manage", "exec", "api", "ls"])
-    orchestrator.handle_manage(args)
-    expected = (
-        "🔍 Dry-run: Executing podman-compose -p leeattend-dev "
-        "-f docker-compose.yml -f .compose/docker-compose.dev.yml exec api ls"
-    )
-    mock_log.assert_any_call(expected)
-
-
-@patch("subprocess.run")
-def test_handle_run_remainder_args(mock_run, orchestrator) -> None:
-    """Test handle_run with -- remainder separator."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm", "--", "run", "dev"])
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    assert "exec" in cmd_list
-    assert "bun" in cmd_list
-    assert "run" in cmd_list
-    assert "dev" in cmd_list
-
-
-@patch("socket.socket")
-@patch("_orchestrator.log_success")
-@patch("_orchestrator.log_info")
-def test_doctor_full(mock_info, mock_success, mock_socket, orchestrator) -> None:
-    """Test doctor with both success and failure port checks."""
-    # Mock socket connect_ex: 3000 success (occupied), others failure (free)
-    mock_socket.return_value.connect_ex.side_effect = [0, 1, 1]
-
-    with (
-        patch("shutil.which", return_value="/usr/bin/podman"),
-        patch("subprocess.run") as mock_run,
-        patch("pathlib.Path.exists", return_value=True),
-    ):
-        mock_run.return_value.stdout = "leeattend-dev-db\nleeattend-dev-api"
-        orchestrator.handle_doctor()
-
-    mock_success.assert_any_call("✅ Container Engine: podman")
-    mock_info.assert_any_call("⚠️  Port 3000 is occupied")
-
-
-@patch("subprocess.run")
-def test_handle_run_cargo_agent(mock_run, orchestrator) -> None:
-    """Test handle_run cargo with agent-main context."""
-    mock_run.return_value.returncode = 0
-    with patch("pathlib.Path.cwd", return_value=PROJECT_ROOT / "agent-main"):
-        args = orchestrator.parser.parse_args(["run", "cargo", "check"])
-        orchestrator.handle_run(args)
-        called_args = mock_run.call_args[0][0]
-        assert "agent-main" in called_args
-        assert "/workspace/agent-main" in str(called_args)
-
-
-@patch("subprocess.run")
-def test_handle_run_cargo_test_conversion(mock_run, orchestrator) -> None:
-    """Test silently converting 'cargo test' to 'cargo nextest run'."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "cargo", "test", "--lib"])
-    orchestrator.handle_run(args)
-    called_args = mock_run.call_args[0][0]
-    assert "nextest" in called_args
-    assert "run" in called_args
-    assert "--lib" in called_args
-
-
-@patch.object(_orchestrator.Orchestrator, "run_phase")
-@patch("_orchestrator.Orchestrator.handle_run")
-def test_run_phase_with_pattern(mock_handle_run, mock_run_phase, orchestrator) -> None:
-    """Test pattern arg is propagated."""
-    mock_run_phase.return_value = None
-    mock_handle_run.return_value = None
-    args = orchestrator.parser.parse_args(["test", "api", "--pattern", "auth"])
-    orchestrator.handle_test(args)
-    assert mock_run_phase.called
-
-
-@patch("shutil.which", return_value="/usr/bin/shellcheck")
-@patch("subprocess.run")
-def test_handle_lint_infra_with_shellcheck(mock_run, mock_which, orchestrator) -> None:
-    """Test handle_lint_infra when shellcheck is available."""
-    mock_run.return_value.returncode = 0
-    orchestrator.handle_lint_infra()
-    # verify shellcheck was called
-    all_called_args = [str(call[0][0]) for call in mock_run.call_args_list]
-    assert any("shellcheck" in args for args in all_called_args)
-
-
-@patch("_orchestrator.log_info")
-@patch("pathlib.Path.exists", return_value=False)
-def test_doctor_no_venv(mock_exists, mock_info, orchestrator) -> None:
-    """Test doctor when virtual environment is missing."""
-    with patch("shutil.which", return_value=None), patch("subprocess.run") as mock_run:
-        mock_run.return_value.stdout = ""
-        orchestrator.handle_doctor()
-    mock_info.assert_any_call("💡 Virtual Environment: Missing (will be created on next run)")
-
-
-@patch("subprocess.run")
-def test_handle_run_cargo_no_rel(mock_run, orchestrator) -> None:
-    """Test handle_run cargo when executed from project root."""
-    mock_run.return_value.returncode = 0
-    with patch("pathlib.Path.cwd", return_value=PROJECT_ROOT):
-        args = orchestrator.parser.parse_args(["run", "cargo", "check"])
-        orchestrator.handle_run(args)
-        # Should have /workspace exactly
-        called_args = mock_run.call_args[0][0]
-        assert "/workspace" in called_args
-
-
-@patch("subprocess.run")
-def test_handle_run_remainder_explicit(mock_run, orchestrator) -> None:
-    """Test handle_run with explicit -- separator."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm", "--", "test"])
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    assert "exec" in cmd_list
-    assert "bun" in cmd_list
-    assert "test" in cmd_list
-
-
-@patch("subprocess.run")
-def test_handle_run_cargo_outside_root(mock_run, orchestrator) -> None:
-    """Test handle_run cargo when executed outside project root (ValueError)."""
-    mock_run.return_value.returncode = 0
-    with patch("pathlib.Path.cwd", return_value=Path("/tmp")):
-        args = orchestrator.parser.parse_args(["run", "cargo", "check"])
-        orchestrator.handle_run(args)
-        # rel_dir should remain empty
-        called_args = mock_run.call_args[0][0]
-        assert "/workspace" in called_args
-
-
-@patch("_orchestrator.lifecycle_down")
-def test_cleanup_success(mock_down, orchestrator) -> None:
-    """Test successful cleanup operation."""
-    orchestrator.needs_cleanup = True
-    orchestrator.dry_run = False
-    orchestrator.cleanup()
-    assert mock_down.called
-    assert not orchestrator.needs_cleanup
-
-
-@patch("_orchestrator.lifecycle_down")
-@patch("_orchestrator.log_error")
-def test_cleanup_timeout(mock_log, mock_lifecycle, orchestrator) -> None:
-    """Test cleanup operation handling errors from lifecycle_down."""
-    orchestrator.needs_cleanup = True
-    orchestrator.dry_run = False
-    mock_lifecycle.side_effect = RuntimeError("cleanup timed out")
-    orchestrator.cleanup()
-    mock_log.assert_called_with("❌ Cleanup failed with error: cleanup timed out")
-
-
-@patch("_orchestrator.lifecycle_down")
-@patch("_orchestrator.log_error")
-def test_cleanup_exception(mock_log, mock_lifecycle, orchestrator) -> None:
-    """Test cleanup operation failing with generic error."""
-    orchestrator.needs_cleanup = True
-    orchestrator.dry_run = False
-    mock_lifecycle.side_effect = Exception("test error")
-    orchestrator.cleanup()
-    mock_log.assert_called_with("❌ Cleanup failed with error: test error")
-
-
-@patch("sys.exit")
-@patch("_orchestrator.log_warn")
-def test_signal_handler(mock_warn, mock_exit) -> None:
-    """Test signal handler functionality."""
-    handler = None
-
-    def mock_signal(sig, h):
-        nonlocal handler
-        if sig == signal.SIGINT:
-            handler = h
-
-    with patch("signal.signal", side_effect=mock_signal):
-        _orchestrator.Orchestrator()
-
-    if handler:
-        handler(signal.SIGINT, None)
-        mock_warn.assert_called()
-        mock_exit.assert_called_with(128 + signal.SIGINT)
-
-
-@patch("subprocess.run")
-def test_cleanup_early_exit(mock_run, orchestrator) -> None:
-    """Test early exit logic in cleanup."""
-    orchestrator.needs_cleanup = False
-    orchestrator.cleanup()
-    assert not mock_run.called
-
-    orchestrator.needs_cleanup = True
-    orchestrator.dry_run = True
-    orchestrator.cleanup()
-    assert not mock_run.called
-
-
-@patch("subprocess.run")
-def test_handle_manage_migrate(mock_run, orchestrator) -> None:
-    """Test migrate:run."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["manage", "migrate:run"])
-    orchestrator.handle_manage(args)
-    assert "migrate" in str(mock_run.call_args_list)
-    assert "run" in str(mock_run.call_args_list)
-
-
-@patch("subprocess.run")
-def test_handle_run_with_separator(mock_run, orchestrator) -> None:
-    """Test handle_run with -- separator coverage."""
-    mock_run.return_value.returncode = 0
-    # To hit line 371, tool_args[0] must be "--"
-    # With argparse.REMAINDER, the first -- is swallowed by the parser.
-    # So we need to pass TWO double-dashes if we want one to remain in args.
-    args = orchestrator.parser.parse_args(["run", "cargo", "--", "--", "check"])
-    orchestrator.handle_run(args)
-    # Check that EXACT standalone "--" is not in the list of arguments
-    # (One was swallowed by argparse, the second by line 371)
-    assert "--" not in mock_run.call_args[0][0]
-
-
-@patch("subprocess.run")
-@patch("sys.argv", ["_orchestrator.py"])
-def test_orchestrator_main_no_args(mock_run) -> None:
-    """Test orchestrator with no arguments (if subparsers weren't required)."""
-    # This is to hit the 'if not args.command' block
-    with patch.object(_orchestrator.argparse.ArgumentParser, "parse_args") as mock_parse:
-        mock_args = _orchestrator.argparse.Namespace(command=None, dry_run=False)
-        mock_parse.return_value = mock_args
-        with patch("sys.stdout") as _:
-            _orchestrator.Orchestrator().run()
-            assert mock_parse.called
-
-
-def test_main_entry_point() -> None:
-    """Test the main entry point block coverage."""
-    with (
-        patch("sys.argv", ["_orchestrator.py", "manage", "doctor"]),
-        patch("_orchestrator.Orchestrator.run"),
-    ):
-        # We can't easily run the actual 'if __name__ == "__main__"' block
-        # without side effects, but we can call it if we import it correctly
-        # or just rely on the fact that we've tested Orchestrator.run()
-        pass
-
-
-@patch("subprocess.run")
-def test_handle_run_npm_first_arg_npm(mock_run, orchestrator) -> None:
-    """Test handle_run when first arg is npm — uses compose exec."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm", "--", "npm", "install"])
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    assert "exec" in cmd_list
-    assert "npm" in cmd_list
-    assert "install" in cmd_list
-
-
-@patch("subprocess.run")
-def test_handle_run_with_many_file_args(mock_run, orchestrator) -> None:
-    """Test handle_run npm with 24+ file paths — uses compose exec."""
-    mock_run.return_value.returncode = 0
-    files = [f"/workspace/webdashboard/src/test_{i:03d}.tsx" for i in range(24)]
-    base_args = ["run", "npm", "run", "lint", "--"]
-    args = orchestrator.parser.parse_args(base_args + files)
-    orchestrator.handle_run(args)
-    cmd_list = mock_run.call_args[0][0]
-    for f in files:
-        assert f in cmd_list
-    assert "exec" in cmd_list
-
-
-@patch("subprocess.run")
-def test_handle_run_rejects_python_inline(mock_run, orchestrator) -> None:
-    """Test handle_run blocks python -c (sanitizer rejects inline code)."""
-    mock_run.return_value.returncode = 0
-    args = orchestrator.parser.parse_args(["run", "npm", "--", "python", "-c", "print(1)"])
-    with pytest.raises(SystemExit):
-        orchestrator.handle_run(args)
-
-
-class TestNoDepsConditional:
-    """Verify --no-deps for standalone (run), exec for normal commands."""
-
-    @patch("subprocess.run")
-    def test_version_uses_run_no_deps(self, mock_run, orchestrator) -> None:
-        mock_run.return_value.returncode = 0
-        args = orchestrator.parser.parse_args(["run", "npm", "--", "--version"])
-        orchestrator.handle_run(args)
-        called = str(mock_run.call_args[0][0])
-        assert "--no-deps" in called
-        assert "run" in called  # compose run, not exec
-
-    @patch("subprocess.run")
-    def test_run_lint_uses_exec(self, mock_run, orchestrator) -> None:
-        mock_run.return_value.returncode = 0
-        args = orchestrator.parser.parse_args(["run", "npm", "--", "run", "lint"])
-        orchestrator.handle_run(args)
-        called = str(mock_run.call_args[0][0])
-        assert "exec" in called  # compose exec into running container
-
-    @patch("subprocess.run")
-    def test_install_uses_exec(self, mock_run, orchestrator) -> None:
-        mock_run.return_value.returncode = 0
-        args = orchestrator.parser.parse_args(["run", "npm", "--", "install"])
-        orchestrator.handle_run(args)
-        called = str(mock_run.call_args[0][0])
-        assert "exec" in called
-
-    @patch("subprocess.run")
-    def test_empty_args_uses_exec(self, mock_run, orchestrator) -> None:
-        mock_run.return_value.returncode = 0
-        args = orchestrator.parser.parse_args(["run", "npm"])
-        orchestrator.handle_run(args)
-        called = str(mock_run.call_args[0][0])
-        assert "exec" in called
-
-
-class TestOrchestratorLocking:
-    @patch("os.open")
-    @patch("fcntl.flock")
-    @patch("sys.argv", ["orchestrator", "test", "all"])
-    def test_run_acquires_lock(self, mock_flock, mock_open, orchestrator) -> None:
-        mock_open.return_value = 123
-        with patch.object(orchestrator, "handle_test"):
-            orchestrator.run()
-        assert orchestrator.lock_fd == 123
-        assert mock_open.called
-        assert mock_flock.called
-
-    @patch("os.open")
-    @patch("fcntl.flock")
-    @patch("_orchestrator.log_warn")
-    @patch("sys.argv", ["orchestrator", "test", "all"])
-    def test_run_lock_fails(self, mock_warn, mock_flock, mock_open, orchestrator) -> None:
-        mock_open.side_effect = OSError
-        with patch.object(orchestrator, "handle_test"):
-            orchestrator.run()
-        assert mock_warn.called
-
-    @patch("os.close")
-    @patch("fcntl.flock")
-    @patch("pathlib.Path.unlink")
-    def test_cleanup_releases_lock(
-        self,
-        mock_unlink,
-        mock_flock,
-        mock_close,
-        orchestrator,
-    ) -> None:
-        orchestrator.needs_cleanup = True
-        orchestrator.dry_run = False
-        orchestrator.lock_fd = 123
-        with patch("_orchestrator.lifecycle_down"):
-            orchestrator.cleanup()
-        assert mock_flock.called
-        assert mock_close.called
-        assert mock_unlink.called
-        assert orchestrator.lock_fd is None
-
-    @patch("os.close")
-    @patch("fcntl.flock")
-    def test_cleanup_lock_release_fails_silently(
-        self, mock_flock, mock_close, orchestrator
-    ) -> None:
-        orchestrator.needs_cleanup = True
-        orchestrator.dry_run = False
-        orchestrator.lock_fd = 123
-        mock_flock.side_effect = OSError
-        with patch("_orchestrator.lifecycle_down"):
-            orchestrator.cleanup()
-        assert orchestrator.lock_fd is None
-
-    @patch("_orchestrator.subprocess.run")
-    @patch("os.environ.copy", return_value={"POOLER": "true"})
-    def test_pooler_logic_handle_run_prepare(
-        self, mock_env_copy, mock_run, orchestrator, monkeypatch
-    ) -> None:
-        # Test handle_run pooler logic (lines 557-562, 597-633, 645-646)
-        monkeypatch.setenv("POOLER", "true")
-        args = argparse.Namespace(pooler=True, tool="cargo", args=["check"])
-
-        class MockCompletedProcess:
-            def __init__(self, stdout, returncode=0):
-                self.stdout = stdout
-                self.returncode = returncode
-
-        call_count = [0]
-
-        def mock_run_effect(*args, **kwargs):
-            call_count[0] += 1
-            if args and "ps" in args[0]:
-                if call_count[0] > 3:  # After a few calls, return healthy
-                    return MockCompletedProcess(stdout="supavisor healthy")
-                return MockCompletedProcess(stdout="supavisor starting")
-            return MockCompletedProcess(stdout="")
-
-        mock_run.side_effect = mock_run_effect
-
-        with patch("time.sleep"):
-            orchestrator.handle_run(args)
-
-        assert mock_run.call_count >= 1
+

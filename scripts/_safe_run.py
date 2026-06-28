@@ -82,7 +82,14 @@ def kill_process_tree(pid: int) -> None:
 
 def validate_command(cmd_args: list[str] | str) -> None:
     """Check if the command contains PTY-hang risks: banned patterns, unsafe args."""
-    banned_interpreters = ["python -c", "python3 -c", "node -e", "ruby -e", "perl -e", "php -r"]
+    banned_interpreters = [
+        "python -c",
+        "python3 -c",
+        "node -e",
+        "ruby -e",
+        "perl -e",
+        "php -r",
+    ]
     banned_patterns = ["<<EOF", "<<-EOF"]
 
     cmd_str = cmd_args if isinstance(cmd_args, str) else " ".join(cmd_args).lower()
@@ -122,7 +129,9 @@ def execute_command(cmd_args: list[str], timeout_sec: float) -> int:
     master_fd, slave_fd = pty.openpty()
 
     stop_read_event = threading.Event()
-    read_thread = threading.Thread(target=read_from_pty, args=(master_fd, stop_read_event))
+    read_thread = threading.Thread(
+        target=read_from_pty, args=(master_fd, stop_read_event)
+    )
     read_thread.start()
 
     # Hybrid execution: if passed as a single string, assume shell string.
@@ -151,7 +160,9 @@ def execute_command(cmd_args: list[str], timeout_sec: float) -> int:
     # Close slave fd in parent, so only child has it
     os.close(slave_fd)
 
-    def cleanup_and_exit(signum: int, frame: FrameType | None) -> None:  # pragma: no cover
+    def cleanup_and_exit(
+        signum: int, frame: FrameType | None
+    ) -> None:  # pragma: no cover
         print("\n⚠️ Interrupted. Killing process tree...", file=sys.stderr)
         kill_process_tree(proc.pid)
         stop_read_event.set()

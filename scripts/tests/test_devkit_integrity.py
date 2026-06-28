@@ -1,10 +1,9 @@
 """Tests for _devkit_integrity — checksum manifest generation & verification."""
+
 import json
 import os
 import sys
-from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -160,7 +159,7 @@ class TestVerifyDevkit:
 
     def test_clean_manifest(self, tmp_path):
         (tmp_path / "a.txt").write_text("hello")
-        manifest_path = write_manifest(tmp_path)
+        write_manifest(tmp_path)
         result = verify_devkit(tmp_path)
         assert result.is_clean is True
         assert len(result.ok) > 0

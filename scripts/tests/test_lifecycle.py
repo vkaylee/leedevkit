@@ -162,7 +162,10 @@ class TestLifecycleComposeCommand:
             patch("_lifecycle._run") as mock_run,
             patch.dict(
                 "os.environ",
-                {"DOCKER_COMPOSE_CMD": "podman-compose", "COMPOSE_PROJECT_NAME": "leeattend-test"},
+                {
+                    "DOCKER_COMPOSE_CMD": "podman-compose",
+                    "COMPOSE_PROJECT_NAME": "leeattend-test",
+                },
             ),
         ):
             mock_run.return_value = MagicMock(stdout="", returncode=0)
@@ -180,7 +183,9 @@ class TestLifecycleComposeCommand:
             assert "docker-compose.test.yml" in down_cmd
 
     @patch("_lifecycle.sweep_stale_environments")
-    def test_lifecycle_up_web_uses_task_profiles_not_frontend(self, mock_sweep: MagicMock) -> None:
+    def test_lifecycle_up_web_uses_task_profiles_not_frontend(
+        self, mock_sweep: MagicMock
+    ) -> None:
         """lifecycle_up(web) must use lint-web, unit-web, e2e-web (not frontend)."""
         with (
             patch("_lifecycle._run") as mock_run,

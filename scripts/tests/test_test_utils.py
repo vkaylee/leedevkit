@@ -1,14 +1,12 @@
 """Tests for _test_utils — parallel runner, compose exec builder."""
+
 import os
 import sys
-from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from _test_utils import (
-    LOG_DIR,
     _ensure_log_dir,
     _safe_log_name,
     build_compose_exec,
@@ -92,9 +90,7 @@ class TestRunSingleTask:
 
     def test_timeout(self, tmp_path):
         log_file = tmp_path / "timeout.log"
-        exit_code = run_single_task(
-            "slow", ["sleep", "30"], log_file, timeout=1
-        )
+        exit_code = run_single_task("slow", ["sleep", "30"], log_file, timeout=1)
         assert exit_code == 124  # timeout exit code
 
 
@@ -146,3 +142,60 @@ class TestEnsureLogDir:
         log_dir = _ensure_log_dir()
         assert log_dir.exists()
         assert log_dir.is_dir()
+
+
+class TestPrintSuccessFailure:
+    def test_print_success(self, capsys):
+        from _test_utils import _print_success
+        from pathlib import Path
+        import tempfile
+        log = Path(tempfile.gettempdir()) / "test_success.log"
+        log.write_text("all good")
+        _print_success("mytask", log)
+        captured = capsys.readouterr()
+        assert "PASSED" in captured.out
+
+    def test_print_failure(self, capsys):
+        from _test_utils import _print_failure
+        from pathlib import Path
+        import tempfile
+        log = Path(tempfile.gettempdir()) / "test_fail.log"
+        log.write_text("error line 1\nerror line 2")
+        _print_failure("mytask", log, 1)
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.out
+
+    def test_print_failure_no_log(self, capsys):
+        from _test_utils import _print_failure
+        from pathlib import Path
+        import tempfile
+        log = Path(tempfile.gettempdir()) / "nonexistent.log"
+        _print_failure("mytask", log, 1)
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.out
+
+
+class TestBuildComposeExecEdgeCases:
+    def test_no_workdir(self, monkeypatch):
+        monkeypatch.setenv("CONTAINER_ENGINE", "docker")
+        monkeypatch.setenv("DOCKER_COMPOSE_CMD", "docker compose")
+        cmd = build_compose_exec("myservice", "ls", mode="api")
+        assert "-w" not in cmd
+
+
+class TestParallelEdgeCases:
+    def test_component_filter_all(self):
+        tasks = [("keep-me", "srv", ["echo", "hi"]), ("drop-me", "other", ["echo", "no"])]
+        result = run_parallel_ordered("Linting", "srv", tasks, num_workers=1)
+        assert result is True
+
+    def test_no_matching_component(self):
+        tasks = [("a", "srv", ["echo", "hi"])]
+        result = run_parallel_ordered("Linting", "no-match", tasks, num_workers=1)
+        assert result is True
+
+    def test_single_task_timeout(self, tmp_path):
+        log_file = tmp_path / "slow.log"
+        from _test_utils import run_single_task
+        rc = run_single_task("slow", ["sleep", "5"], log_file, timeout=1)
+        assert rc == 124

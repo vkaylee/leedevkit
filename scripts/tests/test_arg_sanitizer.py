@@ -26,8 +26,16 @@ class TestSanitize:
         assert result == []
 
     def test_normal_flags_pass(self) -> None:
-        result = sanitize(["--release", "-j", "4", "--target", "x86_64-unknown-linux-gnu"])
-        assert result == ["--release", "-j", "4", "--target", "x86_64-unknown-linux-gnu"]
+        result = sanitize(
+            ["--release", "-j", "4", "--target", "x86_64-unknown-linux-gnu"]
+        )
+        assert result == [
+            "--release",
+            "-j",
+            "4",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+        ]
 
     def test_path_arg_with_dashes(self) -> None:
         result = sanitize(["--config", "/workspace/foo/bar.toml"])
@@ -165,7 +173,14 @@ class TestIntegration:
             sanitize(["--flag", "value", "`rm -rf /`"])
 
     def test_normal_cargo_args(self) -> None:
-        args = ["check", "--workspace", "--features", "full", "--target-dir", "/tmp/build"]
+        args = [
+            "check",
+            "--workspace",
+            "--features",
+            "full",
+            "--target-dir",
+            "/tmp/build",
+        ]
         result = sanitize(args)
         assert result == args
 
@@ -182,3 +197,37 @@ class TestIntegration:
     def test_hex_escape_attempt(self) -> None:
         with pytest.raises(ArgSanitizeError, match="Shell injection"):
             sanitize(["\\x65\\x76\\x69\\x6c"])
+
+
+class TestDieFunction:
+    def test_die_exits(self):
+        from _arg_sanitizer import _die
+        with pytest.raises(SystemExit):
+            _die("test error")
+
+
+class TestSanitizeEdgeCases:
+    def test_mixed_clean_and_banned(self):
+        from _arg_sanitizer import sanitize, ArgSanitizeError
+        with pytest.raises(ArgSanitizeError):
+            sanitize(["git", "commit", "-m", "$(evil)"])
+
+    def test_empty_string_arg(self):
+        from _arg_sanitizer import sanitize
+        result = sanitize([""])
+        assert result == [""]
+
+
+class TestSanitizeShellStringEdgeCases:
+    def test_multiple_args_quoted(self):
+        from _arg_sanitizer import sanitize_shell_string
+        result = sanitize_shell_string(["git", "log", "--oneline"])
+        assert "git" in result
+        assert "log" in result
+        assert "--oneline" in result
+
+    def test_special_chars_escaped(self):
+        from _arg_sanitizer import sanitize_shell_string
+        result = sanitize_shell_string(["echo", "hello; rm -rf /"])
+        # The semicolon should be inside quotes, preventing execution
+        assert "hello" in result

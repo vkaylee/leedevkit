@@ -35,8 +35,10 @@ mkdir -p "$VERSION_DIR"
 cp -r "$TMP_DIR/scripts" "$VERSION_DIR/"
 cp -r "$TMP_DIR/.agent" "$VERSION_DIR/"
 cp -r "$TMP_DIR/templates" "$VERSION_DIR/"
+cp -r "$TMP_DIR/bin" "$VERSION_DIR/"
 cp "$TMP_DIR/VERSION" "$VERSION_DIR/"
 chmod +x "$VERSION_DIR"/scripts/*.py
+chmod +x "$VERSION_DIR"/bin/*
 
 # Generate checksum manifest
 cd "$VERSION_DIR"

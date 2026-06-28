@@ -1,0 +1,13 @@
+# LeeDevKit — Community Skills Catalog
+# Install via: leedevkit skills install <name>
+# Add external: leedevkit skills add <git-url>
+#
+# Built-in skills (shipped with devkit) are always available — no install needed.
+
+[skills]
+
+[skills.ui-ux-pro-max]
+name = "UI/UX Pro Max"
+description = "Comprehensive UI/UX design system — colors, typography, icons, stacks, landing patterns, UX psychology"
+url = "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git"
+tags = ["frontend", "design", "ui", "ux"]

@@ -9,6 +9,7 @@ import os
 import shutil
 from pathlib import Path
 
+
 # Resolve the actual project root from CWD, not the devkit install location.
 # Walks up from current directory looking for leedevkit.toml or .git.
 def _find_project_root() -> Path:
@@ -21,7 +22,9 @@ def _find_project_root() -> Path:
 
 
 PROJECT_ROOT = _find_project_root()
-SCRIPTS_DIR = Path(__file__).resolve().parent  # always where the orchestrator scripts live
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent
+)  # always where the orchestrator scripts live
 
 
 def _which(cmd: str) -> str | None:

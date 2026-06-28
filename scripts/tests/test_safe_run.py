@@ -65,7 +65,10 @@ def test_main_not_enough_args() -> None:
 
 def test_main_invalid_timeout() -> None:
     """Test main with invalid timeout value."""
-    with patch.object(sys, "argv", ["safe-run.py", "abc", "ls"]), pytest.raises(SystemExit) as exc:
+    with (
+        patch.object(sys, "argv", ["safe-run.py", "abc", "ls"]),
+        pytest.raises(SystemExit) as exc,
+    ):
         _safe_run.main()
     assert exc.value.code == 1
 

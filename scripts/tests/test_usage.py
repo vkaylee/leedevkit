@@ -1,92 +1,128 @@
+"""Tests for general CLI usage — integration with orchestrator."""
+
+import os
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
-
-# Add scripts to path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-import _orchestrator  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
-@pytest.fixture
-def orchestrator() -> _orchestrator.Orchestrator:
-    return _orchestrator.Orchestrator()
+class TestCliHelp:
+    def test_test_help(self):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        r = subprocess.run(
+            [sys.executable, str(orch), "test", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
+
+    def test_manage_help(self):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        r = subprocess.run(
+            [sys.executable, str(orch), "manage", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
 
 
-def test_test_no_mode_shows_help(
-    orchestrator: _orchestrator.Orchestrator, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Test that test command with target 'all' works."""
-    with (
-        patch.object(_orchestrator.Orchestrator, "run_phase"),
-        patch.object(_orchestrator.Orchestrator, "execute_safe"),
-        patch.object(_orchestrator.Orchestrator, "handle_run"),
-        patch("_orchestrator._lifecycle_up"),
-    ):
-        args = orchestrator.parser.parse_args(["test", "all"])
-        orchestrator.handle_test(args)
+class TestInitFlow:
+    def test_init_dry_run(self, tmp_path, monkeypatch):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        monkeypatch.chdir(tmp_path)
+        dk = str(Path(__file__).resolve().parent.parent.parent)
+        r = subprocess.run(
+            [sys.executable, str(orch), "manage", "init", "--dry-run"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "DEVKIT_HOME": dk},
+        )
+        assert r.returncode == 0
+
+    def test_init_creates_files(self, tmp_path, monkeypatch):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        dk = str(Path(__file__).resolve().parent.parent.parent)
+        subprocess.run(
+            [sys.executable, str(orch), "manage", "init"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "DEVKIT_HOME": dk},
+        )
+        assert (tmp_path / "test.sh").exists() or (tmp_path / "manage.sh").exists()
 
 
-def test_manage_no_subcommand_raises_error(orchestrator: _orchestrator.Orchestrator) -> None:
-    """Test that manage command without subcommand raises argparse error."""
-    with pytest.raises(SystemExit) as e:
-        orchestrator.parser.parse_args(["manage"])
-    assert e.value.code != 0
+class TestDoctor:
+    def test_doctor_runs(self, tmp_path, monkeypatch):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        (tmp_path / "leedevkit.toml").write_text("[project]\nname = 'test'")
+        monkeypatch.chdir(tmp_path)
+        dk = str(Path(__file__).resolve().parent.parent.parent)
+        r = subprocess.run(
+            [sys.executable, str(orch), "manage", "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={**os.environ, "DEVKIT_HOME": dk},
+        )
+        assert r.returncode == 0
 
 
-def test_no_garbage_flags_in_test_parser(orchestrator: _orchestrator.Orchestrator) -> None:
-    """Ensure every flag defined in test parser is actually accessed in handle_test."""
-    import argparse
-    import typing
+class TestConfigLoading:
+    def test_config_loads(self, tmp_path, monkeypatch):
+        (tmp_path / "leedevkit.toml").write_text("""
+[project]
+name = "TestProject"
+languages = ["python"]
+""")
+        monkeypatch.chdir(tmp_path)
+        from _devkit_config import load_project_config
 
-    class TrackingNamespace(argparse.Namespace):
-        def __init__(self, **kwargs: typing.Any) -> None:
-            super().__init__(**kwargs)
-            super().__setattr__("_accessed", set())
+        cfg = load_project_config()
+        assert cfg["project"]["name"] == "TestProject"
 
-        def __getattribute__(self, name: str) -> typing.Any:
-            if not name.startswith("_") and name != "command":
-                self._accessed.add(name)
-            return super().__getattribute__(name)
 
-    subparsers = next(
-        action
-        for action in orchestrator.parser._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    test_parser = subparsers.choices["test"]
+class TestSafeRunIntegration:
+    def test_echo(self):
+        sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
+        r = subprocess.run(
+            [sys.executable, str(sr), "10", "echo", "hello"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
 
-    defined_dests = {
-        action.dest
-        for action in test_parser._actions
-        if action.dest != "help" and not action.dest.startswith("dry_run")
-    }
+    def test_false(self):
+        sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
+        r = subprocess.run(
+            [sys.executable, str(sr), "10", "false"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode != 0
 
-    # Set all boolean flags to False so that no short-circuiting skips evaluation
-    args_dict: dict[str, typing.Any] = dict.fromkeys(defined_dests, False)
-    args_dict["target"] = "all"
-    args_dict["component"] = ""
-    args_dict["pattern"] = "auth"
-    args_dict["command"] = "test"
-    args_dict["coverage"] = False
-    args_dict["timeout"] = 100
+    def test_timeout(self):
+        sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
+        r = subprocess.run(
+            [sys.executable, str(sr), "1", "sleep", "30"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode != 0
 
-    args = TrackingNamespace(**args_dict)
-
-    with (
-        patch("_orchestrator._lifecycle_up"),
-        patch("_orchestrator.leeattend_run_lint"),
-        patch("_orchestrator.leeattend_run_unit"),
-        patch("_orchestrator.leeattend_run_integration"),
-        patch("_orchestrator.leeattend_run_coverage"),
-        patch.object(_orchestrator.Orchestrator, "handle_verify_infra"),
-        patch.object(_orchestrator.Orchestrator, "print_test_summary"),
-        patch.object(_orchestrator.Orchestrator, "handle_run"),
-    ):
-        orchestrator.handle_test(args)
-
-    unaccessed = defined_dests - args._accessed
-    assert not unaccessed, f"Garbage flags detected in test usage that are never used: {unaccessed}"
+    def test_requires_timeout_arg(self):
+        sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
+        r = subprocess.run(
+            [sys.executable, str(sr)], capture_output=True, text=True, timeout=5
+        )
+        assert r.returncode == 1

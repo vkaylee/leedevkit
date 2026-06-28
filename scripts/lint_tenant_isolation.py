@@ -39,7 +39,9 @@ def extract_methods(file_content: str) -> list[dict[str, Any]]:
             continue
 
         body = "".join(body_chars)
-        methods.append({"name": name, "signature": signature, "body": body, "line_no": line_no})
+        methods.append(
+            {"name": name, "signature": signature, "body": body, "line_no": line_no}
+        )
 
     return methods
 

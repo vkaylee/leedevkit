@@ -11,7 +11,7 @@ sys.path.append(str(PROJECT_ROOT / "scripts"))
 from _bootstrap import (  # noqa: E402
     PROJECT_ROOT as BOOTSTRAP_ROOT,
 )
-from _bootstrap import (
+from _bootstrap import (  # noqa: E402
     SCRIPTS_DIR,
     bootstrap_env,
     detect_compose_cmd,
@@ -70,7 +70,11 @@ class TestResolveProfiles:
     def _has_profile(profiles: list[str], name: str) -> bool:
         """Check if a --profile flag with given name exists in the list."""
         for i, item in enumerate(profiles):
-            if item == "--profile" and i + 1 < len(profiles) and profiles[i + 1] == name:
+            if (
+                item == "--profile"
+                and i + 1 < len(profiles)
+                and profiles[i + 1] == name
+            ):
                 return True
         return False
 
@@ -104,7 +108,9 @@ class TestResolveProfiles:
             assert profiles == ["--profile", "unknown"]
 
     def test_custom_profiles_from_env(self) -> None:
-        with patch.dict(os.environ, {"PROFILES": "--profile custom1 --profile custom2"}):
+        with patch.dict(
+            os.environ, {"PROFILES": "--profile custom1 --profile custom2"}
+        ):
             profiles = resolve_profiles("api")
             assert profiles == ["--profile", "custom1", "--profile", "custom2"]
 

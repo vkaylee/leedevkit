@@ -63,6 +63,7 @@ def _find_project_root() -> Path:
 
 # ── TOML loader (stdlib fallback) ──────────────────────────────────────────
 
+
 def _load_toml(path: Path) -> dict[str, Any]:
     """Load a TOML file. Uses tomllib (3.11+) or tomli (fallback)."""
     try:
@@ -147,10 +148,11 @@ def load_project_config() -> dict[str, Any]:
 
 
 def _read_version(project_root: Path) -> str:
-    """Read pinned devkit version from .devkit-version file."""
-    version_file = project_root / ".devkit-version"
-    if version_file.exists():
-        return version_file.read_text().strip()
+    """Read pinned devkit version from leedevkit.toml [devkit].version."""
+    toml_path = project_root / "leedevkit.toml"
+    if toml_path.exists():
+        cfg = _load_toml(toml_path)
+        return cfg.get("devkit", {}).get("version", "latest")
     return "latest"
 
 

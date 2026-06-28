@@ -5,9 +5,12 @@ container orchestration. Handles profile selection, health checks,
 and force-kill fallbacks for stuck containers.
 """
 
+import contextlib
+import fcntl
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import typing
 
@@ -17,7 +20,6 @@ from _bootstrap import (
     bootstrap_env,
     detect_engine,
     resolve_lifecycle_profiles,
-    resolve_profiles,
 )
 
 
@@ -121,16 +123,12 @@ def lifecycle_up(mode: str = "all") -> bool:
         if not healthy:
             # Diagnostic
             _run(
-                [_get_engine(), "ps", "-a", "--filter", f"name={project_name}"], capture=False
+                [_get_engine(), "ps", "-a", "--filter", f"name={project_name}"],
+                capture=False,
             )  # pragma: no cover
             return False  # pragma: no cover
 
     return True
-
-
-import fcntl
-import tempfile
-import contextlib
 
 
 def _is_project_locked(project_name: str) -> bool:
@@ -191,7 +189,9 @@ def sweep_stale_environments() -> None:
             )
             pods = [p for p in res.stdout.strip().split() if not _is_project_locked(p)]
             if pods:
-                print(f"🧹 Sweeping {len(pods)} stale test pods older than {max_age_mins}m...")
+                print(
+                    f"🧹 Sweeping {len(pods)} stale test pods older than {max_age_mins}m..."
+                )
                 _run([engine, "pod", "rm", "-f"] + pods, silent=True)
 
             # Sweep stray containers
@@ -210,7 +210,9 @@ def sweep_stale_environments() -> None:
                 capture=True,
             )
             containers = [
-                c for c in res_c.stdout.strip().split() if not _is_project_locked(c.split("_")[0])
+                c
+                for c in res_c.stdout.strip().split()
+                if not _is_project_locked(c.split("_")[0])
             ]
             if containers:
                 _run([engine, "rm", "-f"] + containers, silent=True)
@@ -231,7 +233,9 @@ def sweep_stale_environments() -> None:
                 capture=True,
             )
             containers = [
-                c for c in res_c.stdout.strip().split() if not _is_project_locked(c.split("_")[0])
+                c
+                for c in res_c.stdout.strip().split()
+                if not _is_project_locked(c.split("_")[0])
             ]
             if containers:
                 print(
@@ -267,7 +271,7 @@ def lifecycle_down(mode: str = "all") -> None:
     After graceful down, force-removes profile-specific containers that
     compose could not stop (e.g. PID 1 tail -f /dev/null ignoring SIGTERM).
     """
-    profiles = resolve_lifecycle_profiles(mode)
+    resolve_lifecycle_profiles(mode)
     env = bootstrap_env(mode)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
@@ -281,14 +285,26 @@ def lifecycle_down(mode: str = "all") -> None:
 
         # Also catch any stray containers not in the pod but labeled with the project
         res = _run(
-            [engine, "ps", "-aq", "--filter", f"label=com.docker.compose.project={project_name}"],
+            [
+                engine,
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=com.docker.compose.project={project_name}",
+            ],
             capture=True,
         )
         if res.stdout.strip():  # pragma: no cover
             _run([engine, "rm", "-f"] + res.stdout.strip().split(), silent=True)
     else:
         res = _run(
-            [engine, "ps", "-aq", "--filter", f"label=com.docker.compose.project={project_name}"],
+            [
+                engine,
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=com.docker.compose.project={project_name}",
+            ],
             capture=True,
         )  # pragma: no cover
         if res.stdout.strip():  # pragma: no cover

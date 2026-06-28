@@ -75,7 +75,9 @@ def _validate_single_arg(arg: str) -> None:
     """Validate a single argument. Raises ArgSanitizeError on danger."""
     for ch in arg:
         if ch in _FORBIDDEN_CHARS:
-            raise ArgSanitizeError(f"Control character U+{ord(ch):04X} in argument: {arg!r}")
+            raise ArgSanitizeError(
+                f"Control character U+{ord(ch):04X} in argument: {arg!r}"
+            )
 
     # Unmatched quotes → shell hang
     for quote in ('"', "'"):
@@ -86,12 +88,16 @@ def _validate_single_arg(arg: str) -> None:
     # Shell injection patterns
     for pattern in _INJECTION_PATTERNS:
         if pattern in arg:
-            raise ArgSanitizeError(f"Shell injection pattern '{pattern}' in argument: {arg!r}")
+            raise ArgSanitizeError(
+                f"Shell injection pattern '{pattern}' in argument: {arg!r}"
+            )
 
     # Forbidden content in single args
     for pattern in _FORBIDDEN_IN_ARG:
         if pattern in arg:
-            raise ArgSanitizeError(f"Forbidden pattern '{pattern!r}' in argument: {arg!r}")
+            raise ArgSanitizeError(
+                f"Forbidden pattern '{pattern!r}' in argument: {arg!r}"
+            )
 
 
 def _check_banned_interpreter(args: list[str]) -> None:
