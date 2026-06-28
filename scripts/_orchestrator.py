@@ -917,7 +917,12 @@ class Orchestrator:
 
         # 3. Create .agent directory with symlinks to devkit shared dirs
         agent_dir = root / ".agent"
-        agent_dir.mkdir(exist_ok=True)
+        if agent_dir.is_symlink():
+            # Replace old symlink with directory
+            agent_dir.unlink()
+            agent_dir.mkdir(exist_ok=True)
+        else:
+            agent_dir.mkdir(exist_ok=True)
         devkit_agent = devkit / ".agent"
 
         symlinks = {
