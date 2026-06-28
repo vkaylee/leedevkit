@@ -10,10 +10,10 @@ sys.path.append(str(PROJECT_ROOT / "scripts"))
 from _test_modules import (  # noqa: E402
     _safe_pattern,
     _safe_pattern_quoted,
-    leeattend_run_coverage,
-    leeattend_run_integration,
-    leeattend_run_lint,
-    leeattend_run_unit,
+    leedevkit_run_coverage,
+    leedevkit_run_integration,
+    leedevkit_run_lint,
+    leedevkit_run_unit,
 )
 
 
@@ -83,13 +83,13 @@ class TestRunFunctionsWithPattern:
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_with_safe_pattern(self, mock_run: MagicMock) -> None:
         """Normal pattern passes through."""
-        result = leeattend_run_unit(component_filter="", mode="api", test_pattern="auth")
+        result = leedevkit_run_unit(component_filter="", mode="api", test_pattern="auth")
         assert result is True
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_with_dangerous_pattern_is_quoted(self, mock_run: MagicMock) -> None:
         """$(whoami) pattern must not cause shell injection."""
-        result = leeattend_run_unit(component_filter="", mode="api", test_pattern="$(whoami)")
+        result = leedevkit_run_unit(component_filter="", mode="api", test_pattern="$(whoami)")
         assert result is True
         # Verify the command passed to run_parallel_ordered has quoted pattern
         tasks = mock_run.call_args[0][2]  # tasks list
@@ -102,7 +102,7 @@ class TestRunFunctionsWithPattern:
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_integration_with_quoted_pattern(self, mock_run: MagicMock) -> None:
         """Integration test with dangerous pattern."""
-        result = leeattend_run_integration(component_filter="", mode="api", test_pattern="`id`")
+        result = leedevkit_run_integration(component_filter="", mode="api", test_pattern="`id`")
         assert result is True
         tasks = mock_run.call_args[0][2]
         for _name, _service, cmd in tasks:
@@ -113,7 +113,7 @@ class TestRunFunctionsWithPattern:
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_playwright_pattern_is_safe(self, mock_run: MagicMock) -> None:
         """Playwright -g pattern must be shell-safe."""
-        result = leeattend_run_integration(
+        result = leedevkit_run_integration(
             component_filter="", mode="web", test_pattern="hello world"
         )
         assert result is True
@@ -125,7 +125,7 @@ class TestRunFunctionsWithPattern:
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_lint_all(self, mock_run: MagicMock) -> None:
-        result = leeattend_run_lint(mode="all")
+        result = leedevkit_run_lint(mode="all")
         assert result is True
         tasks = mock_run.call_args[0][2]
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]
@@ -139,7 +139,7 @@ class TestRunFunctionsWithPattern:
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_lint_apiserver(self, mock_run: MagicMock) -> None:
-        result = leeattend_run_lint(component_filter="apiserver", mode="api")
+        result = leedevkit_run_lint(component_filter="apiserver", mode="api")
         assert result is True
         tasks = mock_run.call_args[0][2]
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]
@@ -148,7 +148,7 @@ class TestRunFunctionsWithPattern:
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_web(self, mock_run: MagicMock) -> None:
-        result = leeattend_run_unit(mode="web")
+        result = leedevkit_run_unit(mode="web")
         assert result is True
         tasks = mock_run.call_args[0][2]
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]
@@ -156,7 +156,7 @@ class TestRunFunctionsWithPattern:
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_coverage_all(self, mock_run: MagicMock) -> None:
-        result = leeattend_run_coverage(mode="all")
+        result = leedevkit_run_coverage(mode="all")
         assert result is True
         tasks = mock_run.call_args[0][2]
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]
@@ -165,7 +165,7 @@ class TestRunFunctionsWithPattern:
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_coverage_apiserver(self, mock_run: MagicMock) -> None:
-        result = leeattend_run_coverage(component_filter="apiserver", mode="api")
+        result = leedevkit_run_coverage(component_filter="apiserver", mode="api")
         assert result is True
         tasks = mock_run.call_args[0][2]
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]

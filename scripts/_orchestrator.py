@@ -985,7 +985,6 @@ class Orchestrator:
         return {}
 
     def _write_lock(self, skills_d: Path) -> None:
-        import tomli_w
         lock = {}
         for repo in sorted(skills_d.iterdir()):
             if (repo / ".git").exists():
@@ -997,8 +996,13 @@ class Orchestrator:
                 if sha:
                     lock[repo.name] = sha
         path = self._lock_path()
-        with open(path, "wb") as f:
-            tomli_w.dump(lock, f)
+        try:
+            import tomli_w
+            with open(path, "wb") as f:
+                tomli_w.dump(lock, f)
+        except ImportError:
+            import json
+            path.with_suffix(".json").write_text(json.dumps(lock, indent=2))
         log_success(f"Updated leedevkit.lock ({len(lock)} entries)")
 
     def _skills_install_from_toml(self, skills_d: Path) -> None:
