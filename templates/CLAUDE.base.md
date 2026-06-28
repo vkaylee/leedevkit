@@ -45,10 +45,24 @@ For New Features / Bug Fixes: 🔴 STOP and ASK minimum 3 strategic questions.
 ## 🔧 LAYER 6: DEVKIT COMMANDS
 | Command | Purpose |
 |---|---|
-| `./test.sh api --lint-only` | Quick format + lint check |
-| `./test.sh api --unit-only` | Unit tests only |
-| `./test.sh all` | Full suite (lint + unit + e2e) |
-| `./test.sh api --lint-only --fix` | Auto-fix formatting |
-| `./test.sh all --json` | Machine-readable output |
-| `./manage.sh up dev` | Start dev environment |
-| `./manage.sh db:setup` | Init database + migrations |
+| `leedevkit test infra --lint-only` | Quick format + lint check |
+| `leedevkit test infra --unit-only` | Unit tests only |
+| `leedevkit test all` | Full suite (lint + unit + e2e) |
+| `leedevkit test all --json` | Machine-readable output |
+| `leedevkit manage up dev` | Start dev environment |
+| `leedevkit manage db:setup` | Init database + migrations |
+| `leedevkit doctor` | System health check |
+| `leedevkit skills list` | Browse available skills |
+
+## 📦 LAYER 7: INSTALLED SKILLS
+> Community skills installed via `leedevkit skills install`. Each has its own
+> SKILL.md with instructions. AI agents should scan this directory and lazy-load
+> relevant skills for the task at hand.
+
+**Installed skills directory:** `.leedevkit/skills.d/`
+
+Before executing domain-specific tasks, check if any installed skill applies:
+```bash
+ls .leedevkit/skills.d/
+```
+If a skill directory exists for the task domain, read its `SKILL.md` first.
