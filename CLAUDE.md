@@ -1,0 +1,1 @@
+templates/CLAUDE.base.md

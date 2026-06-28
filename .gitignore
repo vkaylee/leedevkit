@@ -1,1 +1,40 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environment ──
+.venv/
+venv/
+env/
+
+# ── Python tooling ──
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ── Runtime artifacts ──
+.test_logs/
+*.log
+
+# ── Skills (cloned on demand) ──
 .agent/skills.d/
+
+# ── IDE & Editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Secrets ──
+.env
+.env.*
+!.env.example

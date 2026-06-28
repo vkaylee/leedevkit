@@ -19,11 +19,8 @@ replace: []
 #   - database-rules.md
 
 # ── Add: project-specific rules not in devkit ──────────────────────────────
-add: []
-# Example: add PCI-DSS compliance rules for this project
-# add:
-#   - security/pci-dss.md
-#   - deployment/gcp-cloud-run.md
+add:
+  - devkit-internals.md
 
 # ── Extend: project augments devkit (both loaded, project last) ────────────
 extend: []
