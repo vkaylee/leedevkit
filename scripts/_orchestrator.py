@@ -949,6 +949,32 @@ None
         else:
             log_success("All .agent symlinks validated")
 
+        # 4b. Populate project rules directory from devkit base
+        try:
+            from _devkit_config import _load_toml
+            cfg = _load_toml(config_toml)
+            rules_rel = cfg.get("ai", {}).get("rules_dir", ".agent/rules")
+            project_rules = root / rules_rel
+            devkit_rules = devkit_agent / "rules"
+            if devkit_rules.exists() and not project_rules.exists():
+                project_rules.mkdir(parents=True, exist_ok=True)
+                for rule_file in devkit_rules.glob("*.md"):
+                    target = project_rules / rule_file.name
+                    if not target.exists():
+                        target.write_text(rule_file.read_text())
+                log_success(f"Populated {rules_rel}/ with {len(list(project_rules.glob('*.md')))} rulebooks")
+            # Also copy overrides.yaml if project doesn't have one
+            override_manifest = cfg.get("ai", {}).get("override_manifest", ".agent/overrides.yaml")
+            override_path = root / override_manifest
+            if not override_path.exists():
+                devkit_override = devkit_agent / "overrides.yaml"
+                if devkit_override.exists():
+                    override_path.parent.mkdir(parents=True, exist_ok=True)
+                    override_path.write_text(devkit_override.read_text())
+                    log_success(f"Created {override_manifest}")
+        except Exception:
+            pass  # Don't fail init if rule population fails
+
         # 5. Pin devkit version in leedevkit.toml
         try:
             from _devkit_config import _load_toml
