@@ -282,6 +282,9 @@ class Orchestrator:
             p = manage_cmd_sub.add_parser(cmd, parents=[parent_parser])
             p.add_argument("env", choices=["dev", "test", "prod"], default="dev", nargs="?")
 
+        init_p = manage_cmd_sub.add_parser("init", parents=[parent_parser])
+        init_p.add_argument("--force", action="store_true", help="Overwrite existing files")
+
         logs_p = manage_cmd_sub.add_parser("logs", parents=[parent_parser])
         logs_p.add_argument("env", choices=["dev", "test", "prod"], default="dev", nargs="?")
         logs_p.add_argument("service", nargs="?")
@@ -547,6 +550,7 @@ class Orchestrator:
         sub = args.subcommand
 
         simple_dispatch: dict[str, typing.Callable[[], typing.Any]] = {
+            "init": lambda: self.handle_init(getattr(args, "force", False)),
             "sync:api": lambda: self.execute_safe(
                 ["/bin/bash", "-c", f'source "{SCRIPTS_DIR}/_sync-api.sh"']
             ),
@@ -810,6 +814,66 @@ class Orchestrator:
         self.handle_lint_infra()
         self.handle_test_infra()
         log_success("✨ Infrastructure is Premium Grade!")
+
+    def handle_init(self, force: bool = False) -> None:
+        """Set up project: leedevkit.toml, .agent symlinks, test.sh."""
+        from pathlib import Path
+
+        from _devkit_config import _find_devkit_root
+
+        root = Path.cwd()
+        devkit = _find_devkit_root()
+
+        # 1. Create test.sh wrapper
+        test_sh = root / "test.sh"
+        if not test_sh.exists() or force:
+            test_sh.write_text(
+                "#!/bin/bash\n"
+                "# Delegates to leedevkit orchestrator\n"
+                'DEVKIT_ROOT="${DEVKIT_HOME:-$HOME/.leedevkit/current}"\n'
+                'exec "$DEVKIT_ROOT/bin/test.sh" "$@"\n'
+            )
+            test_sh.chmod(0o755)
+            log_success("Created test.sh")
+
+        # 2. Create leedevkit.toml if missing
+        config_toml = root / "leedevkit.toml"
+        if not config_toml.exists() or force:
+            template = devkit / "templates" / "leedevkit.default.toml"
+            if template.exists():
+                config_toml.write_text(template.read_text())
+                log_success("Created leedevkit.toml (edit it for your project)")
+
+        # 3. Create .agent directory with symlinks to devkit shared dirs
+        agent_dir = root / ".agent"
+        agent_dir.mkdir(exist_ok=True)
+        devkit_agent = devkit / ".agent"
+
+        symlinks = {
+            "skills": devkit_agent / "skills",
+            "workflows": devkit_agent / "workflows",
+            ".shared": devkit_agent / ".shared",
+            "scripts": devkit_agent / "scripts",
+            "agents": devkit_agent / "agents",
+        }
+        for name, target in symlinks.items():
+            link = agent_dir / name
+            if target.exists():
+                if link.is_symlink():
+                    link.unlink()
+                elif link.exists():
+                    continue  # don't overwrite real dirs
+                link.symlink_to(target)
+                log_success(f"  .agent/{name} → leedevkit")
+
+        # 4. Create .devkit-version
+        version_file = root / ".devkit-version"
+        if not version_file.exists():
+            version = (devkit / "VERSION").read_text().strip()
+            version_file.write_text(version + "\n")
+            log_success(f"Pinned version: {version}")
+
+        log_success("Project initialized. Run ./test.sh --help to start.")
 
     def handle_doctor(self) -> None:
         log_info("🩺 Running LeeDevKit System Doctor...")
