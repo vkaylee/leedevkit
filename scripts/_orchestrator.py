@@ -933,42 +933,10 @@ class Orchestrator:
                         log_success(f"  {repo.name} [dir]")
 
         elif action == "install":
-            # Read [addons.skills] from leedevkit.toml, clone missing, checkout pinned version
-            try:
-                cfg = load_project_config()
-                entries = cfg.get("addons", {}).get("skills", [])
-            except Exception:
-                entries = []
-            installed = 0
-            for entry in entries:
-                # Support both string URL and {url, version} object
-                if isinstance(entry, str):
-                    url, version = entry, "main"
-                else:
-                    url = entry.get("url", "")
-                    version = entry.get("version", "main")
-                name = url.rstrip("/").split("/")[-1].replace(".git", "")
-                target = skills_d / name
-                if target.exists():
-                    continue
-                log_info(f"Installing {name} @ {version}...")
-                subprocess.run(
-                    ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
-                    check=False, stdin=subprocess.DEVNULL,
-                )
-                installed += 1
-            log_success(f"Installed {installed} new skill repo(s)")
+            self._skills_install_from_toml(skills_d)
 
         elif action == "update":
-            updated = 0
-            for repo in skills_d.iterdir():
-                if (repo / ".git").exists():
-                    subprocess.run(
-                        ["git", "-C", str(repo), "pull", "--ff-only"],
-                        check=False, stdin=subprocess.DEVNULL,
-                    )
-                    updated += 1
-            log_success(f"Updated {updated} skill repo(s)")
+            self._skills_update_and_lock(skills_d)
 
         elif action == "add":
             url = getattr(args, "url", "")
@@ -986,6 +954,7 @@ class Orchestrator:
                 check=False, stdin=subprocess.DEVNULL,
             )
             log_success(f"Installed {name} @ {version}")
+            self._write_lock(skills_d)
 
         elif action == "remove":
             name = getattr(args, "name", "")
@@ -999,6 +968,96 @@ class Orchestrator:
             import shutil
             shutil.rmtree(str(target))
             log_success(f"Removed {name}")
+            self._write_lock(skills_d)
+
+    def _lock_path(self) -> Path:
+        return PROJECT_ROOT / "leedevkit.lock"
+
+    def _read_lock(self) -> dict:
+        path = self._lock_path()
+        if path.exists():
+            try:
+                import tomllib
+                with open(path, "rb") as f:
+                    return tomllib.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _write_lock(self, skills_d: Path) -> None:
+        import tomli_w
+        lock = {}
+        for repo in sorted(skills_d.iterdir()):
+            if (repo / ".git").exists():
+                r = subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                    capture_output=True, text=True, check=False,
+                )
+                sha = r.stdout.strip()
+                if sha:
+                    lock[repo.name] = sha
+        path = self._lock_path()
+        with open(path, "wb") as f:
+            tomli_w.dump(lock, f)
+        log_success(f"Updated leedevkit.lock ({len(lock)} entries)")
+
+    def _skills_install_from_toml(self, skills_d: Path) -> None:
+        """Install skills from leedevkit.toml, preferring lock file SHAs."""
+        try:
+            cfg = load_project_config()
+            entries = cfg.get("addons", {}).get("skills", [])
+        except Exception:
+            entries = []
+        lock = self._read_lock()
+        installed = 0
+        for entry in entries:
+            if isinstance(entry, str):
+                url, version = entry, "main"
+            else:
+                url = entry.get("url", "")
+                version = entry.get("version", "main")
+            name = url.rstrip("/").split("/")[-1].replace(".git", "")
+            target = skills_d / name
+            if target.exists():
+                # Checkout pinned version if lock exists
+                if name in lock:
+                    subprocess.run(
+                        ["git", "-C", str(target), "checkout", "--detach", lock[name]],
+                        check=False, stdin=subprocess.DEVNULL,
+                    )
+                    log_success(f"  {name} @ {lock[name][:8]} (locked)")
+                continue
+            log_info(f"Installing {name} @ {version}...")
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
+                check=False, stdin=subprocess.DEVNULL,
+            )
+            # If lock has exact SHA, checkout that instead
+            if name in lock:
+                subprocess.run(
+                    ["git", "-C", str(target), "fetch", "--depth", "1", "origin", lock[name]],
+                    check=False, stdin=subprocess.DEVNULL,
+                )
+                subprocess.run(
+                    ["git", "-C", str(target), "checkout", "--detach", lock[name]],
+                    check=False, stdin=subprocess.DEVNULL,
+                )
+            installed += 1
+        log_success(f"Installed {installed} new skill repo(s)")
+        self._write_lock(skills_d)
+
+    def _skills_update_and_lock(self, skills_d: Path) -> None:
+        """Pull latest, update lock file."""
+        updated = 0
+        for repo in skills_d.iterdir():
+            if (repo / ".git").exists():
+                subprocess.run(
+                    ["git", "-C", str(repo), "pull", "--ff-only"],
+                    check=False, stdin=subprocess.DEVNULL,
+                )
+                updated += 1
+        log_success(f"Updated {updated} skill repo(s)")
+        self._write_lock(skills_d)
 
     def handle_doctor(self) -> None:
         from _devkit_config import load_project_config, resolve_ai_rules
