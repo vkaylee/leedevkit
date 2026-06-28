@@ -194,9 +194,13 @@ class Orchestrator:
             parents=[parent_parser],
             description="LeeDevKit Enterprise Test Orchestrator - Automatically handles environments, mocking, and parallel execution.",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="Examples for AI Agents:\n  ./test.sh all                 # Run full-stack test suite (lint, unit, e2e)\n  ./test.sh webdashboard --unit-only # Run only frontend unit tests\n  ./test.sh api --pattern auth       # Run backend tests matching 'auth'\n  ./test.sh infra               # Verify project configuration and linting\n\nNotes for AI: Always prefer specific targets (e.g., 'apiserver') over 'all' for faster feedback.
-  ./test.sh api --lint-only --fix  # Auto-fix formatting before committing
-  ./test.sh all --json             # Full suite with machine-readable summary",
+            epilog="Examples for AI Agents:\n"
+            "  ./test.sh all                 # Full suite\n"
+            "  ./test.sh api --lint-only     # Quick format + lint\n"
+            "  ./test.sh api --lint-only --fix # Auto-fix formatting\n"
+            "  ./test.sh all --json          # Machine-readable output\n"
+            "\n"
+            "Tips: prefer specific targets (e.g. 'apiserver') over 'all' for faster feedback.",
         )
         test_parser.add_argument(
             "target",
