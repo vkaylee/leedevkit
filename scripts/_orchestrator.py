@@ -866,7 +866,18 @@ class Orchestrator:
                 link.symlink_to(target)
                 log_success(f"  .agent/{name} → leedevkit")
 
-        # 4. Create .devkit-version
+        # 4. Validate: verify all symlinks resolve
+        broken = []
+        for name in symlinks:
+            link = agent_dir / name
+            if not link.exists() or (link.is_symlink() and not link.resolve().exists()):
+                broken.append(name)
+        if broken:
+            log_warn(f"Broken symlinks: {', '.join(broken)}")
+        else:
+            log_success("All .agent symlinks validated")
+
+        # 5. Create .devkit-version
         version_file = root / ".devkit-version"
         if not version_file.exists():
             version = (devkit / "VERSION").read_text().strip()
@@ -876,7 +887,47 @@ class Orchestrator:
         log_success("Project initialized. Run ./test.sh --help to start.")
 
     def handle_doctor(self) -> None:
+        from _devkit_config import load_project_config, resolve_ai_rules
+
         log_info("🩺 Running LeeDevKit System Doctor...")
+
+        # ── Project config ──
+        try:
+            cfg = load_project_config()
+            name = cfg.get("project", {}).get("name", "unknown")
+            targets = list(cfg.get("targets", {}).keys())
+            log_success(f"✅ Project: {name} (targets: {', '.join(targets)})")
+        except Exception as e:
+            log_warn(f"⚠️  leedevkit.toml: {e}")
+
+        # ── .agent symlinks ──
+        agent_dir = PROJECT_ROOT / ".agent"
+        if agent_dir.is_symlink():
+            log_warn("⚠️  .agent is a bare symlink — expected directory with sub-symlinks")
+        elif agent_dir.is_dir():
+            expected = ["skills", "workflows", "agents", "scripts", ".shared"]
+            for name in expected:
+                link = agent_dir / name
+                if link.is_symlink():
+                    target = link.resolve()
+                    if target.exists():
+                        log_success(f"✅ .agent/{name} → {target}")
+                    else:
+                        log_warn(f"⚠️  .agent/{name} → broken (target missing)")
+                elif link.exists():
+                    log_success(f"✅ .agent/{name} (custom directory)")
+                else:
+                    log_warn(f"⚠️  .agent/{name} — missing (run: leedevkit init)")
+        else:
+            log_warn("⚠️  .agent directory missing (run: leedevkit init)")
+
+        # ── AI rules ──
+        try:
+            rules = resolve_ai_rules()
+            log_success(f"✅ AI rules: {len(rules)} files loaded")
+        except Exception as e:
+            log_warn(f"⚠️  AI rules: {e}")
+
         engine = self.engine
         log_success(f"✅ Container Engine: {engine}")
 
