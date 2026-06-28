@@ -894,8 +894,8 @@ class Orchestrator:
         root = Path.cwd()
         devkit = _find_devkit_root()
 
-        # 1. Create test.sh + manage.sh wrappers
-        for script in ["test.sh", "manage.sh"]:
+        # 1. Create test.sh + manage.sh + leedevkit wrappers
+        for script in ["test.sh", "manage.sh", "leedevkit"]:
             path = root / script
             if not path.exists() or force:
                 path.write_text(

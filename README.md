@@ -5,6 +5,14 @@ Enterprise DevKit for AI-first projects — unified CLI, test orchestrator, AI a
 ## Install
 
 ```bash
+git clone https://github.com/vkaylee/leedevkit.git ~/.leedevkit/v0.1.0
+ln -sfn ~/.leedevkit/v0.1.0 ~/.leedevkit/current
+~/.leedevkit/current/bin/leedevkit version
+```
+
+Or via curl (when published):
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
 ```
 
