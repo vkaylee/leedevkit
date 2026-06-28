@@ -296,3 +296,33 @@ def test_find_files_to_scan() -> None:
     assert mock_worker_file in files
     assert mock_mod_file not in files
     assert len(files) == 3
+
+
+class TestMainFunction:
+    def test_main_with_patches(self):
+        import lint_tenant_isolation
+        from unittest.mock import MagicMock, patch
+        mock_repo = MagicMock()
+        mock_repo.exists.return_value = True
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+        mock_file.name = "diesel_user_repo.rs"
+        mock_file.parent = mock_repo
+        mock_repo.rglob.return_value = [mock_file]
+        mock_worker = MagicMock()
+        mock_worker.exists.return_value = False
+        def path_side_effect(*args):
+            s = str(args[0])
+            if "repositories" in s:
+                return mock_repo
+            if "worker" in s:
+                return mock_worker
+            return MagicMock()
+        with patch.object(lint_tenant_isolation, "Path", side_effect=path_side_effect):
+            with patch("sys.exit") as mock_exit:
+                mock_file.open = MagicMock()
+                mock_file.open.return_value.__enter__.return_value.read.return_value = (
+                    'impl Repo { async fn get(&self, auth_token: &TenantAuthToken) -> Result<(), Error> { let ws = auth_token.workspace_id(); Ok(()) } }'
+                )
+                lint_tenant_isolation.main()
+                mock_exit.assert_called_once_with(0)

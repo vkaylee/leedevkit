@@ -196,3 +196,23 @@ def test_main_dir_missing(mock_exit: MagicMock, mock_path_cls: MagicMock) -> Non
 
     lint_clean_code.main()
     mock_exit.assert_called_once_with(1)
+
+
+class TestMainFunction:
+    def test_main_with_patches(self):
+        import lint_clean_code
+        from unittest.mock import MagicMock, patch
+        mock_dir = MagicMock()
+        mock_dir.exists.return_value = True
+        mock_file = MagicMock()
+        mock_file.name = "policy.rs"
+        mock_file.relative_to.return_value = Path("apiserver/src/domain/policy.rs")
+        mock_dir.glob.return_value = [mock_file]
+        with patch.object(lint_clean_code, "Path", return_value=mock_dir):
+            with patch("sys.exit") as mock_exit:
+                mock_file.open = MagicMock()
+                mock_file.open.return_value.__enter__.return_value.read.return_value = (
+                    "pub struct Policy { id: Uuid }"
+                )
+                lint_clean_code.main()
+                mock_exit.assert_called_once_with(0)
