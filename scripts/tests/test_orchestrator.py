@@ -157,7 +157,7 @@ class TestLeedevkitDir:
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.handle_init(force=True)
-            assert (tmp_path / "test.sh").exists()
+            assert (tmp_path / "leedevkit").exists()
             assert (tmp_path / "leedevkit.toml").exists()
 
     def test_load_catalog(self):
