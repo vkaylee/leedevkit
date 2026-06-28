@@ -285,6 +285,17 @@ class Orchestrator:
         init_p = manage_cmd_sub.add_parser("init", parents=[parent_parser])
         init_p.add_argument("--force", action="store_true", help="Overwrite existing files")
 
+        skills_p = manage_cmd_sub.add_parser("skills", parents=[parent_parser])
+        skills_sub = skills_p.add_subparsers(dest="skills_action", required=True)
+        skills_sub.add_parser("list", parents=[parent_parser])
+        skills_sub.add_parser("update", parents=[parent_parser])
+        skills_sub.add_parser("install", parents=[parent_parser])
+        skills_add = skills_sub.add_parser("add", parents=[parent_parser])
+        skills_add.add_argument("url", help="Git repo URL to clone")
+        skills_add.add_argument("--version", default="main", help="Branch/tag to checkout (default: main)")
+        skills_rm = skills_sub.add_parser("remove", parents=[parent_parser])
+        skills_rm.add_argument("name", help="Skill repo name to remove")
+
         logs_p = manage_cmd_sub.add_parser("logs", parents=[parent_parser])
         logs_p.add_argument("env", choices=["dev", "test", "prod"], default="dev", nargs="?")
         logs_p.add_argument("service", nargs="?")
@@ -564,6 +575,10 @@ class Orchestrator:
             "doctor": self.handle_doctor,
             "verify:infra": self.handle_verify_infra,
         }
+
+        if sub == "skills":
+            self.handle_skills(args)
+            return
 
         if sub in simple_dispatch:
             simple_dispatch[sub]()
@@ -885,7 +900,105 @@ class Orchestrator:
             version_file.write_text(version + "\n")
             log_success(f"Pinned version: {version}")
 
+        # Auto-install community skills from leedevkit.toml
+        self.handle_skills(argparse.Namespace(skills_action="install"))
+
         log_success("Project initialized. Run ./test.sh --help to start.")
+
+    def handle_skills(self, args: argparse.Namespace) -> None:
+        """Manage community add-on skills in skills.d."""
+        from _devkit_config import _find_devkit_root, load_project_config
+
+        devkit = _find_devkit_root()
+        skills_d = devkit / ".agent" / "skills.d"
+        skills_d.mkdir(exist_ok=True)
+
+        action = getattr(args, "skills_action", "list")
+
+        if action == "list":
+            if not skills_d.exists() or not list(skills_d.iterdir()):
+                log_info("No community skills installed.")
+                return
+            for repo in sorted(skills_d.iterdir()):
+                if repo.is_dir() and not repo.name.startswith("."):
+                    is_git = (repo / ".git").exists()
+                    if is_git:
+                        r = subprocess.run(
+                            ["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, check=False,
+                        )
+                        branch = r.stdout.strip() or "?"
+                        log_success(f"  {repo.name} @ {branch}")
+                    else:
+                        log_success(f"  {repo.name} [dir]")
+
+        elif action == "install":
+            # Read [addons.skills] from leedevkit.toml, clone missing, checkout pinned version
+            try:
+                cfg = load_project_config()
+                entries = cfg.get("addons", {}).get("skills", [])
+            except Exception:
+                entries = []
+            installed = 0
+            for entry in entries:
+                # Support both string URL and {url, version} object
+                if isinstance(entry, str):
+                    url, version = entry, "main"
+                else:
+                    url = entry.get("url", "")
+                    version = entry.get("version", "main")
+                name = url.rstrip("/").split("/")[-1].replace(".git", "")
+                target = skills_d / name
+                if target.exists():
+                    continue
+                log_info(f"Installing {name} @ {version}...")
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
+                    check=False, stdin=subprocess.DEVNULL,
+                )
+                installed += 1
+            log_success(f"Installed {installed} new skill repo(s)")
+
+        elif action == "update":
+            updated = 0
+            for repo in skills_d.iterdir():
+                if (repo / ".git").exists():
+                    subprocess.run(
+                        ["git", "-C", str(repo), "pull", "--ff-only"],
+                        check=False, stdin=subprocess.DEVNULL,
+                    )
+                    updated += 1
+            log_success(f"Updated {updated} skill repo(s)")
+
+        elif action == "add":
+            url = getattr(args, "url", "")
+            if not url:
+                log_error("Usage: leedevkit skills add <git-url> [--version main]")
+                return
+            version = getattr(args, "version", "main")
+            name = url.rstrip("/").split("/")[-1].replace(".git", "")
+            target = skills_d / name
+            if target.exists():
+                log_warn(f"{name} already exists. Use 'skills update' to refresh.")
+                return
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
+                check=False, stdin=subprocess.DEVNULL,
+            )
+            log_success(f"Installed {name} @ {version}")
+
+        elif action == "remove":
+            name = getattr(args, "name", "")
+            if not name:
+                log_error("Usage: leedevkit skills remove <name>")
+                return
+            target = skills_d / name
+            if not target.exists():
+                log_warn(f"{name} not found in skills.d/")
+                return
+            import shutil
+            shutil.rmtree(str(target))
+            log_success(f"Removed {name}")
 
     def handle_doctor(self) -> None:
         from _devkit_config import load_project_config, resolve_ai_rules

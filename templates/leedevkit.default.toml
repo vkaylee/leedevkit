@@ -54,3 +54,10 @@ extra_rules = []
 rules_dir = ".agent/rules"
 # Override manifest: which devkit rules to replace/extend.
 override_manifest = ".agent/overrides.yaml"
+
+# ── Community Add-ons (like package.json for AI skills) ───────────────────
+
+[addons]
+skills = [
+    # { url = "https://github.com/addyosmani/agent-skills.git", version = "main" },
+]
