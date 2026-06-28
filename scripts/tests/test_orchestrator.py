@@ -783,3 +783,63 @@ class TestSkillsAddValidation:
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="install", name=None)
             orch.handle_skills(args)
+
+
+class TestInitPopulatesRules:
+    def test_init_copies_rules_to_project(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        # Create leedevkit.toml with custom rules_dir
+        (tmp_path / "leedevkit.toml").write_text(
+            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n[ai]\nrules_dir=\".myrules\"\n"
+        )
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+            # Should have created .myrules/ with rulebooks
+            rules_dir = tmp_path / ".myrules"
+            assert rules_dir.exists()
+            assert len(list(rules_dir.glob("*.md"))) > 0
+
+    def test_init_does_not_overwrite_existing_rules(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        (tmp_path / "leedevkit.toml").write_text(
+            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n"
+        )
+        # Pre-create a rule file
+        rules_dir = tmp_path / ".agent" / "rules"
+        rules_dir.mkdir(parents=True)
+        existing = rules_dir / "my-rule.md"
+        existing.write_text("custom content")
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+            # Existing file should not be overwritten
+            assert existing.read_text() == "custom content"
+
+    def test_init_creates_overrides_yaml(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
+        monkeypatch.setenv("DEVKIT_HOME", dk)
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        (tmp_path / "leedevkit.toml").write_text(
+            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n"
+        )
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+            assert (tmp_path / ".agent" / "overrides.yaml").exists()
