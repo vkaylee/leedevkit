@@ -24,32 +24,58 @@ _DEVKIT_ROOT: Path | None = None
 
 
 def _find_devkit_root() -> Path:
-    """Resolve the installed devkit directory (versioned)."""
+    """Resolve the installed devkit directory.
+
+    Priority chain (per-project first, then global fallbacks):
+      1. .leedevkit/ in project root (per-project install, preferred)
+      2. DEVKIT_HOME env var (opt-in override)
+      3. ~/.leedevkit/current symlink (legacy global install, deprecated)
+      4. Bundled: ./leedevkit/ relative to project root (legacy)
+    """
     global _DEVKIT_ROOT
     if _DEVKIT_ROOT is not None:
         return _DEVKIT_ROOT
 
-    # 1. DEVKIT_HOME env var
-    env = os.environ.get("DEVKIT_HOME")
-    if env:
-        _DEVKIT_ROOT = Path(env)
+    # 1. Per-project install: .leedevkit/ relative to CWD (check first — most specific)
+    #    Only cache this result (fast, idempotent, survives init creating .leedevkit/).
+    cwd_leedevkit = Path.cwd() / ".leedevkit"
+    if (cwd_leedevkit / "scripts" / "_orchestrator.py").exists():
+        _DEVKIT_ROOT = cwd_leedevkit
         return _DEVKIT_ROOT
 
-    # 2. ~/.leedevkit/current symlink
+    # 2. Per-project install: .leedevkit/ in walked-up project root
+    project_root = _find_project_root()
+    per_project = project_root / ".leedevkit"
+    if (per_project / "scripts" / "_orchestrator.py").exists():
+        _DEVKIT_ROOT = per_project
+        return _DEVKIT_ROOT
+
+    # 3–5: Global fallbacks — do NOT cache, because `leedevkit init` may create
+    #       .leedevkit/ mid-flow and we want subsequent calls to pick it up.
+
+    # 3. DEVKIT_HOME env var
+    env = os.environ.get("DEVKIT_HOME")
+    if env and Path(env).exists():
+        return Path(env)
+
+    # 4. ~/.leedevkit/current symlink (legacy global install)
     home = Path.home() / ".leedevkit" / "current"
     if home.exists():
-        _DEVKIT_ROOT = home
-        return _DEVKIT_ROOT
+        return home
 
-    # 3. Bundled: ./leedevkit/ relative to project root
-    bundled = _find_project_root() / "leedevkit"
+    # 5. Bundled: ./leedevkit/ relative to project root (legacy)
+    bundled = project_root / "leedevkit"
     if bundled.exists():
-        _DEVKIT_ROOT = bundled
-        return _DEVKIT_ROOT
+        return bundled
 
     raise FileNotFoundError(
-        "Cannot locate leedevkit. Set DEVKIT_HOME or install to ~/.leedevkit"
+        "Cannot locate leedevkit. Run 'leedevkit init' or set DEVKIT_HOME"
     )
+
+
+def get_devkit_root() -> Path:
+    """Public accessor for the resolved devkit root."""
+    return _find_devkit_root()
 
 
 def _find_project_root() -> Path:

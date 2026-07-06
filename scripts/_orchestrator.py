@@ -11,12 +11,14 @@ import subprocess
 import sys
 import time
 import typing
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
 from _arg_sanitizer import sanitize
 from _bootstrap import (
+    DEVKIT_ROOT,
     PROJECT_ROOT,
     SCRIPTS_DIR,
     detect_compose_cmd,
@@ -667,7 +669,7 @@ None
         env["PYTHONPATH"] = str(SCRIPTS_DIR)
         tests_dir = SCRIPTS_DIR / "tests"
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
-        venv_pytest = PROJECT_ROOT / ".venv" / "bin" / "pytest"
+        venv_pytest = DEVKIT_ROOT / ".venv" / "bin" / "pytest"
         cmd = [
             str(venv_pytest),
             "--cov=scripts",
@@ -857,7 +859,7 @@ None
 
     def handle_lint_infra(self) -> None:
         log_info("🎨 Linting infrastructure scripts...")
-        venv_bin = PROJECT_ROOT / ".venv" / "bin"
+        venv_bin = DEVKIT_ROOT / ".venv" / "bin"
         self.execute_safe([str(venv_bin / "ruff"), "check", str(SCRIPTS_DIR)])
         self.execute_safe([str(venv_bin / "mypy"), str(SCRIPTS_DIR)])
 
@@ -870,7 +872,7 @@ None
 
     def handle_fmt_infra(self) -> None:
         log_info("💅 Formatting infrastructure scripts...")
-        venv_bin = PROJECT_ROOT / ".venv" / "bin"
+        venv_bin = DEVKIT_ROOT / ".venv" / "bin"
         self.execute_safe([str(venv_bin / "ruff"), "format", str(SCRIPTS_DIR)])
         log_success("✨ Infrastructure formatting completed!")
 
@@ -882,129 +884,297 @@ None
         log_success("✨ Infrastructure is Premium Grade!")
 
     def handle_init(self, force: bool = False) -> None:
-        """Set up project: leedevkit wrapper, leedevkit.toml, .agent symlinks."""
+        """Set up project with per-project devkit install.
+
+        Flow:
+          1. Ensure .leedevkit/ exists (download release tarball if needed)
+          2. Create project-local .venv inside .leedevkit/
+          3. Copy base AI rules from devkit → project (not symlinks)
+          4. Create ./leedevkit wrapper → .leedevkit/bin/leedevkit
+          5. Install community skills from catalog/TOML
+          6. Pin devkit version in leedevkit.toml
+        """
+        import re
+        import shutil
         from pathlib import Path
 
-        from _devkit_config import _find_devkit_root
+        from _devkit_config import _load_toml
 
         root = Path.cwd()
-        devkit = _find_devkit_root()
-
-        # 1. Create leedevkit wrapper
-        for script in ["leedevkit"]:
-            path = root / script
-            if not path.exists() or force:
-                path.write_text(
-                    "#!/bin/bash\n"
-                    "# Delegates to leedevkit orchestrator\n"
-                    'DEVKIT_ROOT="${DEVKIT_HOME:-$HOME/.leedevkit/current}"\n'
-                    f'exec "$DEVKIT_ROOT/bin/{script}" "$@"\n'  # noqa: S608
-                )
-                path.chmod(0o755)
-                log_success(f"Created {script}")
-
-        # 2. Create leedevkit.toml if missing
         config_toml = root / "leedevkit.toml"
+
+        # ── Step 0: Load or create leedevkit.toml ──
         if not config_toml.exists() or force:
-            template = devkit / "templates" / "leedevkit.default.toml"
+            # Use the devkit source repo's template (before we have .leedevkit/)
+            source_root = Path(__file__).resolve().parent.parent
+            template = source_root / "templates" / "leedevkit.default.toml"
             if template.exists():
                 config_toml.write_text(template.read_text())
                 log_success("Created leedevkit.toml (edit it for your project)")
 
-        # 3. Create .agent directory with symlinks to devkit shared dirs
+        cfg = _load_toml(config_toml) if config_toml.exists() else {}
+        devkit_version = cfg.get("devkit", {}).get("version", "latest")
+
+        # ── Step 1: Ensure .leedevkit/ exists with correct version ──
+        leedevkit_dir = root / ".leedevkit"
+        installed_version = self._read_installed_version(leedevkit_dir)
+
+        if force or not leedevkit_dir.exists() or installed_version != devkit_version:
+            log_info(f"Installing devkit {devkit_version} into .leedevkit/ ...")
+            self._install_devkit(root, leedevkit_dir, devkit_version, force=force)
+        else:
+            log_info(f"Devkit {devkit_version} already installed in .leedevkit/")
+
+        # Re-resolve devkit root now that .leedevkit/ exists
+        from _devkit_config import get_devkit_root
+        devkit = get_devkit_root()
+
+        # ── Step 2: Create project-local .venv inside .leedevkit/ ──
+        venv_dir = devkit / ".venv"
+        if not (venv_dir / "bin" / "python3").exists():
+            log_info("Creating virtual environment...")
+            import subprocess
+            subprocess.run(
+                [shutil.which("python3") or "python3", "-m", "venv", str(venv_dir)],
+                check=True,
+                stdin=subprocess.DEVNULL,
+            )
+            pip = venv_dir / "bin" / "pip"
+            subprocess.run(
+                [str(pip), "install", "--quiet",
+                 "pytest", "pytest-cov", "psutil", "tomli", "tomli-w", "pyyaml",
+                 "ruff", "mypy"],
+                check=False,
+                stdin=subprocess.DEVNULL,
+            )
+            log_success("Virtual environment ready")
+
+        # ── Step 2b: Detect legacy symlinks from old global install ──
         agent_dir = root / ".agent"
-        if agent_dir.is_symlink():
-            # Replace old symlink with directory
-            agent_dir.unlink()
-            agent_dir.mkdir(exist_ok=True)
-        else:
-            agent_dir.mkdir(exist_ok=True)
-        devkit_agent = devkit / ".agent"
+        legacy_symlinks = self._detect_legacy_symlinks(agent_dir)
+        if legacy_symlinks:
+            log_warn(
+                f"⚠️  Detected {len(legacy_symlinks)} legacy symlink(s) in .agent/ "
+                f"(from old global install):"
+            )
+            for name, target in legacy_symlinks:
+                log_warn(f"      .agent/{name} → {target}")
+            log_info("")
+            log_info("   These are no longer needed with per-project install.")
+            log_info("   To clean up: rm -rf .agent && ./leedevkit init")
+            log_info("")
 
-        symlinks = {
-            "skills": devkit_agent / "skills",
-            "workflows": devkit_agent / "workflows",
-            ".shared": devkit_agent / ".shared",
-            "scripts": devkit_agent / "scripts",
-            "agents": devkit_agent / "agents",
-        }
-        for name, target in symlinks.items():
-            link = agent_dir / name
-            if target.exists():
-                if link.is_symlink():
-                    link.unlink()
-                elif link.exists():
-                    continue  # don't overwrite real dirs
-                link.symlink_to(target)
-                log_success(f"  .agent/{name} → leedevkit")
+        # ── Step 3: Copy base AI rules from devkit → project (not symlinks) ──
+        ai_cfg = cfg.get("ai", {})
+        rules_rel = ai_cfg.get("rules_dir", ".agent/rules")
+        project_rules = root / rules_rel
+        devkit_rules = devkit / ".agent" / "rules"
+        if devkit_rules.exists():
+            project_rules.mkdir(parents=True, exist_ok=True)
+            copied = 0
+            for rule_file in sorted(devkit_rules.glob("*.md")):
+                target = project_rules / rule_file.name
+                if not target.exists() or force:
+                    target.write_text(rule_file.read_text())
+                    copied += 1
+            if copied:
+                log_success(f"Populated {rules_rel}/ with {copied} rulebook(s)")
 
-        # 4. Validate: verify all symlinks resolve
-        broken = []
-        for name in symlinks:
-            link = agent_dir / name
-            if not link.exists() or (link.is_symlink() and not link.resolve().exists()):
-                broken.append(name)
-        if broken:
-            log_warn(f"Broken symlinks: {', '.join(broken)}")
-        else:
-            log_success("All .agent symlinks validated")
+        # Copy overrides.yaml if project doesn't have one
+        override_manifest = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
+        override_path = root / override_manifest
+        if not override_path.exists():
+            devkit_override = devkit / ".agent" / "overrides.yaml"
+            if devkit_override.exists():
+                override_path.parent.mkdir(parents=True, exist_ok=True)
+                override_path.write_text(devkit_override.read_text())
+                log_success(f"Created {override_manifest}")
 
-        # 4b. Populate project rules directory from devkit base
-        try:
-            from _devkit_config import _load_toml
-            cfg = _load_toml(config_toml)
-            rules_rel = cfg.get("ai", {}).get("rules_dir", ".agent/rules")
-            project_rules = root / rules_rel
-            devkit_rules = devkit_agent / "rules"
-            if devkit_rules.exists() and not project_rules.exists():
-                project_rules.mkdir(parents=True, exist_ok=True)
-                for rule_file in devkit_rules.glob("*.md"):
-                    target = project_rules / rule_file.name
-                    if not target.exists():
-                        target.write_text(rule_file.read_text())
-                log_success(f"Populated {rules_rel}/ with {len(list(project_rules.glob('*.md')))} rulebooks")
-            # Also copy overrides.yaml if project doesn't have one
-            override_manifest = cfg.get("ai", {}).get("override_manifest", ".agent/overrides.yaml")
-            override_path = root / override_manifest
-            if not override_path.exists():
-                devkit_override = devkit_agent / "overrides.yaml"
-                if devkit_override.exists():
-                    override_path.parent.mkdir(parents=True, exist_ok=True)
-                    override_path.write_text(devkit_override.read_text())
-                    log_success(f"Created {override_manifest}")
-        except Exception:
-            pass  # Don't fail init if rule population fails
+        # ── Step 4: Create ./leedevkit wrapper → .leedevkit/bin/leedevkit ──
+        wrapper = root / "leedevkit"
+        wrapper_target = leedevkit_dir / "bin" / "leedevkit"
+        if wrapper.is_symlink():
+            wrapper.unlink()
+        if not wrapper.exists() or force:
+            if wrapper_target.exists():
+                wrapper.symlink_to(wrapper_target)
+                log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
+            else:
+                # Fallback: create a delegating script
+                wrapper.write_text(
+                    "#!/bin/bash\n"
+                    "# Delegates to project-local devkit\n"
+                    f'exec "{wrapper_target}" "$@"\n'
+                )
+                wrapper.chmod(0o755)
+                log_success("Created ./leedevkit wrapper script")
 
-        # 5. Pin devkit version in leedevkit.toml
-        try:
-            from _devkit_config import _load_toml
-            cfg = _load_toml(config_toml)
-            current = cfg.get("devkit", {}).get("version", "")
-            devkit_version = (devkit / "VERSION").read_text().strip()
-            if current != devkit_version:
-                content = config_toml.read_text()
-                if "version =" in content and "[devkit]" in content:
-                    import re
-                    content = re.sub(
-                        r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
-                        f'\\1"{devkit_version}"',
-                        content, flags=re.DOTALL
-                    )
-                    config_toml.write_text(content)
-                log_success(f"Pinned devkit version: {devkit_version}")
-        except Exception:
-            pass
+        # ── Step 5: Pin devkit version in leedevkit.toml ──
+        actual_version = (devkit / "VERSION").read_text().strip()
+        current = cfg.get("devkit", {}).get("version", "")
+        if current != actual_version and config_toml.exists():
+            content = config_toml.read_text()
+            if "version =" in content and "[devkit]" in content:
+                content = re.sub(
+                    r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
+                    f'\\1"{actual_version}"',
+                    content, flags=re.DOTALL,
+                )
+                config_toml.write_text(content)
+            log_success(f"Pinned devkit version: {actual_version}")
 
-        # Auto-install community skills from leedevkit.toml
+        # ── Step 6: Auto-install community skills from leedevkit.toml ──
         self.handle_skills(argparse.Namespace(skills_action="install"))
 
         log_success("Project initialized. Run ./leedevkit --help to start.")
 
+    def _detect_legacy_symlinks(
+        self, agent_dir: Path
+    ) -> list[tuple[str, str]]:
+        """Detect symlinks in .agent/ that point to the old global install.
+
+        Returns list of (name, target_path) for symlinks whose target
+        resolves under ~/.leedevkit/ (the legacy global install location).
+        """
+        legacy: list[tuple[str, str]] = []
+        if not agent_dir.exists():
+            return legacy
+        global_prefix = str(Path.home() / ".leedevkit")
+        for item in sorted(agent_dir.iterdir()):
+            if item.is_symlink():
+                try:
+                    target = str(item.resolve())
+                except OSError:
+                    target = str(item.readlink())
+                if target.startswith(global_prefix):
+                    legacy.append((item.name, target))
+        return legacy
+
+    def _read_installed_version(self, leedevkit_dir: Path) -> str | None:
+        """Read the version installed in .leedevkit/, or None if not installed."""
+        version_file = leedevkit_dir / "VERSION"
+        if version_file.exists():
+            return version_file.read_text().strip()
+        return None
+
+    def _install_devkit(
+        self, project_root: Path, target_dir: Path, version: str, force: bool = False
+    ) -> None:
+        """Download and install devkit into target_dir (.leedevkit/).
+
+        Strategy (in order):
+          1. Local path override (DEVKIT_LOCAL_PATH env) — for development
+          2. GitHub release tarball — for production
+          3. Copy from current devkit source — fallback for dogfooding
+        """
+        import shutil
+
+        if target_dir.exists() and force:
+            shutil.rmtree(target_dir)
+
+        # Strategy 1: local path override
+        local_path = os.environ.get("DEVKIT_LOCAL_PATH")
+        if local_path and Path(local_path).exists():
+            log_info(f"Installing from local path: {local_path}")
+            self._extract_from_source(Path(local_path), target_dir)
+            return
+
+        # Strategy 2: GitHub release tarball
+        if version and version != "latest":
+            url = (f"https://github.com/vkaylee/leedevkit/releases/download/"
+                   f"{version}/leedevkit-{version}.tar.gz")
+            log_info(f"Downloading {url} ...")
+            try:
+                self._download_and_extract(url, target_dir)
+                return
+            except Exception as e:
+                log_warn(f"Download failed: {e}")
+
+        # Strategy 3: copy from current devkit source (dogfooding)
+        source_root = Path(__file__).resolve().parent.parent
+        if (source_root / "scripts" / "_orchestrator.py").exists():
+            log_info("Installing from local devkit source ...")
+            self._extract_from_source(source_root, target_dir)
+            return
+
+        raise RuntimeError(
+            f"Cannot install devkit {version}. Set DEVKIT_LOCAL_PATH or "
+            "ensure GitHub release exists."
+        )
+
+    def _extract_from_source(self, source_root: Path, target_dir: Path) -> None:
+        """Copy devkit artifacts from a source directory into target_dir."""
+        import shutil
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        # Copy immutable artifacts
+        for item in ["scripts", "templates", "bin", ".agent"]:
+            src = source_root / item
+            dst = target_dir / item
+            if src.exists():
+                if dst.exists():
+                    if src.is_dir():
+                        shutil.rmtree(dst)
+                    else:
+                        dst.unlink()
+                if src.is_dir():
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+        # Copy metadata files
+        for fname in ["VERSION", "devkit.manifest.json"]:
+            src = source_root / fname
+            if src.exists():
+                shutil.copy2(src, target_dir / fname)
+        # Ensure bin scripts are executable
+        bin_dir = target_dir / "bin"
+        if bin_dir.exists():
+            for f in bin_dir.iterdir():
+                if f.is_file():
+                    f.chmod(0o755)
+        # Write dev-state.json
+        version = (target_dir / "VERSION").read_text().strip()
+        state = {"version": version, "source": "local"}
+        (target_dir / "dev-state.json").write_text(
+            __import__("json").dumps(state, indent=2)
+        )
+        log_success(f"Installed devkit {version} → {target_dir}")
+
+    def _download_and_extract(self, url: str, target_dir: Path) -> None:
+        """Download a release tarball and extract into target_dir."""
+        import tarfile
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            tarball = tmp / "release.tar.gz"
+            urllib.request.urlretrieve(url, tarball)
+            # Extract into temp, then move contents
+            extract_dir = tmp / "extracted"
+            extract_dir.mkdir()
+            with tarfile.open(tarball, "r:gz") as tf:
+                tf.extractall(extract_dir)  # noqa: S202
+            # The tarball may contain a single root dir (leedevkit-vX.Y.Z/)
+            contents = list(extract_dir.iterdir())
+            if len(contents) == 1 and contents[0].is_dir():
+                source = contents[0]
+            else:
+                source = extract_dir
+            if target_dir.exists():
+                import shutil
+                shutil.rmtree(target_dir)
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.move(str(source), str(target_dir))
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def _load_skills_catalog(self) -> dict:
         """Load the curated skills catalog from devkit."""
-        from _devkit_config import _find_devkit_root
+        from _devkit_config import get_devkit_root
 
-        devkit = _find_devkit_root()
+        devkit = get_devkit_root()
         catalog_path = devkit / ".agent" / "skills-catalog.toml"
         if not catalog_path.exists():
             return {}
@@ -1016,11 +1186,11 @@ None
             return {}
 
     def handle_skills(self, args: argparse.Namespace) -> None:
-        """Manage community add-on skills in the project's .leedevkit/skills.d/."""
-        from _devkit_config import _find_devkit_root
+        """Manage community add-on skills in the devkit's skills.d/."""
+        from _devkit_config import get_devkit_root
 
-        devkit = _find_devkit_root()
-        skills_d = PROJECT_ROOT / ".leedevkit" / "skills.d"
+        devkit = get_devkit_root()
+        skills_d = devkit / "skills.d"
         skills_d.mkdir(parents=True, exist_ok=True)
         catalog = self._load_skills_catalog()
 
@@ -1071,7 +1241,7 @@ None
                 log_info("  leedevkit skills add <git-url>")
 
         elif action == "install":
-            name = getattr(args, "name", None)
+            name = getattr(args, "name", None) or ""
             if name:
                 # Install by name from catalog
                 if name not in catalog:
@@ -1276,28 +1446,25 @@ None
         except Exception as e:
             log_warn(f"⚠️  leedevkit.toml: {e}")
 
-        # ── .agent symlinks ──
+        # ── .agent directory (per-project, real dir not symlink) ──
         agent_dir = PROJECT_ROOT / ".agent"
         if agent_dir.is_symlink():
-            log_warn(
-                "⚠️  .agent is a bare symlink — expected directory with sub-symlinks"
-            )
+            log_warn("⚠️  .agent is a symlink — expected real directory (run: leedevkit init)")
         elif agent_dir.is_dir():
-            expected = ["skills", "workflows", "agents", "scripts", ".shared"]
-            for name in expected:
-                link = agent_dir / name
-                if link.is_symlink():
-                    target = link.resolve()
-                    if target.exists():
-                        log_success(f"✅ .agent/{name} → {target}")
-                    else:
-                        log_warn(f"⚠️  .agent/{name} → broken (target missing)")
-                elif link.exists():
-                    log_success(f"✅ .agent/{name} (custom directory)")
-                else:
-                    log_warn(f"⚠️  .agent/{name} — missing (run: leedevkit init)")
+            rules_dir = agent_dir / "rules"
+            rule_count = len(list(rules_dir.glob("*.md"))) if rules_dir.exists() else 0
+            log_success(f"✅ .agent/ (real directory, {rule_count} rulebooks)")
         else:
             log_warn("⚠️  .agent directory missing (run: leedevkit init)")
+
+        # ── DevKit install location ──
+        from _devkit_config import get_devkit_root
+        try:
+            dk = get_devkit_root()
+            dk_version = (dk / "VERSION").read_text().strip() if (dk / "VERSION").exists() else "?"
+            log_success(f"✅ DevKit: {dk} (v{dk_version})")
+        except Exception as e:
+            log_warn(f"⚠️  DevKit: {e}")
 
         # ── AI rules ──
         try:

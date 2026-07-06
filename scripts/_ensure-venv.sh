@@ -5,7 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
+# .venv lives in devkit root (parent of scripts/), not inside scripts/ itself
+VENV_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/.venv"
 PYTHON_BIN="$VENV_DIR/bin/python3"
 
 if [ ! -f "$PYTHON_BIN" ]; then

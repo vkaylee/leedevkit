@@ -2,26 +2,39 @@
 
 Enterprise DevKit for AI-first projects — unified CLI, test orchestrator, AI agent context, skill catalog, and integrity verification.
 
+Per-project install: each project self-contains its own devkit (no global dependencies, AI-agent friendly).
+
 ## Install
 
-```bash
-git clone https://github.com/vkaylee/leedevkit.git ~/.leedevkit/v0.1.0
-ln -sfn ~/.leedevkit/v0.1.0 ~/.leedevkit/current
-~/.leedevkit/current/bin/leedevkit version
-```
-
-Or via curl (when published):
+### Bootstrap (one-time, installs the `leedevkit` command)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
 ```
 
-Installs to `~/.leedevkit/<version>/` with `current` symlink.
+Installs to `~/.leedevkit/<version>/` with `current` symlink (legacy global install, used as bootstrap only).
+
+### Initialize a project (per-project install)
+
+```bash
+cd my-project && git init
+leedevkit init
+```
+
+`init` downloads the devkit release into `.leedevkit/` inside your project. From then on, everything is self-contained:
+
+- `.leedevkit/scripts/`, `templates/`, `bin/`, `.agent/` — immutable engine
+- `.leedevkit/.venv/` — project-local Python environment
+- `.leedevkit/skills.d/` — installed community skills
+- `.agent/rules/` — project's AI rulebooks (copied from devkit base)
+- `./leedevkit` → symlink to `.leedevkit/bin/leedevkit`
+
+`.leedevkit/` and `./leedevkit` are gitignored. Commit `leedevkit.toml` and `leedevkit.lock` instead.
 
 ## Quick Start
 
 ```bash
-# Install
+# Bootstrap (first time only)
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
 
 # Initialize a project
@@ -37,7 +50,7 @@ leedevkit test all                  # full suite across all targets
 # Infrastructure management
 leedevkit manage up dev             # start dev environment
 leedevkit manage down dev           # stop dev environment
-leedevkit doctor                    # health check: config, containers, .agent symlinks
+leedevkit doctor                    # health check: config, containers, devkit location
 
 # Skills catalog
 leedevkit skills list               # browse built-in + community catalog
@@ -49,16 +62,38 @@ leedevkit skills update             # pull latest for all installed skills
 leedevkit version                   # show devkit version
 ```
 
+## Migrating existing projects
+
+If your project was initialized with the old global install (has `.agent/skills`, `.agent/workflows`, etc. as symlinks to `~/.leedevkit/`):
+
+```bash
+cd my-project
+rm -rf .agent                      # Remove legacy symlinks + stale content
+leedevkit init                      # Re-init clean from per-project install
+```
+
+Running `leedevkit init` will also warn you if legacy symlinks are detected.
+
 ## Project Structure
 
 ```
 my-project/
-├── leedevkit.toml            # ALL project config
+├── leedevkit.toml            # project config (commit this)
 ├── leedevkit.lock            # skill version pins (commit this)
-├── .leedevkit/               # gitignored — regenerated cache
-│   └── skills.d/             # cloned community skills (like node_modules)
-├── .agent/ → devkit          # AI context (symlinks to devkit)
-└── leedevkit → devkit          # CLI wrapper
+├── .leedevkit/               # gitignored — devkit engine (downloaded on init)
+│   ├── scripts/              # orchestrator, bootstrap, etc.
+│   ├── templates/            # default config templates
+│   ├── bin/leedevkit         # CLI entry point
+│   ├── .agent/               # base rules, skills catalog
+│   ├── .venv/                # project-local Python env
+│   ├── skills.d/             # cloned community skills (like node_modules)
+│   ├── VERSION
+│   └── dev-state.json        # { version, source }
+├── .agent/                   # project AI context (real directory, not symlinks)
+│   ├── rules/                # rulebooks (copied from devkit + project custom)
+│   ├── overrides.yaml        # which devkit rules to replace/extend/add
+│   └── agents/, workflows/   # project-specific (optional)
+└── leedevkit → .leedevkit/bin/leedevkit   # CLI wrapper (gitignored)
 ```
 
 ## leedevkit.toml

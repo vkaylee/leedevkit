@@ -6,6 +6,8 @@
 
 [devkit]
 version = "latest"                # pinned devkit version (set by leedevkit init)
+install = "per-project"          # "per-project" (default) | "global" (legacy)
+source = "release"               # "release" | "git" | "local"
 
 [project]
 name = "MyProject"               # display name

@@ -22,8 +22,9 @@ coverage.xml
 .test_logs/
 *.log
 
-# ── Skills (cloned on demand) ──
+# ── DevKit (per-project install, downloaded on init) ──
 .leedevkit/
+leedevkit
 
 # ── IDE & Editor ──
 .vscode/

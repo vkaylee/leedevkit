@@ -26,6 +26,10 @@ SCRIPTS_DIR = (
     Path(__file__).resolve().parent
 )  # always where the orchestrator scripts live
 
+# DevKit root: where the devkit is installed (per-project .leedevkit/ or global).
+# Derived from SCRIPTS_DIR: scripts/ is always a direct child of devkit root.
+DEVKIT_ROOT = SCRIPTS_DIR.parent
+
 
 def _which(cmd: str) -> str | None:
     """Find executable in PATH (delegates to shutil.which)."""
