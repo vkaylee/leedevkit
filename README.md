@@ -34,32 +34,53 @@ leedevkit init
 ## Quick Start
 
 ```bash
-# Bootstrap (first time only)
+# Bootstrap (first time only — installs global `leedevkit` command)
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
 
-# Initialize a project
+# Initialize a project (downloads devkit into .leedevkit/)
 cd my-project && git init
-leedevkit init
+leedevkit init                      # ← uses global binary for this step only
 
-# Run tests
-leedevkit test infra --lint-only    # ruff + mypy (Python) / cargo fmt + clippy (Rust)
-leedevkit test infra --unit-only    # pytest / cargo nextest / bun test
-leedevkit test infra                # format + lint + test + coverage
-leedevkit test all                  # full suite across all targets
+# IMPORTANT: after init, always use ./leedevkit (project-local), NOT leedevkit (global)
+./leedevkit test infra --lint-only  # ruff + mypy (Python) / cargo fmt + clippy (Rust)
+./leedevkit test infra --unit-only  # pytest / cargo nextest / bun test
+./leedevkit test infra              # format + lint + test + coverage
+./leedevkit test all                # full suite across all targets
 
 # Infrastructure management
-leedevkit manage up dev             # start dev environment
-leedevkit manage down dev           # stop dev environment
-leedevkit doctor                    # health check: config, containers, devkit location
+./leedevkit manage up dev           # start dev environment
+./leedevkit manage down dev         # stop dev environment
+./leedevkit doctor                  # health check: config, containers, devkit location
 
 # Skills catalog
-leedevkit skills list               # browse built-in + community catalog
-leedevkit skills install <name>     # install community skill by name
-leedevkit skills add <git-url>      # install external skill
-leedevkit skills update             # pull latest for all installed skills
+./leedevkit skills list             # browse built-in + community catalog
+./leedevkit skills install <name>   # install community skill by name
+./leedevkit skills add <git-url>    # install external skill
+./leedevkit skills update           # pull latest for all installed skills
 
 # Version
-leedevkit version                   # show devkit version
+./leedevkit version                 # show devkit version
+```
+
+### Why `./leedevkit` instead of `leedevkit`?
+
+`./leedevkit` is a project-local wrapper that delegates to `.leedevkit/bin/leedevkit`
+(inside your project). Using plain `leedevkit` would run the global bootstrap install
+at `~/.leedevkit/`, which is outside your project and breaks AI Agent permissions.
+
+If you prefer the short form, add this alias to your `.bashrc`/`.zshrc`:
+
+```bash
+# Use project-local leedevkit when in a project with .leedevkit/
+leedevkit() {
+  if [ -x "./leedevkit" ]; then
+    ./leedevkit "$@"
+  elif command -v leedevkit &>/dev/null; then
+    command leedevkit "$@"
+  else
+    echo "leedevkit not found. Run: curl -fsSL .../install.sh | bash"
+  fi
+}
 ```
 
 ## Migrating existing projects
