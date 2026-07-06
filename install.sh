@@ -31,7 +31,9 @@ echo "   Target:  $VERSION_DIR"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf $TMP_DIR' EXIT
 
-TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION_TAG/leedevkit-${VERSION_TAG}.tar.gz"
+# Strip "v" prefix for tarball name (v0.1.0 → leedevkit-0.1.0.tar.gz)
+VER="${VERSION_TAG#v}"
+TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
 
 rm -rf "$VERSION_DIR"

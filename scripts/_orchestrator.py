@@ -1076,9 +1076,11 @@ None
             return
 
         # Strategy 2: GitHub release tarball
-        if version and version != "latest":
+        # Strip "v" prefix from version for tarball name (v0.1.0 → leedevkit-0.1.0.tar.gz)
+        ver = version.lstrip("v") if version else version
+        if ver and version != "latest":
             url = (f"https://github.com/vkaylee/leedevkit/releases/download/"
-                   f"{version}/leedevkit-{version}.tar.gz")
+                   f"{version}/leedevkit-{ver}.tar.gz")
             log_info(f"Downloading {url} ...")
             try:
                 self._download_and_extract(url, target_dir)
