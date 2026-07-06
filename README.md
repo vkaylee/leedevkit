@@ -8,40 +8,49 @@ Per-project install: each project self-contains its own devkit (no global depend
 
 ### Bootstrap (one-time, installs the `leedevkit` command)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
-```
+Two ways to get started — pick one:
 
-Installs to `~/.leedevkit/<version>/` with `current` symlink (legacy global install, used as bootstrap only).
-
-### Initialize a project (per-project install)
+### Option A: bootstrap.sh (recommended — no global install)
 
 ```bash
 cd my-project && git init
-leedevkit init
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 ```
 
-`init` downloads the devkit release into `.leedevkit/` inside your project. From then on, everything is self-contained:
+Downloads the devkit release into `.leedevkit/` inside your project. No global install,
+no PATH modification, no root permissions. Everything is self-contained.
+
+### Option B: install.sh + init (legacy — global bootstrap)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+cd my-project && git init
+leedevkit init                      # ← uses global binary for this step only
+```
+
+Installs to `~/.leedevkit/<version>/` as a global bootstrap command, then `init`
+downloads the devkit into `.leedevkit/` inside your project.
+
+### After install
+
+`init` or `bootstrap` creates this structure:
 
 - `.leedevkit/scripts/`, `templates/`, `bin/`, `.agent/` — immutable engine
 - `.leedevkit/.venv/` — project-local Python environment
 - `.leedevkit/skills.d/` — installed community skills
 - `.agent/rules/` — project's AI rulebooks (copied from devkit base)
-- `./leedevkit` → symlink to `.leedevkit/bin/leedevkit`
+- `./leedevkit` → project-local wrapper script
 
 `.leedevkit/` and `./leedevkit` are gitignored. Commit `leedevkit.toml` and `leedevkit.lock` instead.
 
 ## Quick Start
 
 ```bash
-# Bootstrap (first time only — installs global `leedevkit` command)
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
-
-# Initialize a project (downloads devkit into .leedevkit/)
+# Recommended: bootstrap.sh (no global, per-project only)
 cd my-project && git init
-leedevkit init                      # ← uses global binary for this step only
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 
-# IMPORTANT: after init, always use ./leedevkit (project-local), NOT leedevkit (global)
+# Always use ./leedevkit (project-local), NOT leedevkit (global)
 ./leedevkit test infra --lint-only  # ruff + mypy (Python) / cargo fmt + clippy (Rust)
 ./leedevkit test infra --unit-only  # pytest / cargo nextest / bun test
 ./leedevkit test infra              # format + lint + test + coverage
