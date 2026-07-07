@@ -26,6 +26,7 @@ if [ $# -eq 0 ]; then
     echo "  test     Run tests       (leedevkit test infra --lint-only)"
     echo "  manage   Infra & config  (leedevkit manage up dev)"
     echo "  init     Initialize a project with leedevkit"
+    echo "  update   Update devkit to the latest (or pinned) release"
     echo "  doctor   System health check"
     echo "  skills   Browse and install community skills"
     echo "  version  Show devkit version"
@@ -52,6 +53,9 @@ case "$COMMAND" in
         ;;
     skills)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage skills "$@"
+        ;;
+    update)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" update "$@"
         ;;
     version|--version|-v)
         cat "$SCRIPT_DIR/VERSION"

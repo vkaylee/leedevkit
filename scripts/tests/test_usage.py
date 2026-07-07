@@ -75,6 +75,58 @@ class TestDoctor:
         assert r.returncode == 0
 
 
+class TestUpdateCli:
+    """Subprocess smoke tests for the 'update' subcommand.
+
+    Note: the destructive/rollback update paths are covered by the in-process
+    tests in test_orchestrator.py (which redirect _devkit_root to tmp_path), so
+    these subprocess checks stick to non-mutating cases.
+    """
+
+    @staticmethod
+    def _orch():
+        return Path(__file__).resolve().parent.parent / "_orchestrator.py"
+
+    @staticmethod
+    def _repo_version():
+        return (
+            Path(__file__).resolve().parent.parent.parent / "VERSION"
+        ).read_text().strip()
+
+    def test_update_help(self):
+        r = subprocess.run(
+            [sys.executable, str(self._orch()), "update", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
+        assert "--version" in r.stdout
+
+    def test_update_already_latest(self):
+        version = self._repo_version()
+        r = subprocess.run(
+            [sys.executable, str(self._orch()), "update", "--version", f"v{version}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert r.returncode == 0
+        assert f"Already on latest ({version})" in r.stderr
+
+    def test_bin_leedevkit_routes_update(self):
+        """bin/leedevkit forwards the update subcommand to the orchestrator."""
+        bin_path = Path(__file__).resolve().parent.parent.parent / "bin" / "leedevkit"
+        r = subprocess.run(
+            [str(bin_path), "update", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert r.returncode == 0
+        assert "--version" in r.stdout
+
+
 class TestConfigLoading:
     def test_config_loads(self, tmp_path, monkeypatch):
         (tmp_path / "leedevkit.toml").write_text("""

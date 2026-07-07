@@ -2,6 +2,7 @@
 import argparse
 import atexit
 import contextlib
+import json
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ import sys
 import time
 import typing
 import urllib.request
+import uuid
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
@@ -200,6 +202,7 @@ class Orchestrator:
         self._setup_test_parser(subparsers, parent_parser)
         self._setup_manage_parser(subparsers, parent_parser)
         self._setup_run_parser(subparsers, parent_parser)
+        self._setup_update_parser(subparsers, parent_parser)
 
     def _setup_test_parser(
         self,
@@ -368,6 +371,25 @@ None
             "args", nargs=argparse.REMAINDER, help="Arguments for the tool"
         )
 
+    def _setup_update_parser(
+        self,
+        subparsers: typing.Any,  # noqa: ANN401
+        parent_parser: argparse.ArgumentParser,
+    ) -> None:
+        update_p = subparsers.add_parser(
+            "update",
+            parents=[parent_parser],
+            help="Update devkit to the latest (or pinned) release",
+            description="Download a release tarball from GitHub and overlay it onto this devkit install.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="Examples:\n  leedevkit update               # Update to the latest release\n  leedevkit update --version v0.2.0   # Pin to a specific release",
+        )
+        update_p.add_argument(
+            "--version",
+            default=None,
+            help="Pin to a specific release tag (e.g. v0.2.0). Default: latest",
+        )
+
     def run(self) -> None:
         args = self.parser.parse_args()
         self.dry_run = args.dry_run
@@ -405,6 +427,8 @@ None
             self.handle_manage(args)
         elif args.command == "run":
             self.handle_run(args)
+        elif args.command == "update":
+            self.handle_update(args)
 
     def handle_test(self, args: argparse.Namespace) -> None:  # noqa: PLR0915
         target = getattr(args, "target", None)
@@ -795,6 +819,75 @@ None
         )
         project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
         return any(project_name in n and service in n for n in res.stdout.splitlines())
+
+    # ── Self-update ────────────────────────────────────────────────────────────
+
+    def _devkit_root(self) -> Path:
+        """Return the directory this devkit is installed in (parent of scripts/)."""
+        return Path(__file__).resolve().parent.parent
+
+    def _latest_release_version(self) -> str:
+        """Return the latest release tag (e.g. 'v0.2.0') from GitHub Releases."""
+        api = "https://api.github.com/repos/vkaylee/leedevkit/releases/latest"
+        req = urllib.request.Request(
+            api, headers={"Accept": "application/vnd.github+json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.load(r)
+        except Exception as e:
+            raise RuntimeError(f"Could not reach GitHub Releases: {e}") from e
+        tag = data.get("tag_name")
+        if not tag:
+            raise RuntimeError("GitHub releases/latest returned no tag_name")
+        return tag
+
+    def handle_update(self, args: argparse.Namespace) -> None:
+        """Download a release tarball and overlay it onto this devkit install."""
+        root = self._devkit_root()
+        current = (root / "VERSION").read_text().strip()  # e.g. "0.1.0"
+        target = args.version  # None → latest
+
+        if target is None:
+            target = self._latest_release_version()  # e.g. "v0.2.0"
+
+        ver = target.lstrip("v")  # tarball version, no "v"
+        if ver == current:
+            log_info(f"Already on latest ({current}).")
+            return
+
+        log_info(f"Updating {current} → {target}")
+
+        # Backup current install to <root>.bak before overwriting.
+        backup = root.with_name(root.name + ".bak")
+        if backup.exists():
+            shutil.rmtree(backup)
+        shutil.move(str(root), str(backup))
+        log_info(f"Backed up current install to {backup.name}/")
+
+        # Download into a temp dir, then move the extracted tree onto root.
+        tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
+        url = (
+            f"https://github.com/vkaylee/leedevkit/releases/download/"
+            f"{target}/leedevkit-{ver}.tar.gz"
+        )
+        try:
+            log_info(f"Downloading {url} ...")
+            self._download_and_extract(url, tmp_extract)
+            if root.exists():
+                shutil.rmtree(root)
+            shutil.move(str(tmp_extract), str(root))
+        except Exception:
+            # Roll back on any failure.
+            if root.exists():
+                shutil.rmtree(root)
+            shutil.move(str(backup), str(root))
+            log_warn("Update failed; rolled back to previous version.")
+            raise
+
+        new_ver = (root / "VERSION").read_text().strip()
+        log_success(f"Updated leedevkit {current} → {new_ver}")
+        log_info(f"Previous version kept at {backup.name}/ (safe to remove).")
 
     def _handle_run_npm(
         self,

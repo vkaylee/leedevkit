@@ -1,7 +1,10 @@
 """Tests for _orchestrator — main CLI entry point (config-compatible)."""
+import argparse
 import os
 import sys
 from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -843,3 +846,177 @@ class TestInitPopulatesRules:
             orch = Orchestrator()
             orch.handle_init(force=False)
             assert (tmp_path / ".agent" / "overrides.yaml").exists()
+
+
+class TestUpdateParser:
+    """Parser accepts 'update' and exposes --version."""
+
+    def test_update_command_parsed(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = orch.parser.parse_args(["update"])
+            assert args.command == "update"
+            assert args.version is None
+
+    def test_update_with_pinned_version(self):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = orch.parser.parse_args(["update", "--version", "v0.2.0"])
+            assert args.version == "v0.2.0"
+
+    def test_update_help_lists_examples(self, capsys):
+        from _orchestrator import Orchestrator
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            with pytest.raises(SystemExit):
+                orch.parser.parse_args(["update", "--help"])
+            out = capsys.readouterr().out
+            assert "--version" in out
+
+
+class TestLatestReleaseVersion:
+    """_latest_release_version reads tag_name from GitHub releases/latest."""
+
+    def _fake_urlopen(self, payload: bytes):
+        import io
+
+        class _Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def _open(req, timeout=15):
+            return _Resp(payload)
+
+        return _open
+
+    def test_returns_tag_name(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import json
+
+        body = json.dumps({"tag_name": "v0.2.0"}).encode()
+        monkeypatch.setattr(
+            "_orchestrator.urllib.request.urlopen", self._fake_urlopen(body)
+        )
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert orch._latest_release_version() == "v0.2.0"
+
+    def test_raises_when_no_tag_name(self, monkeypatch):
+        from _orchestrator import Orchestrator
+        import json
+
+        body = json.dumps({"name": "v0.2.0"}).encode()
+        monkeypatch.setattr(
+            "_orchestrator.urllib.request.urlopen", self._fake_urlopen(body)
+        )
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            with pytest.raises(RuntimeError, match="no tag_name"):
+                orch._latest_release_version()
+
+    def test_wraps_network_failure(self, monkeypatch):
+        from _orchestrator import Orchestrator
+
+        def _boom(req, timeout=15):
+            raise OSError("offline")
+
+        monkeypatch.setattr("_orchestrator.urllib.request.urlopen", _boom)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            with pytest.raises(RuntimeError, match="Could not reach"):
+                orch._latest_release_version()
+
+
+class TestHandleUpdate:
+    """Self-update flow: already-latest, success, rollback, latest lookup."""
+
+    @staticmethod
+    def _make_root(tmp_path, version="0.1.0"):
+        root = tmp_path / "devkit"
+        root.mkdir()
+        (root / "VERSION").write_text(version)
+        return root
+
+    def test_already_on_latest_skips(self, tmp_path, monkeypatch, capsys):
+        from _orchestrator import Orchestrator
+        root = self._make_root(tmp_path, "0.1.0")
+        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(version="v0.1.0")
+            orch.handle_update(args)
+        out = capsys.readouterr().err
+        assert "Already on latest (0.1.0)" in out
+        # No backup created
+        assert not (tmp_path / "devkit.bak").exists()
+
+    def test_successful_update_backs_up_and_overlays(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        root = self._make_root(tmp_path, "0.1.0")
+
+        def fake_download(self, url, target_dir):
+            # Mimic _download_and_extract: populate target_dir with new tree
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.2.0")
+            (target_dir / "scripts").mkdir()
+
+        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
+        monkeypatch.setattr(Orchestrator, "_download_and_extract", fake_download)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(version="v0.2.0")
+            orch.handle_update(args)
+        # New version installed
+        assert (root / "VERSION").read_text() == "0.2.0"
+        assert (root / "scripts").is_dir()
+        # Backup kept with old version
+        assert (tmp_path / "devkit.bak" / "VERSION").read_text() == "0.1.0"
+        # No leftover temp dirs
+        assert not list(tmp_path.glob(".leedevkit-update-*"))
+
+    def test_rollback_on_download_failure(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        root = self._make_root(tmp_path, "0.1.0")
+
+        def boom(self, url, target_dir):
+            raise RuntimeError("network down")
+
+        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
+        monkeypatch.setattr(Orchestrator, "_download_and_extract", boom)
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(version="v0.2.0")
+            with pytest.raises(RuntimeError, match="network down"):
+                orch.handle_update(args)
+        # Rolled back: original tree intact, no leftover backup
+        assert (root / "VERSION").read_text() == "0.1.0"
+        assert not (tmp_path / "devkit.bak").exists()
+
+    def test_uses_latest_release_when_no_version(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        root = self._make_root(tmp_path, "0.1.0")
+
+        captured = {}
+
+        def fake_download(self, url, target_dir):
+            captured["url"] = url
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.0")
+
+        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
+        monkeypatch.setattr(Orchestrator, "_download_and_extract", fake_download)
+        monkeypatch.setattr(
+            Orchestrator, "_latest_release_version", lambda self: "v0.3.0"
+        )
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = argparse.Namespace(version=None)
+            orch.handle_update(args)
+        assert (root / "VERSION").read_text() == "0.3.0"
+        # URL built from the resolved latest tag
+        assert "v0.3.0/leedevkit-0.3.0.tar.gz" in captured["url"]
