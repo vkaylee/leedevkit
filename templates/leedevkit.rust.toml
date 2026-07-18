@@ -1,0 +1,55 @@
+# =============================================================================
+# LeeDevKit Devkit — Rust-Only Project Profile
+# =============================================================================
+# For single-crate or workspace-only Rust projects (library, CLI, tool, etc.).
+# Uses a single container with the Rust toolchain — no database, no web frontend.
+#
+# The Dockerfile and docker-compose.test.yml are provided by the devkit
+# at .leedevkit/container/rust/ and require no setup. To customize the container
+# image, create your own Dockerfile at the project root and a compose file
+# at .compose/docker-compose.test.yml — the devkit will use those instead.
+#
+# Quick start:
+#   leedevkit init                      # scaffold project
+#   ./leedevkit test all                # cargo fmt + clippy + nextest + coverage
+
+[devkit]
+version = "latest"                # pinned devkit version (set by leedevkit init)
+install = "per-project"          # "per-project" (default) | "global" (legacy)
+source = "release"               # "release" | "git" | "local"
+
+[project]
+name = "MyRustProject"            # display name
+namespace = "myrustproject"       # docker compose project prefix
+languages = ["rust"]              # Rust only — no TypeScript, no Python
+
+# ── Service ─────────────────────────────────────────────────────────────────
+# Single container using the devkit's default Rust image.
+# The Dockerfile is at .leedevkit/container/rust/Dockerfile (auto-provided).
+# To customize: create your own Dockerfile at the project root and
+#                .compose/docker-compose.test.yml (takes priority).
+
+[services.rust]
+lang = "rust"
+cargo = true
+# rust_version = "1.85"          # optional — Rust toolchain version (default: 1.85)
+# dockerfile — omitted; devkit uses its built-in container/rust/Dockerfile
+# ports — omitted; no server ports for library/CLI projects
+
+# ── Targets ────────────────────────────────────────────────────────────────
+# "all" runs the full Rust pipeline: fmt → clippy → test → coverage
+
+[targets]
+all = ["rust"]
+
+# ── AI Context ─────────────────────────────────────────────────────────────
+[ai]
+extra_rules = []
+rules_dir = ".agent/rules"
+override_manifest = ".agent/overrides.yaml"
+
+# ── Community Add-ons ──────────────────────────────────────────────────────
+[addons]
+skills = [
+    # { url = "https://github.com/addyosmani/agent-skills.git", version = "main" },
+]

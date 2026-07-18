@@ -1,0 +1,35 @@
+# =============================================================================
+# LeeDevKit — Single-Container Compose Profile
+# =============================================================================
+# Default compose file for Rust-only projects (library crates, CLI tools, etc.).
+# Provides a single service with the Rust toolchain, no database dependencies.
+#
+# Path resolution (relative to this file at .leedevkit/container/rust/):
+#   context: ../../..  → project root
+#   dockerfile: .leedevkit/container/rust/Dockerfile
+#
+# For multi-service projects, create your own at .compose/docker-compose.test.yml
+# (takes priority over this default).
+# =============================================================================
+
+services:
+  rust:
+    build:
+      context: ../../..
+      dockerfile: .leedevkit/container/rust/Dockerfile
+      args:
+        RUST_VERSION: ${RUST_VERSION:-1.85}
+    volumes:
+      - ../../..:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-target:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-2}
+      - CARGO_TARGET_DIR=/workspace/target
+      - RUSTC_WRAPPER=
+    stdin_open: true
+
+volumes:
+  cargo-registry:
+  cargo-target:

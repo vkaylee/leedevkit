@@ -56,6 +56,10 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 ./leedevkit test infra              # format + lint + test + coverage
 ./leedevkit test all                # full suite across all targets
 
+# For Rust-only projects (library, CLI, tool):
+# ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
+./leedevkit test all                # cargo fmt + clippy + nextest + coverage
+
 # Infrastructure management
 ./leedevkit manage up dev           # start dev environment
 ./leedevkit manage down dev         # stop dev environment
@@ -157,6 +161,9 @@ all = ["apiserver", "agent-main", "webdashboard"]
 # infra = ["infra"]
 # all = ["infra"]
 
+# For Rust-only projects (no web, no DB):
+# See "Rust-Only Project" section below or templates/leedevkit.rust.toml
+
 [ai]
 rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
@@ -166,6 +173,71 @@ skills = [
     # { url = "https://github.com/author/skill.git", version = "main" },
 ]
 ```
+
+## Rust-Only Project
+
+For Rust libraries, CLI tools, or any crate that doesn't need a web frontend or database.
+No Dockerfile or docker-compose.yml setup required — the devkit provides defaults.
+
+```bash
+cd my-rust-crate && git init
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
+
+# init auto-detects Cargo.toml → scaffolds leedevkit.rust.toml
+./leedevkit test all   # cargo fmt → clippy → nextest → llvm-cov
+```
+
+### How it works
+
+```
+my-rust-crate/
+├── Cargo.toml
+├── src/
+├── leedevkit.toml              ← auto-generated (rust template)
+├── leedevkit                   ← wrapper script
+├── .leedevkit/
+│   │   └── rust/               ← language-specific Dockerfile + compose (zero setup)
+├── .agent/rules/               ← AI context (copied from devkit)
+└── .compose/                   ← (optional) create to override the default image
+```
+
+### leedevkit.toml (Rust-only)
+
+```toml
+[devkit]
+version = "latest"
+
+[project]
+name = "MyRustCrate"
+namespace = "myrustcrate"
+languages = ["rust"]
+
+[services.rust]
+lang = "rust"
+cargo = true
+# rust_version = "1.83"    # optional — pin Rust version (default: 1.85)
+# No dockerfile needed — devkit uses built-in container/rust/Dockerfile
+# No ports — library/CLI projects don't expose network ports
+
+[targets]
+all = ["rust"]
+```
+
+### Overriding the container image
+
+To add system dependencies (e.g., `libpq-dev` for diesel):
+
+```bash
+# Create your own Dockerfile at project root
+# Create .compose/docker-compose.test.yml (takes priority over devkit default)
+mkdir -p .compose
+```
+
+The devkit resolves compose files in priority order:
+1. `.compose/docker-compose.test.yml` (your override, if present)
+2. `.leedevkit/container/<lang>/docker-compose.test.yml` (devkit default, auto-discovered)
+
+See `container/README.md` for full architecture details.
 
 ## .agent/overrides.yaml
 

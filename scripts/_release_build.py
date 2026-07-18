@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 # ── Items to include in the release tarball ──
-INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent"]
+INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent", "container"]
 INCLUDE_FILES = ["VERSION", "devkit.manifest.json"]
 
 # ── Patterns to exclude — always filtered ──

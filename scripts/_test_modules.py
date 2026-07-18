@@ -15,6 +15,54 @@ from _test_utils import (
     run_parallel_ordered,
 )
 
+# ── Known cargo package mappings (service_name → cargo_package_name) ──
+# For backward compat: these are workspace members in the leeattend monorepo.
+# Unknown services default to --workspace (safe for single-crate projects too).
+_KNOWN_PACKAGES: dict[str, str] = {"apiserver": "apiserver", "agent-main": "agent"}
+
+
+def _resolve_rust_service(component_filter: str = "") -> str:
+    """Return the service name to use for Rust/cargo docker-compose operations.
+
+    Priority:
+      1. component_filter if it matches a Rust service in leedevkit.toml
+      2. First Rust service detected in leedevkit.toml
+      3. "apiserver" (backward compat)
+    """
+    try:
+        from _bootstrap import PROJECT_ROOT
+        from _devkit_config import _load_toml
+
+        config_toml = PROJECT_ROOT / "leedevkit.toml"
+        if config_toml.exists():
+            cfg = _load_toml(config_toml)
+            services = cfg.get("services", {})
+            rust_services = [
+                name
+                for name, svc in services.items()
+                if isinstance(svc, dict)
+                and svc.get("lang") == "rust"
+                and svc.get("cargo")
+            ]
+            if component_filter and component_filter in rust_services:
+                return component_filter
+            if rust_services:
+                return rust_services[0]
+    except Exception:
+        pass
+    return "apiserver"
+
+
+def _resolve_pkg_flag(component_filter: str) -> str:
+    """Resolve --package flag for cargo commands.
+
+    Uses known package mappings for backward compat; defaults to --workspace
+    which is safe for both single-crate and multi-crate projects.
+    """
+    if component_filter in _KNOWN_PACKAGES:
+        return f"--package {_KNOWN_PACKAGES[component_filter]}"
+    return "--workspace"
+
 
 def _safe_pattern(pattern: str) -> str:
     """Shell-escape a test pattern for safe interpolation into bash -c."""
@@ -48,15 +96,11 @@ def leedevkit_run_lint(
         tasks.append(("rust-backend-fmt-check", "host", fmt_cmd))  # pragma: no cover
 
     if mode in ("all", "api", "integration"):
-        pkg_name = "agent" if component_filter == "agent-main" else component_filter
-        pkg_flag = (
-            f"--package {pkg_name}"
-            if component_filter in ["apiserver", "agent-main"]
-            else "--workspace"
-        )
+        rust_svc = _resolve_rust_service(component_filter)
+        pkg_flag = _resolve_pkg_flag(component_filter)
         fmt_flag = "" if fix else "-- --check"
         backend_cmd = build_compose_exec(
-            "apiserver",
+            rust_svc,
             f"cargo fmt --all {fmt_flag} && cargo clippy {pkg_flag} -- -D warnings",
             workdir="/workspace",
             mode=mode,
@@ -66,7 +110,7 @@ def leedevkit_run_lint(
             if component_filter
             else "rust-backend-clippy"
         )
-        tasks.append((task_name, "apiserver", backend_cmd))
+        tasks.append((task_name, rust_svc, backend_cmd))
 
         # Add custom Python linters (run on host as apiserver container lacks Python)
         import sys
@@ -74,14 +118,14 @@ def leedevkit_run_lint(
         from _bootstrap import SCRIPTS_DIR
 
         clean_code_cmd = [sys.executable, str(SCRIPTS_DIR / "lint_clean_code.py")]
-        tasks.append(("rust-backend-clean-code-linter", "apiserver", clean_code_cmd))
+        tasks.append(("rust-backend-clean-code-linter", rust_svc, clean_code_cmd))
 
         tenant_isolation_cmd = [
             sys.executable,
             str(SCRIPTS_DIR / "lint_tenant_isolation.py"),
         ]
         tasks.append(
-            ("rust-backend-tenant-isolation-linter", "apiserver", tenant_isolation_cmd)
+            ("rust-backend-tenant-isolation-linter", rust_svc, tenant_isolation_cmd)
         )
 
     if mode in ("all", "web"):
@@ -102,7 +146,7 @@ def leedevkit_run_lint(
 
     if mode == "all":
         sync_cmd = build_compose_exec(
-            "apiserver",
+            rust_svc,
             "cargo run -- gen-openapi > /workspace/shared/openapi.json",
             mode=mode,
         )
@@ -134,21 +178,17 @@ def leedevkit_run_unit(
     shard_flag = f"--shard={shard_n}/{shard_m}" if shard_n and shard_m else ""
 
     if mode in ("all", "api", "integration"):
-        pkg_name = "agent" if component_filter == "agent-main" else component_filter
-        pkg_flag = (
-            f"--package {pkg_name}"
-            if component_filter in ["apiserver", "agent-main"]
-            else "--workspace"
-        )
+        rust_svc = _resolve_rust_service(component_filter)
+        pkg_flag = _resolve_pkg_flag(component_filter)
         db_url = "postgres://test_user:test_password@localhost:5432/test_database?sslmode=disable"
         backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {_safe_pattern(test_pattern)} {shard_flag} --no-tests=pass"
         backend_cmd = build_compose_exec(
-            "apiserver", backend, workdir="/workspace", mode=mode
+            rust_svc, backend, workdir="/workspace", mode=mode
         )
         task_name = (
             f"rust-backend-{component_filter}" if component_filter else "rust-backend"
         )
-        tasks.append((task_name, "apiserver", backend_cmd))
+        tasks.append((task_name, rust_svc, backend_cmd))
 
     if mode in ("all", "web"):
         web = f"bun run test -- {_safe_pattern(test_pattern)} {shard_flag} --passWithNoTests"
@@ -168,16 +208,12 @@ def leedevkit_run_integration(
     workdir = "/workspace"
 
     if mode in ("all", "api", "integration") and "web" not in component_filter:
+        rust_svc = _resolve_rust_service(component_filter)
+        pkg_flag = _resolve_pkg_flag(component_filter)
         # API server startup is handled by the lifecycle/container health check
         # Integration tests use the already-running apiserver container
         db_url = (
             "postgres://test_user:test_password@db_system:5432/leedevkit_test_template"
-        )
-        pkg_name = "agent" if component_filter == "agent-main" else component_filter
-        pkg_flag = (
-            f"--package {pkg_name}"
-            if component_filter in ["apiserver", "agent-main"]
-            else "--workspace"
         )
         import os
 
@@ -188,14 +224,14 @@ def leedevkit_run_integration(
             f"--no-tests={no_tests_flag}"
         )
         backend_cmd = build_compose_exec(
-            "apiserver", backend, workdir=workdir, mode=mode
+            rust_svc, backend, workdir=workdir, mode=mode
         )
         task_name = (
             f"rust-backend-int-{component_filter}"
             if component_filter
             else "rust-backend-int"
         )
-        tasks.append((task_name, "apiserver", backend_cmd))
+        tasks.append((task_name, rust_svc, backend_cmd))
 
     if mode in ("all", "web"):
         pw_args = f"-g {_safe_pattern(test_pattern)}" if test_pattern else ""
@@ -215,12 +251,8 @@ def leedevkit_run_coverage(
     coverage_env = "RUSTC_WRAPPER='' DATABASE_URL='postgres://test_user:test_password@db_system:5432/leedevkit_test_template'"
 
     if mode in ("all", "api", "integration"):
-        pkg_name = "agent" if component_filter == "agent-main" else component_filter
-        pkg_flag = (
-            f"--package {pkg_name}"
-            if component_filter in ["apiserver", "agent-main"]
-            else "--workspace"
-        )
+        rust_svc = _resolve_rust_service(component_filter)
+        pkg_flag = _resolve_pkg_flag(component_filter)
         test_flags = "--lib" if unit_only else "--lib --test integration"
         ignore_regex = "--ignore-filename-regex 'app_builder\\.rs|handlers/debug\\.rs|worker/runner\\.rs|worker/main\\.rs|main\\.rs|report_service_test\\.rs|handlers/custom_fields\\.rs|handlers/document_.*\\.rs|handlers/files\\.rs|handlers/signatures\\.rs|handlers/storage_config\\.rs|models/custom_field\\.rs|models/diesel/file\\.rs|models/diesel/signature\\.rs|models/signature\\.rs|models/file\\.rs|services/storage/.*|diesel_file_repository\\.rs|storage_config_repo\\.rs|diesel_custom_field_repository\\.rs|diesel_signature_repository\\.rs|custom_field_service\\.rs|signature_service\\.rs|file_scan_scheduler\\.rs|employee/mod\\.rs|crypto\\.rs|lifecycle_checklist.*|employment_phases\\.rs|tenant_manager\\.rs|job_queue\\.rs'"
         apiserver_cov = (
@@ -249,8 +281,8 @@ def leedevkit_run_coverage(
         tasks.append(
             (
                 task_name,
-                "apiserver",
-                build_compose_exec("apiserver", apiserver_cov, mode=mode),
+                rust_svc,
+                build_compose_exec(rust_svc, apiserver_cov, mode=mode),
             )
         )
 

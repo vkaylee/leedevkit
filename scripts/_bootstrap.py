@@ -127,6 +127,24 @@ def resolve_lifecycle_profiles(mode: str) -> list[str]:
     return LIFECYCLE_PROFILES.get(mode, ["--profile", mode])
 
 
+def _find_container_compose() -> Path | None:
+    """Find a language-specific compose file under container/<lang>/.
+
+    Auto-discovers subdirectories — adding container/go/ or container/python/
+    in the future requires no code changes here.
+    """
+    container_dir = DEVKIT_ROOT / "container"
+    if not container_dir.exists():
+        return None
+    for lang_dir in sorted(container_dir.iterdir()):
+        if not lang_dir.is_dir() or lang_dir.name == "__pycache__":
+            continue
+        candidate = lang_dir / "docker-compose.test.yml"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def bootstrap_env(mode: str = "all") -> dict[str, str]:
     """Build the full environment dict for the given mode.
 
@@ -138,11 +156,18 @@ def bootstrap_env(mode: str = "all") -> dict[str, str]:
 
     profiles = resolve_profiles(mode)
 
+    # Resolve compose file: project override first, then devkit default
+    compose_file = PROJECT_ROOT / ".compose" / "docker-compose.test.yml"
+    if not compose_file.exists():
+        container_compose = _find_container_compose()
+        if container_compose is not None:
+            compose_file = container_compose
+
     compose_base = [
         "-p",
         project_name,
         "-f",
-        str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
+        str(compose_file),
     ]
     compose_full = compose_cmd + compose_base + profiles
     compose_str = " ".join(compose_full)

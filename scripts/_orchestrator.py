@@ -29,6 +29,7 @@ from _bootstrap import (
 from _lifecycle import lifecycle_down
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _test_modules import (
+    _resolve_rust_service,
     leedevkit_run_coverage,
     leedevkit_run_integration,
     leedevkit_run_lint,
@@ -95,10 +96,11 @@ class Orchestrator:
             epilog="Examples:\n  leedevkit test all\n  leedevkit manage up dev\n  leedevkit manage sync:api",
         )
         # Mapping tool names to their target service in docker-compose.test.yml
+        rust_svc = self._detect_rust_service()
         self.tool_map = {
             "npm": "webdashboard",
-            "cargo": "apiserver",
-            "diesel": "apiserver",
+            "cargo": rust_svc,
+            "diesel": rust_svc,
         }
         self.setup_parser()
         self.dry_run = False
@@ -115,6 +117,73 @@ class Orchestrator:
         self.start_time = time.time()
         self.lock_fd: int | None = None
         self.register_traps()
+
+    def _detect_rust_service(self) -> str:
+        """Return the service name for Rust/cargo operations.
+
+        Delegates to _resolve_rust_service() in _test_modules for a single
+        source of truth. Falls back to 'apiserver' for backward compatibility
+        with projects that pre-date auto-detection.
+        """
+        return _resolve_rust_service()
+
+    def _build_mode_map(self) -> dict[str, str]:
+        """Build mode_map from leedevkit.toml services.
+
+        Maps each service to its test mode: Rust → 'api', TypeScript → 'web'.
+        Falls back to hardcoded defaults for backward compatibility.
+        """
+        mode_map: dict[str, str] = {"all": "all"}
+        try:
+            from _bootstrap import PROJECT_ROOT as _project_root
+            from _devkit_config import _load_toml
+
+            config_toml = _project_root / "leedevkit.toml"
+            if config_toml.exists():
+                cfg = _load_toml(config_toml)
+                services = cfg.get("services", {})
+                for name, svc in services.items():
+                    if isinstance(svc, dict):
+                        lang = svc.get("lang", "")
+                        if lang == "rust":
+                            mode_map[name] = "api"
+                        elif lang in ("typescript", "javascript"):
+                            mode_map[name] = "web"
+        except Exception:
+            pass
+        # Backward-compat fallbacks
+        mode_map.setdefault("apiserver", "api")
+        mode_map.setdefault("agent-main", "api")
+        mode_map.setdefault("webdashboard", "web")
+        mode_map.setdefault("api", "api")
+        mode_map.setdefault("web", "web")
+        return mode_map
+
+    def _inject_rust_version_env(self) -> None:
+        """Read rust_version from leedevkit.toml and set RUST_VERSION env var.
+
+        Defaults to '1.85' if not configured. Users can override with:
+          [services.<name>]
+          rust_version = "1.83"
+        or via environment: RUST_VERSION=1.83 ./leedevkit test all
+        """
+        if "RUST_VERSION" in os.environ:
+            return  # Explicit env override wins
+        try:
+            from _bootstrap import PROJECT_ROOT as _project_root
+            from _devkit_config import _load_toml
+
+            config_toml = _project_root / "leedevkit.toml"
+            if config_toml.exists():
+                cfg = _load_toml(config_toml)
+                services = cfg.get("services", {})
+                for _svc in services.values():
+                    if isinstance(_svc, dict) and "rust_version" in _svc:
+                        os.environ["RUST_VERSION"] = str(_svc["rust_version"])
+                        return
+        except Exception:
+            pass
+        os.environ.setdefault("RUST_VERSION", "1.85")
 
     def register_traps(self) -> None:
         """Register signal handlers and exit hooks for cleanup."""
@@ -440,22 +509,15 @@ None
                 self.handle_verify_infra()
             return
 
-        mode_map = {
-            "all": "all",
-            "api": "api",
-            "web": "web",
-            "apiserver": "api",
-            "agent-main": "api",
-            "webdashboard": "web",
-        }
+        mode_map = self._build_mode_map()
+        service_names = [k for k in mode_map if k not in ("all", "api", "web")]
 
         mode = mode_map.get(target or "all", "all")
-        component_filter = (
-            target if target in ["apiserver", "agent-main", "webdashboard"] else ""
-        )
+        component_filter = target if target in service_names else ""
         args.component = component_filter
 
         self.active_mode = mode
+        self._inject_rust_version_env()
         log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
 
         if getattr(args, "timeout", None):
@@ -704,6 +766,7 @@ None
 
     def handle_run(self, args: argparse.Namespace) -> None:  # noqa: PLR0915
         self.needs_cleanup = True
+        self._inject_rust_version_env()
         tool = args.tool
         tool_args = args.args
 
@@ -999,8 +1062,12 @@ None
         # ── Step 0: Load or create leedevkit.toml ──
         if not config_toml.exists() or force:
             # Use the devkit source repo's template (before we have .leedevkit/)
+            # Auto-detect project type: Cargo.toml → rust template, else default
             source_root = Path(__file__).resolve().parent.parent
-            template = source_root / "templates" / "leedevkit.default.toml"
+            if (root / "Cargo.toml").exists():
+                template = source_root / "templates" / "leedevkit.rust.toml"
+            else:
+                template = source_root / "templates" / "leedevkit.default.toml"
             if template.exists():
                 config_toml.write_text(template.read_text())
                 log_success("Created leedevkit.toml (edit it for your project)")

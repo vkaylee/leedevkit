@@ -24,6 +24,7 @@ lang = "rust"
 ports = [3000]
 health_check = "/api/v1/health"
 cargo = true
+# rust_version = "1.85"       # optional — pin Rust toolchain version (default: 1.85)
 
 [services.webdashboard]
 dockerfile = "./webdashboard"
