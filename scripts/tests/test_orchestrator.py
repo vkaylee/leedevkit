@@ -163,6 +163,66 @@ class TestLeedevkitDir:
             assert (tmp_path / "leedevkit").exists()
             assert (tmp_path / "leedevkit.toml").exists()
 
+    def test_init_uses_installed_venv_bootstrap(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".git").mkdir()
+        (project / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        monkeypatch.chdir(project)
+        devkit = project / ".leedevkit"
+        scripts = devkit / "scripts"
+        scripts.mkdir(parents=True)
+        python_path = devkit / ".venv" / "bin" / "python3"
+        python_path.parent.mkdir(parents=True)
+        python_path.write_text("#!/bin/sh\n")
+        python_path.chmod(0o755)
+        ensure = scripts / "_ensure-venv.sh"
+        ensure.write_text(f"#!/bin/sh\nprintf '%s\\n' '{python_path}'\n")
+        ensure.chmod(0o755)
+        (devkit / "VERSION").write_text("0.1.0")
+        (devkit / ".agent" / "rules").mkdir(parents=True)
+        (devkit / ".agent" / "rules" / "base.md").write_text("# Base\n")
+        (devkit / ".agent" / "skills-catalog.toml").write_text("[skills]\n")
+        (devkit / "bin").mkdir()
+        (devkit / "bin" / "leedevkit").write_text("#!/bin/sh\n")
+        (devkit / "templates").mkdir()
+        monkeypatch.setenv("DEVKIT_HOME", str(devkit))
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            with patch.object(Orchestrator, "_install_devkit") as install:
+                orch = Orchestrator()
+                orch.handle_init(force=False)
+        install.assert_not_called()
+        assert (project / "leedevkit").exists()
+
+    def test_init_rejects_venv_path_outside_devkit(self, tmp_path, monkeypatch):
+        from _orchestrator import Orchestrator
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".git").mkdir()
+        (project / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        devkit = project / ".leedevkit"
+        (devkit / "scripts").mkdir(parents=True)
+        (devkit / "VERSION").write_text("0.1.0")
+        outside_python = tmp_path / ".venv" / "bin" / "python3"
+        outside_python.parent.mkdir(parents=True)
+        outside_python.write_text("#!/bin/sh\n")
+        outside_python.chmod(0o755)
+        ensure = devkit / "scripts" / "_ensure-venv.sh"
+        ensure.write_text(f"#!/bin/sh\nprintf '%s\\n' '{outside_python}'\n")
+        ensure.chmod(0o755)
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("DEVKIT_HOME", str(devkit))
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "no-home")
+        import _devkit_config
+        _devkit_config._DEVKIT_ROOT = None
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            with pytest.raises(RuntimeError, match="invalid Python executable"):
+                orch.handle_init(force=False)
+
     def test_load_catalog(self):
         from _orchestrator import Orchestrator
         with patch.object(Orchestrator, "register_traps", return_value=None):

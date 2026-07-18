@@ -18,7 +18,13 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 | | With screenshot | `python scripts/playwright_runner.py <url> --screenshot` |
 | | Accessibility check | `python scripts/playwright_runner.py <url> --a11y` |
 
-**Requires:** `pip install playwright && playwright install chromium`
+**Runtime setup:** LeeDevKit installs the Python `playwright` package in its managed venv. On the first standalone browser-test run, the runner downloads Chromium automatically only if it is missing. If that download fails, run:
+
+```bash
+.leedevkit/.venv/bin/python3 -m playwright install chromium
+```
+
+For a global DevKit installation, use that installation’s `.venv/bin/python3` executable instead.
 
 ---
 

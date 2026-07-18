@@ -5,12 +5,13 @@ Script: playwright_runner.py
 Purpose: Run basic Playwright browser tests
 Usage: python playwright_runner.py <url> [--screenshot]
 Output: JSON with page info, health status, and optional screenshot path
-Note: Requires playwright (pip install playwright && playwright install chromium)
+Note: Playwright is supplied by the DevKit venv; Chromium installs lazily on first use.
 Screenshots: Saved to system temp directory (auto-cleaned by OS)
 """
 import sys
 import json
 import os
+import subprocess
 import tempfile
 from datetime import datetime
 
@@ -28,13 +29,55 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 
+def _install_chromium() -> tuple[bool, str]:
+    """Download Chromium for the active Playwright installation on demand."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return False, str(exc)
+    if result.returncode == 0:
+        return True, ""
+    return False, (result.stderr or result.stdout or "unknown error").strip()
+
+
+def _launch_chromium(playwright):
+    """Launch Chromium, installing its browser binary once if it is absent."""
+    try:
+        return playwright.chromium.launch(headless=True), None
+    except Exception as exc:
+        message = str(exc)
+        if "Executable doesn't exist" not in message and "executable doesn't exist" not in message:
+            return None, message
+
+    installed, detail = _install_chromium()
+    if not installed:
+        return None, (
+            "Chromium is not installed and automatic setup failed: "
+            f"{detail}. Run: {sys.executable} -m playwright install chromium"
+        )
+    try:
+        return playwright.chromium.launch(headless=True), None
+    except Exception as exc:
+        return None, f"Chromium setup completed but browser launch failed: {exc}"
+
+
+def _playwright_missing_result() -> dict:
+    """Return a consistent remediation payload when the venv lacks Playwright."""
+    return {
+        "error": "Playwright not installed in the active Python environment",
+        "fix": "Run leedevkit once to repair its venv, then retry this command.",
+    }
+
+
 def run_basic_test(url: str, take_screenshot: bool = False) -> dict:
     """Run basic browser test on URL."""
     if not PLAYWRIGHT_AVAILABLE:
-        return {
-            "error": "Playwright not installed",
-            "fix": "pip install playwright && playwright install chromium"
-        }
+        return _playwright_missing_result()
     
     result = {
         "url": url,
@@ -44,7 +87,14 @@ def run_basic_test(url: str, take_screenshot: bool = False) -> dict:
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser, launch_error = _launch_chromium(p)
+            if launch_error:
+                return {
+                    "url": url,
+                    "status": "error",
+                    "error": launch_error,
+                    "summary": f"[X] Error: {launch_error[:100]}",
+                }
             context = browser.new_context(
                 viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -115,13 +165,15 @@ def run_basic_test(url: str, take_screenshot: bool = False) -> dict:
 def run_accessibility_check(url: str) -> dict:
     """Run basic accessibility check."""
     if not PLAYWRIGHT_AVAILABLE:
-        return {"error": "Playwright not installed"}
+        return _playwright_missing_result()
     
     result = {"url": url, "accessibility": {}}
     
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser, launch_error = _launch_chromium(p)
+            if launch_error:
+                return {"url": url, "status": "error", "error": launch_error}
             page = browser.new_page()
             page.goto(url, wait_until="networkidle", timeout=30000)
             

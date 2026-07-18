@@ -1089,25 +1089,30 @@ None
         from _devkit_config import get_devkit_root
         devkit = get_devkit_root()
 
-        # ── Step 2: Create project-local .venv inside .leedevkit/ ──
-        venv_dir = devkit / ".venv"
-        if not (venv_dir / "bin" / "python3").exists():
-            log_info("Creating virtual environment...")
-            import subprocess
-            subprocess.run(
-                [shutil.which("python3") or "python3", "-m", "venv", str(venv_dir)],
-                check=True,
-                stdin=subprocess.DEVNULL,
-            )
-            pip = venv_dir / "bin" / "pip"
-            subprocess.run(
-                [str(pip), "install", "--quiet",
-                 "pytest", "pytest-cov", "psutil", "tomli", "tomli-w", "pyyaml",
-                 "ruff", "mypy"],
-                check=False,
-                stdin=subprocess.DEVNULL,
-            )
-            log_success("Virtual environment ready")
+        # ── Step 2: Ensure the DevKit-local virtual environment ──
+        ensure_venv = devkit / "scripts" / "_ensure-venv.sh"
+        if not ensure_venv.is_file():
+            raise RuntimeError(f"DevKit venv bootstrap is missing: {ensure_venv}")
+        setup = subprocess.run(
+            ["bash", str(ensure_venv)],
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+        if setup.returncode != 0:
+            detail = setup.stderr.strip() or "unknown error"
+            raise RuntimeError(f"Could not set up DevKit virtual environment: {detail}")
+        python_path = Path(setup.stdout.strip().splitlines()[-1]) if setup.stdout.strip() else None
+        expected_python = devkit / ".venv" / "bin" / "python3"
+        if (
+            python_path is None
+            or python_path != expected_python
+            or not python_path.is_file()
+            or not os.access(python_path, os.X_OK)
+        ):
+            raise RuntimeError("DevKit venv bootstrap returned an invalid Python executable")
+        log_success("Virtual environment ready")
 
         # ── Step 2b: Detect legacy symlinks from old global install ──
         agent_dir = root / ".agent"
