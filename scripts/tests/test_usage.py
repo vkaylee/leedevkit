@@ -90,8 +90,10 @@ class TestUpdateCli:
     @staticmethod
     def _repo_version():
         return (
-            Path(__file__).resolve().parent.parent.parent / "VERSION"
-        ).read_text().strip()
+            (Path(__file__).resolve().parent.parent.parent / "VERSION")
+            .read_text()
+            .strip()
+        )
 
     def test_update_help(self):
         r = subprocess.run(

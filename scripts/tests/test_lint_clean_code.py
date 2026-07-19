@@ -202,6 +202,7 @@ class TestMainFunction:
     def test_main_with_patches(self):
         import lint_clean_code
         from unittest.mock import MagicMock, patch
+
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
         mock_file = MagicMock()

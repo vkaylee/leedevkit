@@ -1,4 +1,5 @@
 """Tests for _orchestrator — main CLI entry point (config-compatible)."""
+
 import argparse
 import os
 import sys
@@ -12,12 +13,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 class TestOrchestratorProperties:
     def test_engine_detected(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             assert orch.engine in ("podman", "docker")
 
     def test_compose_engine_list(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             assert isinstance(orch.compose_engine, list)
@@ -26,6 +29,7 @@ class TestOrchestratorProperties:
 class TestResolveTargets:
     def test_returns_list(self):
         from _orchestrator import _resolve_targets
+
         targets = _resolve_targets()
         assert isinstance(targets, list)
         assert len(targets) > 0
@@ -36,12 +40,14 @@ class TestResolveTargets:
 class TestColors:
     def test_colors_defined(self):
         from _orchestrator import Colors
+
         assert Colors.GREEN and Colors.RED and Colors.NC
 
 
 class TestToolMap:
     def test_tool_map_entries(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             assert orch.tool_map["npm"] == "webdashboard"
@@ -51,6 +57,7 @@ class TestToolMap:
 class TestGetComposeFiles:
     def test_dev_environment(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             files = orch.get_compose_files("dev")
@@ -58,6 +65,7 @@ class TestGetComposeFiles:
 
     def test_test_environment(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.env_vars["COMPOSE_PROJECT_NAME"] = "test-abc"
@@ -68,6 +76,7 @@ class TestGetComposeFiles:
 class TestDryRun:
     def test_dry_run_noop(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -79,6 +88,7 @@ class TestDryRun:
 class TestPrintTestSummary:
     def test_no_logs_no_crash(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.print_test_summary("all")
@@ -87,9 +97,11 @@ class TestPrintTestSummary:
 class TestOrchestratorInitFlow:
     def test_handle_init_dry_run(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
@@ -102,6 +114,7 @@ class TestOrchestratorInitFlow:
         from _orchestrator import Orchestrator
         import argparse
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
@@ -114,9 +127,12 @@ class TestOrchestratorInitFlow:
 class TestPrintTestSummaryParsing:
     def test_parses_nextest_output(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         logs = tmp_path / ".test_logs"
         logs.mkdir()
-        (logs / "test.log").write_text("Summary [   0.123s] 42 tests run: 42 passed, 0 skipped")
+        (logs / "test.log").write_text(
+            "Summary [   0.123s] 42 tests run: 42 passed, 0 skipped"
+        )
         monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -126,34 +142,41 @@ class TestPrintTestSummaryParsing:
 class TestLogFunctions:
     def test_log_info(self, capsys):
         from _orchestrator import log_info
+
         log_info("test message")
 
     def test_log_success(self, capsys):
         from _orchestrator import log_success
+
         log_success("test success")
 
     def test_log_warn(self, capsys):
         from _orchestrator import log_warn
+
         log_warn("test warning")
 
     def test_log_error(self, capsys):
         from _orchestrator import log_error
+
         log_error("test error")
 
 
 class TestLeedevkitDir:
     def test_lock_path_at_root(self):
         from _skills_manager import SkillsManager
+
         path = SkillsManager._lock_path()
         assert path.name == "leedevkit.lock"
 
     def test_init_creates_files(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -163,6 +186,7 @@ class TestLeedevkitDir:
 
     def test_init_uses_installed_venv_bootstrap(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         project = tmp_path / "project"
         project.mkdir()
         (project / ".git").mkdir()
@@ -187,6 +211,7 @@ class TestLeedevkitDir:
         (devkit / "templates").mkdir()
         monkeypatch.setenv("DEVKIT_HOME", str(devkit))
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch.object(Orchestrator, "register_traps", return_value=None):
             with patch.object(Orchestrator, "_install_devkit") as install:
@@ -197,6 +222,7 @@ class TestLeedevkitDir:
 
     def test_init_rejects_venv_path_outside_devkit(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         project = tmp_path / "project"
         project.mkdir()
         (project / ".git").mkdir()
@@ -215,6 +241,7 @@ class TestLeedevkitDir:
         monkeypatch.setenv("DEVKIT_HOME", str(devkit))
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "no-home")
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -223,6 +250,7 @@ class TestLeedevkitDir:
 
     def test_load_catalog(self):
         from _skills_manager import SkillsManager
+
         catalog = SkillsManager()._load_catalog()
         assert isinstance(catalog, dict)
         assert "ui-ux-pro-max" in catalog
@@ -230,6 +258,7 @@ class TestLeedevkitDir:
     def test_skills_install_not_in_catalog(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="install", name="nonexistent")
@@ -238,18 +267,21 @@ class TestLeedevkitDir:
 
 class TestVersionInToml:
     def test_read_version_from_toml(self, tmp_path):
-        (tmp_path / "leedevkit.toml").write_text("[devkit]\nversion = \"1.2.3\"\n")
+        (tmp_path / "leedevkit.toml").write_text('[devkit]\nversion = "1.2.3"\n')
         from _devkit_config import _read_version
+
         assert _read_version(tmp_path) == "1.2.3"
 
     def test_read_version_default(self, tmp_path):
         from _devkit_config import _read_version
+
         assert _read_version(tmp_path) == "latest"
 
 
 class TestLockFile:
     def test_read_lock_missing(self, tmp_path, monkeypatch):
         from _skills_manager import SkillsManager
+
         monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
         lock = SkillsManager._read_lock()
         assert lock == {}
@@ -257,6 +289,7 @@ class TestLockFile:
     def test_read_lock_valid(self, tmp_path, monkeypatch):
         from _skills_manager import SkillsManager
         import tomli_w
+
         lock_path = tmp_path / "leedevkit.lock"
         lock_path.parent.mkdir(exist_ok=True)
         with open(lock_path, "wb") as f:
@@ -267,17 +300,21 @@ class TestLockFile:
 
     def test_write_lock(self, tmp_path, monkeypatch):
         from _skills_manager import SkillsManager
+
         monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
         skills_d = tmp_path / "skills.d"
         skills_d.mkdir()
         (skills_d / ".git").mkdir()
         import subprocess
+
         orig_run = subprocess.run
+
         def fake_run(*a, **kw):
             if "rev-parse" in str(a):
                 m = type("R", (), {"stdout": "abc123\n", "returncode": 0})()
                 return m
             return orig_run(*a, **kw)
+
         monkeypatch.setattr("subprocess.run", fake_run)
         mgr = SkillsManager()
         # Override skills_d to point to our tmp path
@@ -290,6 +327,7 @@ class TestSkillsSubCommands:
     def test_skills_add_usage(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="add", url="", version="main")
@@ -298,6 +336,7 @@ class TestSkillsSubCommands:
     def test_skills_remove_usage(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="remove", name="")
@@ -306,6 +345,7 @@ class TestSkillsSubCommands:
     def test_skills_remove_nonexistent(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
         import argparse
+
         monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -315,6 +355,7 @@ class TestSkillsSubCommands:
     def test_skills_update(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="update")
@@ -323,6 +364,7 @@ class TestSkillsSubCommands:
     def test_skills_install_no_name(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="install", name=None)
@@ -333,6 +375,7 @@ class TestHandleManageDispatch:
     def test_manage_fmt_infra(self, monkeypatch):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -342,6 +385,7 @@ class TestHandleManageDispatch:
     def test_manage_doctor_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -351,6 +395,7 @@ class TestHandleManageDispatch:
     def test_manage_clean(self, monkeypatch):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -361,6 +406,7 @@ class TestHandleManageDispatch:
 class TestOrchestratorRun:
     def test_run_cargo_test_converts_to_nextest(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             compose_cmd = ["podman-compose", "-p", "test"]
@@ -372,8 +418,12 @@ class TestOrchestratorRun:
 class TestModeMap:
     def test_mode_mapping(self):
         mode_map = {
-            "all": "all", "api": "api", "web": "web",
-            "apiserver": "api", "agent-main": "api", "webdashboard": "web",
+            "all": "all",
+            "api": "api",
+            "web": "web",
+            "apiserver": "api",
+            "agent-main": "api",
+            "webdashboard": "web",
         }
         assert mode_map["all"] == "all"
         assert mode_map["apiserver"] == "api"
@@ -383,9 +433,11 @@ class TestModeMap:
 class TestIsServiceRunning:
     def test_no_containers(self, monkeypatch):
         from _orchestrator import Orchestrator
+
         def fake_run(*a, **kw):
             m = type("R", (), {"stdout": "", "returncode": 0})()
             return m
+
         monkeypatch.setattr("subprocess.run", fake_run)
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -393,9 +445,15 @@ class TestIsServiceRunning:
 
     def test_service_found(self, monkeypatch):
         from _orchestrator import Orchestrator
+
         def fake_run(*a, **kw):
-            m = type("R", (), {"stdout": "leedevkit-test-abc_apiserver_1\nother", "returncode": 0})()
+            m = type(
+                "R",
+                (),
+                {"stdout": "leedevkit-test-abc_apiserver_1\nother", "returncode": 0},
+            )()
             return m
+
         monkeypatch.setattr("subprocess.run", fake_run)
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -407,12 +465,15 @@ class TestOrchestratorEdgeCases:
     def test_handle_test_infra_glob(self, tmp_path, monkeypatch):
         """handle_test_infra should discover all test_*.py files via glob."""
         from _orchestrator import Orchestrator
+
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_a.py").write_text("def test(): pass")
         (tests_dir / "test_b.py").write_text("def test(): pass")
         monkeypatch.setattr("_orchestrator.SCRIPTS_DIR", tmp_path)
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0})())
+        monkeypatch.setattr(
+            "subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0})()
+        )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.handle_test_infra()
@@ -420,6 +481,7 @@ class TestOrchestratorEdgeCases:
     def test_handle_db_query(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -428,6 +490,7 @@ class TestOrchestratorEdgeCases:
 
     def test_handle_diesel(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -435,6 +498,7 @@ class TestOrchestratorEdgeCases:
 
     def test_log_error_with_file(self, tmp_path):
         from _orchestrator import log_error
+
         f = (tmp_path / "err.log").open("w")
         log_error("test", file=f)
         f.close()
@@ -442,6 +506,7 @@ class TestOrchestratorEdgeCases:
 
     def test_orchestrator_env_vars(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             assert "USE_DOCKER" in orch.env_vars
@@ -449,6 +514,7 @@ class TestOrchestratorEdgeCases:
 
     def test_colors_values(self):
         from _orchestrator import Colors
+
         assert Colors.GREEN == "\033[0;32m"
         assert Colors.RED == "\033[0;31m"
         assert Colors.NC == "\033[0m"
@@ -457,6 +523,7 @@ class TestOrchestratorEdgeCases:
 class TestLogFunctionsMore:
     def test_log_info_contains_emoji(self, capsys):
         from _orchestrator import log_info
+
         log_info("hello")
         out = capsys.readouterr()
         # Output goes to stderr
@@ -464,17 +531,20 @@ class TestLogFunctionsMore:
 
     def test_log_success_contains_checkmark(self, capsys):
         from _orchestrator import log_success
+
         log_success("done")
         assert "done" in capsys.readouterr().err
 
     def test_log_warn_contains_warning(self, capsys):
         from _orchestrator import log_warn
+
         log_warn("careful")
         assert "careful" in capsys.readouterr().err
 
     def test_log_error_contains_cross(self):
         from _orchestrator import log_error
         import io
+
         buf = io.StringIO()
         log_error("fail", file=buf)
         assert "fail" in buf.getvalue()
@@ -486,65 +556,105 @@ class TestHandleTestMocked:
     def test_handle_test_infra_lint_only(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                target="infra", lint_only=True, unit_only=False,
-                e2e_only=False, skip_lint=False, pattern=None,
-                coverage=False, timeout=1800, fix=False, json_output=False,
+                target="infra",
+                lint_only=True,
+                unit_only=False,
+                e2e_only=False,
+                skip_lint=False,
+                pattern=None,
+                coverage=False,
+                timeout=1800,
+                fix=False,
+                json_output=False,
             )
             orch.handle_test(args)
 
     def test_handle_test_infra_full(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                target="infra", lint_only=False, unit_only=False,
-                e2e_only=False, skip_lint=False, pattern=None,
-                coverage=False, timeout=1800, fix=False, json_output=False,
+                target="infra",
+                lint_only=False,
+                unit_only=False,
+                e2e_only=False,
+                skip_lint=False,
+                pattern=None,
+                coverage=False,
+                timeout=1800,
+                fix=False,
+                json_output=False,
             )
             orch.handle_test(args)
 
     def test_handle_test_all_with_flags_runs_all_phases(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                target="all", lint_only=True, unit_only=False,
-                e2e_only=False, skip_lint=False, pattern=None,
-                coverage=False, timeout=1800, fix=False, json_output=False,
+                target="all",
+                lint_only=True,
+                unit_only=False,
+                e2e_only=False,
+                skip_lint=False,
+                pattern=None,
+                coverage=False,
+                timeout=1800,
+                fix=False,
+                json_output=False,
             )
             orch.handle_test(args)
 
     def test_handle_test_non_infra_target_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                target="all", lint_only=False, unit_only=True,
-                e2e_only=False, skip_lint=True, pattern=None,
-                coverage=False, timeout=1800, fix=False, json_output=False,
+                target="all",
+                lint_only=False,
+                unit_only=True,
+                e2e_only=False,
+                skip_lint=True,
+                pattern=None,
+                coverage=False,
+                timeout=1800,
+                fix=False,
+                json_output=False,
             )
             orch.handle_test(args)
 
     def test_handle_test_with_coverage(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                target="all", lint_only=False, unit_only=False,
-                e2e_only=False, skip_lint=False, pattern=None,
-                coverage=True, timeout=1800, fix=False, json_output=False,
+                target="all",
+                lint_only=False,
+                unit_only=False,
+                e2e_only=False,
+                skip_lint=False,
+                pattern=None,
+                coverage=True,
+                timeout=1800,
+                fix=False,
+                json_output=False,
             )
             orch.handle_test(args)
 
@@ -555,12 +665,15 @@ class TestHandleRunMocked:
     def test_handle_run_npm_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             with patch.object(Orchestrator, "_is_service_running", return_value=False):
                 args = argparse.Namespace(
-                    command="run", tool="npm", pooler=False,
+                    command="run",
+                    tool="npm",
+                    pooler=False,
                     args=["--version"],
                 )
                 orch.handle_run(args)
@@ -568,11 +681,14 @@ class TestHandleRunMocked:
     def test_handle_run_cargo_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                command="run", tool="cargo", pooler=False,
+                command="run",
+                tool="cargo",
+                pooler=False,
                 args=["build"],
             )
             orch.handle_run(args)
@@ -580,11 +696,14 @@ class TestHandleRunMocked:
     def test_handle_run_cargo_cwd_detection(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                command="run", tool="cargo", pooler=False,
+                command="run",
+                tool="cargo",
+                pooler=False,
                 args=["build"],
             )
             orch.handle_run(args)
@@ -596,39 +715,50 @@ class TestRunPhaseMocked:
     def test_run_phase_lint_api(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                component="", fix=False, pattern="",
+                component="",
+                fix=False,
+                pattern="",
             )
             orch.run_phase("Linting", "api", args)
 
     def test_run_phase_unit_web(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                component="", fix=False, pattern="",
+                component="",
+                fix=False,
+                pattern="",
             )
             orch.run_phase("Unit Tests", "web", args)
 
     def test_run_phase_coverage_api(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(
-                component="", fix=False, pattern="", unit_only=False,
+                component="",
+                fix=False,
+                pattern="",
+                unit_only=False,
             )
             orch.run_phase("Coverage", "api", args)
 
     def test_run_phase_startup(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -638,6 +768,7 @@ class TestRunPhaseMocked:
     def test_run_phase_unknown(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True  # dry_run returns before func lookup
@@ -651,6 +782,7 @@ class TestCleanupMocked:
 
     def test_cleanup_noop_when_dry(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -659,6 +791,7 @@ class TestCleanupMocked:
 
     def test_cleanup_noop_when_not_needed(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = False
@@ -672,6 +805,7 @@ class TestHandleManageMocked:
     def test_handle_manage_sync_api_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -681,6 +815,7 @@ class TestHandleManageMocked:
     def test_handle_manage_migrate_run_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -690,6 +825,7 @@ class TestHandleManageMocked:
     def test_handle_manage_migrate_revert_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -699,6 +835,7 @@ class TestHandleManageMocked:
     def test_handle_manage_prebuild_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -708,6 +845,7 @@ class TestHandleManageMocked:
     def test_handle_manage_db_setup_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -717,6 +855,7 @@ class TestHandleManageMocked:
     def test_handle_manage_verify_infra_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -726,6 +865,7 @@ class TestHandleManageMocked:
     def test_handle_manage_test_infra_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -739,6 +879,7 @@ class TestHandleManageUpDown:
     def test_manage_up_dev_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -748,6 +889,7 @@ class TestHandleManageUpDown:
     def test_manage_down_test_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -757,6 +899,7 @@ class TestHandleManageUpDown:
     def test_manage_ps_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -766,6 +909,7 @@ class TestHandleManageUpDown:
     def test_manage_exec_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -775,6 +919,7 @@ class TestHandleManageUpDown:
     def test_manage_logs_dry(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
@@ -787,9 +932,12 @@ class TestHandleTestSummary:
 
     def test_summary_ansi_stripped(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         logs = tmp_path / ".test_logs"
         logs.mkdir()
-        (logs / "test.log").write_text("\033[0;32mSummary [0.1s] 10 tests run: 10 passed\033[0m")
+        (logs / "test.log").write_text(
+            "\033[0;32mSummary [0.1s] 10 tests run: 10 passed\033[0m"
+        )
         monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -798,6 +946,7 @@ class TestHandleTestSummary:
     def test_summary_stale_log_skipped(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
         import time
+
         logs = tmp_path / ".test_logs"
         logs.mkdir()
         logfile = logs / "old.log"
@@ -811,30 +960,41 @@ class TestHandleTestSummary:
             orch.print_test_summary("all")
 
 
-
-
 class TestSkillsAddValidation:
     def test_skills_add_rejects_catalog_name(self, monkeypatch):
         from _orchestrator import Orchestrator
         import argparse
-        monkeypatch.setenv("DEVKIT_HOME", str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent))
+
+        monkeypatch.setenv(
+            "DEVKIT_HOME",
+            str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent),
+        )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
-            args = argparse.Namespace(skills_action="add", url="ui-ux-pro-max", version="main")
+            args = argparse.Namespace(
+                skills_action="add", url="ui-ux-pro-max", version="main"
+            )
             orch.handle_skills(args)
 
     def test_skills_add_rejects_plain_name(self, monkeypatch):
         from _orchestrator import Orchestrator
         import argparse
-        monkeypatch.setenv("DEVKIT_HOME", str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent))
+
+        monkeypatch.setenv(
+            "DEVKIT_HOME",
+            str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent),
+        )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
-            args = argparse.Namespace(skills_action="add", url="not-a-url", version="main")
+            args = argparse.Namespace(
+                skills_action="add", url="not-a-url", version="main"
+            )
             orch.handle_skills(args)
 
     def test_skills_install_empty_name(self):
         from _orchestrator import Orchestrator
         import argparse
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = argparse.Namespace(skills_action="install", name=None)
@@ -844,15 +1004,17 @@ class TestSkillsAddValidation:
 class TestInitPopulatesRules:
     def test_init_copies_rules_to_project(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         # Create leedevkit.toml with custom rules_dir
         (tmp_path / "leedevkit.toml").write_text(
-            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n[ai]\nrules_dir=\".myrules\"\n"
+            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n[ai]\nrules_dir=".myrules"\n'
         )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -864,14 +1026,16 @@ class TestInitPopulatesRules:
 
     def test_init_does_not_overwrite_existing_rules(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         (tmp_path / "leedevkit.toml").write_text(
-            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n"
+            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n'
         )
         # Pre-create a rule file
         rules_dir = tmp_path / ".agent" / "rules"
@@ -886,14 +1050,16 @@ class TestInitPopulatesRules:
 
     def test_init_creates_overrides_yaml(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         (tmp_path / ".git").mkdir()
         monkeypatch.chdir(tmp_path)
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
         monkeypatch.setenv("DEVKIT_HOME", dk)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         (tmp_path / "leedevkit.toml").write_text(
-            "[devkit]\nversion = \"0.1.0\"\n[project]\nname=\"test\"\n"
+            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n'
         )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -906,6 +1072,7 @@ class TestUpdateParser:
 
     def test_update_command_parsed(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = orch.parser.parse_args(["update"])
@@ -914,6 +1081,7 @@ class TestUpdateParser:
 
     def test_update_with_pinned_version(self):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             args = orch.parser.parse_args(["update", "--version", "v0.2.0"])
@@ -921,6 +1089,7 @@ class TestUpdateParser:
 
     def test_update_help_lists_examples(self, capsys):
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             with pytest.raises(SystemExit):
@@ -997,6 +1166,7 @@ class TestHandleUpdate:
 
     def test_already_on_latest_skips(self, tmp_path, monkeypatch, capsys):
         from _orchestrator import Orchestrator
+
         root = self._make_root(tmp_path, "0.1.0")
         monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1010,6 +1180,7 @@ class TestHandleUpdate:
 
     def test_successful_update_backs_up_and_overlays(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         root = self._make_root(tmp_path, "0.1.0")
 
         def fake_download(self, url, target_dir):
@@ -1034,6 +1205,7 @@ class TestHandleUpdate:
 
     def test_rollback_on_download_failure(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         root = self._make_root(tmp_path, "0.1.0")
 
         def boom(self, url, target_dir):
@@ -1052,6 +1224,7 @@ class TestHandleUpdate:
 
     def test_uses_latest_release_when_no_version(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
+
         root = self._make_root(tmp_path, "0.1.0")
 
         captured = {}

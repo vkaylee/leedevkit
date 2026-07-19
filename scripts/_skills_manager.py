@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT
@@ -161,7 +160,13 @@ class SkillsManager:
             log_info(f"Installing {name} @ {version}...")
             subprocess.run(
                 [
-                    "git", "clone", "--depth", "1", "--branch", version, url,
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--branch",
+                    version,
+                    url,
                     str(target),
                 ],
                 check=False,
@@ -170,8 +175,14 @@ class SkillsManager:
             if name in lock:
                 subprocess.run(
                     [
-                        "git", "-C", str(target), "fetch", "--depth", "1",
-                        "origin", lock[name],
+                        "git",
+                        "-C",
+                        str(target),
+                        "fetch",
+                        "--depth",
+                        "1",
+                        "origin",
+                        lock[name],
                     ],
                     check=False,
                     stdin=subprocess.DEVNULL,

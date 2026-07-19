@@ -215,6 +215,7 @@ class TestProjectRootFallback:
         """When no leedevkit.toml or .git, falls back to script parent dir."""
         monkeypatch.chdir(tmp_path)
         from _bootstrap import _find_project_root
+
         root = _find_project_root()
         # Falls back to the scripts directory's parent
         assert root is not None

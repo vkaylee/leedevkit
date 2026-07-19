@@ -44,7 +44,7 @@ def _make_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "#!/bin/sh\n"
         'if [ "$1" = "-m" ] && [ "$2" = "venv" ]; then\n'
         '    mkdir -p "$3/bin"\n'
-        '    cat > "$3/bin/python3" <<\'PYTHON\'\n'
+        "    cat > \"$3/bin/python3\" <<'PYTHON'\n"
         f"{_fake_venv_python(log_path)}"
         "PYTHON\n"
         '    chmod +x "$3/bin/python3"\n'

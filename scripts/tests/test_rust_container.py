@@ -9,11 +9,8 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,13 +77,16 @@ all = ["apiserver", "webdashboard"]
     return proj
 
 
-def _setup_bootstrap_paths(monkeypatch, project_root: Path, devkit_root: Path | None = None):
+def _setup_bootstrap_paths(
+    monkeypatch, project_root: Path, devkit_root: Path | None = None
+):
     """Override _bootstrap module-level paths to point at temp directories.
 
     _bootstrap computes PROJECT_ROOT, SCRIPTS_DIR, DEVKIT_ROOT at import time
     and caches them. This helper re-points them for isolated tests.
     """
     import _bootstrap
+
     monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", project_root)
     if devkit_root is not None:
         monkeypatch.setattr(_bootstrap, "SCRIPTS_DIR", devkit_root / "scripts")
@@ -304,6 +304,7 @@ class TestInitRustAutoDetect:
         monkeypatch.chdir(proj)
 
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
 
         from _orchestrator import Orchestrator
@@ -330,6 +331,7 @@ class TestInitRustAutoDetect:
         monkeypatch.chdir(proj)
 
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
 
         from _orchestrator import Orchestrator
@@ -353,7 +355,21 @@ def _make_devkit_source_with_rust_template(tmp_path: Path) -> Path:
     scripts.mkdir()
     (scripts / "_orchestrator.py").write_text("# orchestrator stub\n")
     (scripts / "_bootstrap.py").write_text("# bootstrap stub\n")
-    (scripts / "_ensure-venv.sh").write_text("#!/bin/bash\necho stub\n")
+    # Create a proper .venv structure so InitHandler validation passes
+    venv_bin = src / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    python3 = venv_bin / "python3"
+    python3.touch()
+    python3.chmod(0o755)
+    # ensure-venv.sh creates the venv and outputs the Python path
+    (scripts / "_ensure-venv.sh").write_text(
+        '#!/bin/bash\n'
+        'VENV="$(dirname "$(dirname "$0")")/.venv"\n'
+        'mkdir -p "$VENV/bin"\n'
+        'touch "$VENV/bin/python3"\n'
+        'chmod +x "$VENV/bin/python3"\n'
+        'echo "$VENV/bin/python3"\n'
+    )
     bin_dir = src / "bin"
     bin_dir.mkdir()
     (bin_dir / "leedevkit").write_text("#!/bin/bash\necho stub\n")
@@ -464,7 +480,10 @@ class TestComposeFileResolution:
         env = bootstrap_env()
         compose_cmd = env.get("DOCKER_COMPOSE_CMD", "")
         # Should reference the devkit container path as fallback (or project .compose/)
-        assert "container/" in compose_cmd or ".compose/docker-compose.test.yml" in compose_cmd
+        assert (
+            "container/" in compose_cmd
+            or ".compose/docker-compose.test.yml" in compose_cmd
+        )
 
 
 # ── Rust version injection ─────────────────────────────────────────────────
@@ -484,6 +503,7 @@ class TestRustVersionInjection:
             orch = Orchestrator()
             orch._inject_rust_version_env()
             import os
+
             assert os.environ.get("RUST_VERSION") == "1.85"
 
     def test_reads_from_config(self, tmp_path, monkeypatch):
@@ -515,6 +535,7 @@ rust_version = "1.83"
             orch = Orchestrator()
             orch._inject_rust_version_env()
             import os
+
             assert os.environ.get("RUST_VERSION") == "1.83"
 
     def test_env_var_takes_priority(self, tmp_path, monkeypatch):
@@ -546,6 +567,7 @@ rust_version = "1.83"
             orch = Orchestrator()
             orch._inject_rust_version_env()
             import os
+
             assert os.environ.get("RUST_VERSION") == "1.80"
 
     def test_reads_from_any_rust_service(self, tmp_path, monkeypatch):
@@ -582,6 +604,7 @@ rust_version = "1.84"
             orch = Orchestrator()
             orch._inject_rust_version_env()
             import os
+
             # Should pick the first one found (mybackend)
             assert os.environ.get("RUST_VERSION") == "1.82"
 
@@ -717,7 +740,9 @@ class TestFindContainerCompose:
         compose_cmd = env.get("DOCKER_COMPOSE_CMD", "")
         assert "container/rust/docker-compose.test.yml" in compose_cmd
 
-    def test_integration_bootstrap_env_falls_back_to_compose(self, tmp_path, monkeypatch):
+    def test_integration_bootstrap_env_falls_back_to_compose(
+        self, tmp_path, monkeypatch
+    ):
         """bootstrap_env() still uses .compose/ when both exist (project priority)."""
         proj = _make_project_with_rust_service(tmp_path)
         leedevkit = proj / ".leedevkit"

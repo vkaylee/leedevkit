@@ -7,8 +7,13 @@ import pytest
 
 # Allow importing from the UX audit scripts directory
 _UX_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "..",
-    ".agent", "skills", "frontend-design", "scripts",
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    ".agent",
+    "skills",
+    "frontend-design",
+    "scripts",
 )
 sys.path.insert(0, _UX_DIR)
 
@@ -16,6 +21,7 @@ sys.path.insert(0, _UX_DIR)
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def compliant_html():
@@ -84,6 +90,7 @@ def empty_html():
 # Integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestUXAuditorIntegration:
     """Full pipeline tests on known HTML fixtures."""
 
@@ -93,6 +100,7 @@ class TestUXAuditorIntegration:
         f.write_text(compliant_html, encoding="utf-8")
 
         from ux_audit import UXAuditor
+
         auditor = UXAuditor()
         auditor.audit_file(str(f))
         report = auditor.get_report()
@@ -107,6 +115,7 @@ class TestUXAuditorIntegration:
         f.write_text(problematic_html, encoding="utf-8")
 
         from ux_audit import UXAuditor
+
         auditor = UXAuditor()
         auditor.audit_file(str(f))
         report = auditor.get_report()
@@ -125,6 +134,7 @@ class TestUXAuditorIntegration:
         (d / "README.md").write_text("# Readme", encoding="utf-8")
 
         from ux_audit import UXAuditor
+
         auditor = UXAuditor()
         auditor.audit_directory(str(d))
         report = auditor.get_report()
@@ -137,6 +147,7 @@ class TestUXAuditorIntegration:
         f.write_text(empty_html, encoding="utf-8")
 
         from ux_audit import UXAuditor
+
         auditor = UXAuditor()
         auditor.audit_file(str(f))
         report = auditor.get_report()
@@ -148,63 +159,78 @@ class TestUXAuditorIntegration:
 # Psychology checker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestPsychologyChecker:
     @staticmethod
     def _ctx(filename="test.html", content="", **kw):
         from checkers._base import AuditContext
+
         return AuditContext(filename=filename, content=content, **kw)
 
     def test_hicks_law_too_many_nav(self):
         from checkers.psychology import PsychologyChecker
+
         ctx = self._ctx(nav_items=10)
         findings = PsychologyChecker().run(ctx)
         assert any("Hick's Law" in f["message"] for f in findings)
 
     def test_hicks_law_ok(self):
         from checkers.psychology import PsychologyChecker
+
         ctx = self._ctx(nav_items=5)
         findings = PsychologyChecker().run(ctx)
         assert not any("Hick's Law" in f["message"] for f in findings)
 
     def test_fitts_law_small_target(self):
         from checkers.psychology import PsychologyChecker
+
         ctx = self._ctx(content='<div style="height: 20px">x</div>')
         findings = PsychologyChecker().run(ctx)
         assert any("Fitts' Law" in f["message"] for f in findings)
 
     def test_fitts_law_large_target_ok(self):
         from checkers.psychology import PsychologyChecker
+
         ctx = self._ctx(content='<div style="height: 50px">x</div>')
         findings = PsychologyChecker().run(ctx)
         assert not any("Fitts' Law" in f["message"] for f in findings)
 
     def test_millers_law_complex_form(self):
         from checkers.psychology import PsychologyChecker
+
         # 8 form fields without wizard/step
-        ctx = self._ctx(content='<input><input><input><input><input><input><input><input>')
+        ctx = self._ctx(
+            content="<input><input><input><input><input><input><input><input>"
+        )
         findings = PsychologyChecker().run(ctx)
         assert any("Miller's Law" in f["message"] for f in findings)
 
     def test_millers_law_chunked_form_ok(self):
         from checkers.psychology import PsychologyChecker
-        ctx = self._ctx(content='<input><input><input><input><input><input><input><input> wizard step-1')
+
+        ctx = self._ctx(
+            content="<input><input><input><input><input><input><input><input> wizard step-1"
+        )
         findings = PsychologyChecker().run(ctx)
         assert not any("Miller's Law" in f["message"] for f in findings)
 
     def test_von_restorff_no_primary_cta(self):
         from checkers.psychology import PsychologyChecker
-        ctx = self._ctx(content='<button>Click</button>')
+
+        ctx = self._ctx(content="<button>Click</button>")
         findings = PsychologyChecker().run(ctx)
         assert any("Von Restorff" in f["message"] for f in findings)
 
     def test_von_restorff_has_primary(self):
         from checkers.psychology import PsychologyChecker
+
         ctx = self._ctx(content='<button class="primary">Click</button>')
         findings = PsychologyChecker().run(ctx)
         assert not any("Von Restorff" in f["message"] for f in findings)
 
     def test_serial_position_missing_important_last(self):
         from checkers.psychology import PsychologyChecker
+
         content = '<a href="/">Home</a><a href="/about">About</a><a href="/faq">FAQ</a>'
         ctx = self._ctx(content=content, nav_items=4)
         findings = PsychologyChecker().run(ctx)
@@ -215,44 +241,52 @@ class TestPsychologyChecker:
 # Color system checker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestColorSystemChecker:
     @staticmethod
     def _ctx(content="", filename="test.html"):
         from checkers._base import AuditContext
+
         return AuditContext(filename=filename, content=content)
 
     def test_purple_hex_banned(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<p style="color: #8B5CF6">text</p>')
         findings = ColorSystemChecker().run(ctx)
         assert any("PURPLE DETECTED" in f["message"] for f in findings)
 
     def test_purple_name_banned(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<p class="text-purple">text</p>')
         findings = ColorSystemChecker().run(ctx)
         assert any("PURPLE DETECTED" in f["message"] for f in findings)
 
     def test_no_purple_ok(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<p style="color: #10B981">text</p>')
         findings = ColorSystemChecker().run(ctx)
         assert not any("PURPLE DETECTED" in f["message"] for f in findings)
 
     def test_pure_black_warns(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<p style="color: #000000">text</p>')
         findings = ColorSystemChecker().run(ctx)
         assert any("Pure black" in f["message"] for f in findings)
 
     def test_low_contrast_combination(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<div class="bg-gray-50 text-gray-100">low contrast</div>')
         findings = ColorSystemChecker().run(ctx)
         assert any("low-contrast" in f["message"] for f in findings)
 
     def test_blue_in_food_context(self):
         from checkers.color_system import ColorSystemChecker
+
         ctx = self._ctx('<div class="bg-blue-500 restaurant-menu">Food</div>')
         findings = ColorSystemChecker().run(ctx)
         assert any("food context" in f["message"].lower() for f in findings)
@@ -262,29 +296,33 @@ class TestColorSystemChecker:
 # Typography checker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestTypographyChecker:
     @staticmethod
     def _ctx(content="", filename="test.html", **kw):
         from checkers._base import AuditContext
+
         return AuditContext(filename=filename, content=content, **kw)
 
     def test_too_many_font_families(self):
         from checkers.typography import TypographyChecker
+
         ctx = self._ctx(
-            content='<style>'
+            content="<style>"
             '@font-face{font-family:"CustomA"}'
             '@font-face{font-family:"CustomB"}'
             '@font-face{font-family:"CustomC"}'
             '@font-face{font-family:"CustomD"}'
-            '</style>'
+            "</style>"
         )
         findings = TypographyChecker().run(ctx)
         assert any("font families" in f["message"] for f in findings)
 
     def test_no_line_length_constraint(self):
         from checkers.typography import TypographyChecker
+
         ctx = self._ctx(
-            content='<p>Long text content</p>',
+            content="<p>Long text content</p>",
             has_long_text=True,
         )
         findings = TypographyChecker().run(ctx)
@@ -292,6 +330,7 @@ class TestTypographyChecker:
 
     def test_has_max_w_prose_ok(self):
         from checkers.typography import TypographyChecker
+
         ctx = self._ctx(
             content='<p class="max-w-prose">Long text</p>',
             has_long_text=True,
@@ -301,25 +340,31 @@ class TestTypographyChecker:
 
     def test_no_line_height(self):
         from checkers.typography import TypographyChecker
-        ctx = self._ctx(content='<p>text</p><span>more</span>')
+
+        ctx = self._ctx(content="<p>text</p><span>more</span>")
         findings = TypographyChecker().run(ctx)
         assert any("line-height" in f["message"] for f in findings)
 
     def test_uppercase_without_tracking(self):
         from checkers.typography import TypographyChecker
+
         ctx = self._ctx(content='<div class="uppercase">ALL CAPS</div>')
         findings = TypographyChecker().run(ctx)
         assert any("tracking" in f["message"] for f in findings)
 
     def test_skipped_heading_level(self):
         from checkers.typography import TypographyChecker
-        ctx = self._ctx(content='<h1>A</h1><h3>C</h3>')
+
+        ctx = self._ctx(content="<h1>A</h1><h3>C</h3>")
         findings = TypographyChecker().run(ctx)
         assert any("Skipped heading" in f["message"] for f in findings)
 
     def test_no_h1_found(self):
         from checkers.typography import TypographyChecker
-        ctx = self._ctx(content='<h2>Title</h2><p>text text text</p>', has_long_text=True)
+
+        ctx = self._ctx(
+            content="<h2>Title</h2><p>text text text</p>", has_long_text=True
+        )
         findings = TypographyChecker().run(ctx)
         assert any("No h1 found" in f["message"] for f in findings)
 
@@ -328,10 +373,12 @@ class TestTypographyChecker:
 # Accessibility checker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestAccessibilityChecker:
     def test_missing_alt_text(self):
         from checkers._base import AuditContext
         from checkers.accessibility import AccessibilityChecker
+
         ctx = AuditContext(filename="test.html", content='<img src="x.png">')
         findings = AccessibilityChecker().run(ctx)
         assert any("Missing img alt" in f["message"] for f in findings)
@@ -339,6 +386,7 @@ class TestAccessibilityChecker:
     def test_has_alt_text_ok(self):
         from checkers._base import AuditContext
         from checkers.accessibility import AccessibilityChecker
+
         ctx = AuditContext(filename="test.html", content='<img src="x.png" alt="X">')
         findings = AccessibilityChecker().run(ctx)
         assert not any("Missing img alt" in f["message"] for f in findings)
@@ -348,26 +396,31 @@ class TestAccessibilityChecker:
 # Emotional Design checker unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestEmotionalDesignChecker:
     @staticmethod
     def _ctx(filename="test.html", content="", **kw):
         from checkers._base import AuditContext
+
         return AuditContext(filename=filename, content=content, **kw)
 
     def test_visceral_hero_no_appeal(self):
         from checkers.emotional_design import EmotionalDesignChecker
+
         ctx = self._ctx(content='<div class="hero">Plain hero</div>', has_hero=True)
         findings = EmotionalDesignChecker().run(ctx)
         assert any("Visceral" in f["message"] for f in findings)
 
     def test_behavioral_no_feedback(self):
         from checkers.emotional_design import EmotionalDesignChecker
+
         ctx = self._ctx(content='<button onClick="do()">Click</button>')
         findings = EmotionalDesignChecker().run(ctx)
         assert any("Behavioral" in f["message"] for f in findings)
 
     def test_reflective_no_brand(self):
         from checkers.emotional_design import EmotionalDesignChecker
-        ctx = self._ctx(content='<p>Long text content</p>', has_long_text=True)
+
+        ctx = self._ctx(content="<p>Long text content</p>", has_long_text=True)
         findings = EmotionalDesignChecker().run(ctx)
         assert any("Reflective" in f["message"] for f in findings)

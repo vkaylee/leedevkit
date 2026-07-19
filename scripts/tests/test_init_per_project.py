@@ -24,6 +24,7 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_project(tmp_path: Path, version: str = "0.1.0") -> Path:
     """Create a minimal project directory with leedevkit.toml."""
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,21 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     scripts.mkdir()
     (scripts / "_orchestrator.py").write_text("# orchestrator stub\n")
     (scripts / "_bootstrap.py").write_text("# bootstrap stub\n")
-    (scripts / "_ensure-venv.sh").write_text("#!/bin/bash\necho stub\n")
+    # Create a proper .venv structure so InitHandler validation passes
+    venv_bin = src / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    python3 = venv_bin / "python3"
+    python3.touch()
+    python3.chmod(0o755)
+    # ensure-venv.sh creates the venv and outputs the Python path
+    (scripts / "_ensure-venv.sh").write_text(
+        '#!/bin/bash\n'
+        'VENV="$(dirname "$(dirname "$0")")/.venv"\n'
+        'mkdir -p "$VENV/bin"\n'
+        'touch "$VENV/bin/python3"\n'
+        'chmod +x "$VENV/bin/python3"\n'
+        'echo "$VENV/bin/python3"\n'
+    )
     bin_dir = src / "bin"
     bin_dir.mkdir()
     (bin_dir / "leedevkit").write_text("#!/bin/bash\necho stub\n")
@@ -54,13 +69,16 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     rules.mkdir()
     (rules / "coding-standards.md").write_text("# Coding Standards\n")
     (rules / "testing-standards.md").write_text("# Testing Standards\n")
-    (agent / "skills-catalog.toml").write_text('[skills]\nfoo = { name = "foo", url = "https://example.com/foo.git" }\n')
+    (agent / "skills-catalog.toml").write_text(
+        '[skills]\nfoo = { name = "foo", url = "https://example.com/foo.git" }\n'
+    )
     return src
 
 
 # ---------------------------------------------------------------------------
 # Tests: devkit root resolution priority
 # ---------------------------------------------------------------------------
+
 
 class TestDevKitRootPriority:
     def test_per_project_overrides_global(self, tmp_path, monkeypatch):
@@ -79,6 +97,7 @@ class TestDevKitRootPriority:
         monkeypatch.setenv("DEVKIT_HOME", str(global_install))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         root = _devkit_config.get_devkit_root()
         assert root == leedevkit
@@ -93,6 +112,7 @@ class TestDevKitRootPriority:
         monkeypatch.setenv("DEVKIT_HOME", str(custom))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         root = _devkit_config.get_devkit_root()
         assert root == custom
@@ -105,6 +125,7 @@ class TestDevKitRootPriority:
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "fake-home")
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with pytest.raises(FileNotFoundError, match="Cannot locate leedevkit"):
             _devkit_config.get_devkit_root()
@@ -114,6 +135,7 @@ class TestDevKitRootPriority:
 # Tests: handle_init from local source
 # ---------------------------------------------------------------------------
 
+
 class TestHandleInitFromSource:
     def test_installs_devkit_into_leedevkit_dir(self, tmp_path, monkeypatch):
         """Init copies devkit artifacts from source into .leedevkit/."""
@@ -122,9 +144,11 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         leedevkit = project / ".leedevkit"
@@ -140,9 +164,11 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         state_path = project / ".leedevkit" / "dev-state.json"
@@ -158,9 +184,11 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         project_rule = project / ".agent" / "rules" / "coding-standards.md"
@@ -175,6 +203,7 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         # Pre-create a custom rule
         rules_dir = project / ".agent" / "rules"
@@ -183,6 +212,7 @@ class TestHandleInitFromSource:
         custom_rule.write_text("# My Custom Rules\n")
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
             # Should still have custom content
@@ -195,6 +225,7 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         rules_dir = project / ".agent" / "rules"
         rules_dir.mkdir(parents=True)
@@ -202,6 +233,7 @@ class TestHandleInitFromSource:
         custom_rule.write_text("# My Custom Rules\n")
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=True)
             assert custom_rule.read_text() == "# Coding Standards\n"
@@ -213,15 +245,18 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         wrapper = project / "leedevkit"
         assert wrapper.exists()
-        # Should be a symlink pointing into .leedevkit/bin/leedevkit
-        assert wrapper.is_symlink()
+        # Wrapper is a real executable script (not symlink) by design
+        assert wrapper.is_file()
+        assert "exec" in wrapper.read_text()
 
     def test_pins_devkit_version_in_toml(self, tmp_path, monkeypatch):
         """Init pins the actual devkit version in leedevkit.toml."""
@@ -230,12 +265,15 @@ class TestHandleInitFromSource:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         import _devkit_config
+
         cfg = _devkit_config._load_toml(project / "leedevkit.toml")
         assert cfg.get("devkit", {}).get("version") == "0.1.0"
 
@@ -244,13 +282,17 @@ class TestHandleInitFromSource:
         project = _make_project(tmp_path / "project")
         source = _make_devkit_source(tmp_path / "source")
         # Add overrides.yaml to source devkit
-        (source / ".agent" / "overrides.yaml").write_text("replace: []\nextend: []\nadd: []\n")
+        (source / ".agent" / "overrides.yaml").write_text(
+            "replace: []\nextend: []\nadd: []\n"
+        )
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         override = project / ".agent" / "overrides.yaml"
@@ -261,6 +303,7 @@ class TestHandleInitFromSource:
 # ---------------------------------------------------------------------------
 # Tests: handle_init from tarball download (mocked)
 # ---------------------------------------------------------------------------
+
 
 class TestHandleInitFromTarball:
     def test_downloads_and_extracts_tarball(self, tmp_path, monkeypatch):
@@ -274,32 +317,48 @@ class TestHandleInitFromTarball:
             for item in ["scripts", "bin", ".agent"]:
                 tf.add(source / item, arcname=f"leedevkit-0.1.0/{item}")
             tf.add(source / "VERSION", arcname="leedevkit-0.1.0/VERSION")
+            # Include venv so init validation passes
+            tf.add(source / ".venv", arcname="leedevkit-0.1.0/.venv")
 
         # Mock urllib to return our tarball
         class FakeResponse:
             def __init__(self, path):
                 self._path = path
+
             def read(self, *a, **kw):
                 return b""
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 pass
 
         def fake_urlretrieve(url, filename):
             import shutil
+
             shutil.copy(str(tarball_path), str(filename))
 
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")  # disable local fallback
         import _orchestrator
-        monkeypatch.setattr(_orchestrator.urllib.request, "urlretrieve", fake_urlretrieve)
+
+        monkeypatch.setattr(
+            _orchestrator.urllib.request, "urlretrieve", fake_urlretrieve
+        )
+        # InitHandler imports urllib.request lazily inside _download_and_extract
+        import urllib.request as _urllib_req
+
+        monkeypatch.setattr(_urllib_req, "urlretrieve", fake_urlretrieve)
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
 
-        with patch("_orchestrator.Orchestrator.register_traps", return_value=None), \
-             patch("_orchestrator.subprocess.run", return_value=__import__("unittest.mock").mock.Mock(returncode=0)):
+        with (
+            patch("_orchestrator.Orchestrator.register_traps", return_value=None),
+        ):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
 
@@ -311,6 +370,7 @@ class TestHandleInitFromTarball:
 # Tests: skills.d location
 # ---------------------------------------------------------------------------
 
+
 class TestSkillsDLocation:
     def test_skills_d_inside_devkit_root(self, tmp_path, monkeypatch):
         """skills.d is created inside .leedevkit/, not at project root."""
@@ -320,13 +380,16 @@ class TestSkillsDLocation:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
             # Trigger skills list to ensure skills.d path resolves
             import argparse
+
             args = argparse.Namespace(skills_action="list")
             orch.handle_skills(args)
         # skills.d should be inside .leedevkit/
@@ -340,6 +403,7 @@ class TestSkillsDLocation:
 # Tests: doctor reflects per-project install
 # ---------------------------------------------------------------------------
 
+
 class TestDoctorPerProject:
     def test_doctor_shows_devkit_location(self, tmp_path, monkeypatch, capsys):
         """Doctor command reports the devkit install path."""
@@ -348,9 +412,11 @@ class TestDoctorPerProject:
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
             _devkit_config._DEVKIT_ROOT = None  # reset cache
@@ -364,6 +430,7 @@ class TestDoctorPerProject:
 # ---------------------------------------------------------------------------
 # Tests: legacy symlink detection (detect + warn, no auto-delete)
 # ---------------------------------------------------------------------------
+
 
 class TestLegacySymlinkDetection:
     def test_detects_symlinks_to_global_install(self, tmp_path, monkeypatch):
@@ -379,6 +446,7 @@ class TestLegacySymlinkDetection:
         (agent_dir / "scripts").symlink_to(fake_global / "scripts")
         monkeypatch.chdir(project)
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
         # Patch Path.home to point to fake home
@@ -394,6 +462,7 @@ class TestLegacySymlinkDetection:
         (agent_dir / "custom-stuff").mkdir()
         (agent_dir / "custom-stuff" / "file.txt").write_text("hello")
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
         detected = orch._detect_legacy_symlinks(agent_dir)
@@ -407,6 +476,7 @@ class TestLegacySymlinkDetection:
         other_target.mkdir()
         (agent_dir / "ext").symlink_to(other_target)
         from _orchestrator import Orchestrator
+
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
         detected = orch._detect_legacy_symlinks(agent_dir)
@@ -429,9 +499,11 @@ class TestLegacySymlinkDetection:
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "fake-home")
         monkeypatch.chdir(project)
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
+
             orch = Orchestrator()
             orch.handle_init(force=False)
         captured = capsys.readouterr()

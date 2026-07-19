@@ -141,17 +141,20 @@ class TestResolveAiRules:
 class TestTomlMinimalEdgeCases:
     def test_quoted_values(self):
         from _devkit_config import _parse_toml_minimal
+
         result = _parse_toml_minimal(_make_tmp("key = 'single'\nother = \"double\""))
         assert result["key"] == "single"
         assert result["other"] == "double"
 
     def test_empty_file(self):
         from _devkit_config import _parse_toml_minimal
+
         result = _parse_toml_minimal(_make_tmp(""))
         assert result == {}
 
     def test_only_comments(self):
         from _devkit_config import _parse_toml_minimal
+
         result = _parse_toml_minimal(_make_tmp("# just a comment\n# another"))
         assert result == {}
 
@@ -165,6 +168,7 @@ class TestFindDevkitRootFallbacks:
 
     def test_env_var_priority(self, tmp_path, monkeypatch):
         from _devkit_config import _find_devkit_root
+
         dk = tmp_path / "custom-devkit"
         dk.mkdir()
         (dk / "VERSION").write_text("9.9.9")
@@ -172,6 +176,7 @@ class TestFindDevkitRootFallbacks:
         (dk / ".agent" / "skills.d").mkdir()
         monkeypatch.setenv("DEVKIT_HOME", str(dk))
         import _devkit_config
+
         _devkit_config._DEVKIT_ROOT = None
         root = _find_devkit_root()
         assert root == dk
@@ -182,6 +187,7 @@ class TestFindDevkitRootFallbacks:
 class TestDeepMergeEdgeCases:
     def test_three_levels(self):
         from _devkit_config import deep_merge
+
         base = {"a": {"b": {"c": 1}}}
         override = {"a": {"b": {"d": 2}}}
         result = deep_merge(base, override)
@@ -192,11 +198,13 @@ class TestDeepMergeEdgeCases:
 class TestTomlMinimalMore:
     def test_minimal_parser_no_equals(self):
         from _devkit_config import _parse_toml_minimal
+
         result = _parse_toml_minimal(_make_tmp("[section]\n# just comment\n"))
         assert "section" in result
 
     def test_minimal_parser_mixed(self):
         from _devkit_config import _parse_toml_minimal
+
         result = _parse_toml_minimal(_make_tmp("key = 'val'\n[sec]\nfoo = 'bar'\n"))
         assert result["key"] == "val"
         assert result["sec"]["foo"] == "bar"
@@ -205,6 +213,7 @@ class TestTomlMinimalMore:
 class TestDeepMergeMore:
     def test_deep_merge_four_levels(self):
         from _devkit_config import deep_merge
+
         base = {"a": {"b": {"c": {"d": 1}}}}
         override = {"a": {"b": {"c": {"e": 2}}}}
         result = deep_merge(base, override)

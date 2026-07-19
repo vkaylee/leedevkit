@@ -149,6 +149,7 @@ class TestPrintSuccessFailure:
         from _test_utils import _print_success
         from pathlib import Path
         import tempfile
+
         log = Path(tempfile.gettempdir()) / "test_success.log"
         log.write_text("all good")
         _print_success("mytask", log)
@@ -159,6 +160,7 @@ class TestPrintSuccessFailure:
         from _test_utils import _print_failure
         from pathlib import Path
         import tempfile
+
         log = Path(tempfile.gettempdir()) / "test_fail.log"
         log.write_text("error line 1\nerror line 2")
         _print_failure("mytask", log, 1)
@@ -169,6 +171,7 @@ class TestPrintSuccessFailure:
         from _test_utils import _print_failure
         from pathlib import Path
         import tempfile
+
         log = Path(tempfile.gettempdir()) / "nonexistent.log"
         _print_failure("mytask", log, 1)
         captured = capsys.readouterr()
@@ -185,7 +188,10 @@ class TestBuildComposeExecEdgeCases:
 
 class TestParallelEdgeCases:
     def test_component_filter_all(self):
-        tasks = [("keep-me", "srv", ["echo", "hi"]), ("drop-me", "other", ["echo", "no"])]
+        tasks = [
+            ("keep-me", "srv", ["echo", "hi"]),
+            ("drop-me", "other", ["echo", "no"]),
+        ]
         result = run_parallel_ordered("Linting", "srv", tasks, num_workers=1)
         assert result is True
 
@@ -197,5 +203,6 @@ class TestParallelEdgeCases:
     def test_single_task_timeout(self, tmp_path):
         log_file = tmp_path / "slow.log"
         from _test_utils import run_single_task
+
         rc = run_single_task("slow", ["sleep", "5"], log_file, timeout=1)
         assert rc == 124

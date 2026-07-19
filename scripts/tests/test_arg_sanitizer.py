@@ -202,6 +202,7 @@ class TestIntegration:
 class TestDieFunction:
     def test_die_exits(self):
         from _arg_sanitizer import _die
+
         with pytest.raises(SystemExit):
             _die("test error")
 
@@ -209,11 +210,13 @@ class TestDieFunction:
 class TestSanitizeEdgeCases:
     def test_mixed_clean_and_banned(self):
         from _arg_sanitizer import sanitize, ArgSanitizeError
+
         with pytest.raises(ArgSanitizeError):
             sanitize(["git", "commit", "-m", "$(evil)"])
 
     def test_empty_string_arg(self):
         from _arg_sanitizer import sanitize
+
         result = sanitize([""])
         assert result == [""]
 
@@ -221,6 +224,7 @@ class TestSanitizeEdgeCases:
 class TestSanitizeShellStringEdgeCases:
     def test_multiple_args_quoted(self):
         from _arg_sanitizer import sanitize_shell_string
+
         result = sanitize_shell_string(["git", "log", "--oneline"])
         assert "git" in result
         assert "log" in result
@@ -228,6 +232,7 @@ class TestSanitizeShellStringEdgeCases:
 
     def test_special_chars_escaped(self):
         from _arg_sanitizer import sanitize_shell_string
+
         result = sanitize_shell_string(["echo", "hello; rm -rf /"])
         # The semicolon should be inside quotes, preventing execution
         assert "hello" in result

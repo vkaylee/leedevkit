@@ -59,8 +59,11 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
             dir_path = repo_root / dirname
             if dir_path.exists():
                 print(f"  + {dirname}/")
-                tf.add(dir_path, arcname=f"leedevkit-{version}/{dirname}",
-                       filter=lambda m: None if _should_exclude(m.name) else m)
+                tf.add(
+                    dir_path,
+                    arcname=f"leedevkit-{version}/{dirname}",
+                    filter=lambda m: None if _should_exclude(m.name) else m,
+                )
 
         # Add individual files
         for fname in INCLUDE_FILES:
@@ -76,17 +79,23 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build leedevkit release tarball")
-    parser.add_argument("--output", default="dist", help="Output directory (default: dist/)")
-    parser.add_argument("--repo-root", default=".",
-                        help="Repository root (default: current directory)")
+    parser.add_argument(
+        "--output", default="dist", help="Output directory (default: dist/)"
+    )
+    parser.add_argument(
+        "--repo-root", default=".", help="Repository root (default: current directory)"
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
     output_dir = Path(args.output).resolve()
 
     if not (repo_root / "scripts" / "_orchestrator.py").exists():
-        print(f"Error: {repo_root} does not look like a leedevkit repo "
-              f"(scripts/_orchestrator.py missing)", file=sys.stderr)
+        print(
+            f"Error: {repo_root} does not look like a leedevkit repo "
+            f"(scripts/_orchestrator.py missing)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     build_release(repo_root, output_dir)

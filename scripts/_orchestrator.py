@@ -4,7 +4,6 @@ import atexit
 import contextlib
 import json
 import os
-import re
 import shutil
 import signal
 import socket
@@ -18,22 +17,19 @@ from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
-from _arg_sanitizer import sanitize
 from _bootstrap import (
-    DEVKIT_ROOT,
     PROJECT_ROOT,
     SCRIPTS_DIR,
     detect_compose_cmd,
     detect_engine,
 )
+from _db_handler import DbHandler
+from _init_handler import InitHandler
 from _lifecycle import lifecycle_down
-from _lifecycle import lifecycle_up as _lifecycle_up
+from _run_handler import RunHandler
+from _test_handler import TestHandler
 from _test_modules import (
     _resolve_rust_service,
-    leedevkit_run_coverage,
-    leedevkit_run_integration,
-    leedevkit_run_lint,
-    leedevkit_run_unit,
 )
 
 # LeeDevKit Enterprise Orchestrator Core
@@ -116,6 +112,10 @@ class Orchestrator:
         self.active_mode = "all"
         self.start_time = time.time()
         self.lock_fd: int | None = None
+        self._db_handler = DbHandler(self)
+        self._run_handler = RunHandler(self)
+        self._test_handler = TestHandler(self)
+        self._init_handler = InitHandler(self)
         self.register_traps()
 
     def _detect_rust_service(self) -> str:
@@ -278,9 +278,7 @@ class Orchestrator:
         subparsers: typing.Any,  # noqa: ANN401
         parent_parser: argparse.ArgumentParser,
     ) -> None:
-        test_prog = (
-None
-        )
+        test_prog = None
         test_parser = subparsers.add_parser(
             "test",
             prog=test_prog,
@@ -382,7 +380,11 @@ None
         skills_sub.add_parser("list", parents=[parent_parser])
         skills_sub.add_parser("update", parents=[parent_parser])
         skills_install = skills_sub.add_parser("install", parents=[parent_parser])
-        skills_install.add_argument("name", nargs="?", help="Skill name from catalog (or leave empty to install from leedevkit.toml)")
+        skills_install.add_argument(
+            "name",
+            nargs="?",
+            help="Skill name from catalog (or leave empty to install from leedevkit.toml)",
+        )
         skills_add = skills_sub.add_parser("add", parents=[parent_parser])
         skills_add.add_argument("url", help="Git repo URL to clone")
         skills_add.add_argument(
@@ -499,199 +501,11 @@ None
         elif args.command == "update":
             self.handle_update(args)
 
-    def handle_test(self, args: argparse.Namespace) -> None:  # noqa: PLR0915
-        target = getattr(args, "target", None)
-
-        if target == "infra":
-            if args.lint_only:
-                self.handle_lint_infra()
-            else:
-                self.handle_verify_infra()
-            return
-
-        mode_map = self._build_mode_map()
-        service_names = [k for k in mode_map if k not in ("all", "api", "web")]
-
-        mode = mode_map.get(target or "all", "all")
-        component_filter = target if target in service_names else ""
-        args.component = component_filter
-
-        self.active_mode = mode
-        self._inject_rust_version_env()
-        log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
-
-        if getattr(args, "timeout", None):
-            timeout_str = str(args.timeout)
-            os.environ["TIMEOUT_LINT"] = timeout_str
-            os.environ["TIMEOUT_UNIT"] = timeout_str
-            os.environ["TIMEOUT_INTEGRATION"] = timeout_str
-            os.environ["TIMEOUT_BUILD"] = timeout_str
-            self.env_vars["TIMEOUT_LINT"] = timeout_str
-            self.env_vars["TIMEOUT_UNIT"] = timeout_str
-            self.env_vars["TIMEOUT_INTEGRATION"] = timeout_str
-            self.env_vars["TIMEOUT_BUILD"] = timeout_str
-
-        if target == "all" and not (args.lint_only or args.unit_only or args.e2e_only):
-            # Resolve sub-targets from config: targets.all defines what "all" means.
-            # Fall back to infra-only — every project has format+lint infrastructure.
-            resolved = _resolve_targets()
-            sub_targets = [t for t in resolved if t != "all"] or ["infra"]
-            for sub_target in sub_targets:
-                args.target = sub_target
-                self.handle_test(args)
-                if self.needs_cleanup and not self.dry_run:
-                    from _lifecycle import lifecycle_down
-
-                    lifecycle_down("all")
-                    self.needs_cleanup = False
-            args.target = "all"
-            self.print_test_summary("all")
-            return
-
-        self.needs_cleanup = True
-
-        run_lint = not args.skip_lint and not (args.unit_only or args.e2e_only)
-        run_unit = not (args.lint_only or args.e2e_only)
-        run_e2e = not (args.lint_only or args.unit_only)
-
-        if args.lint_only:
-            run_lint = True
-
-        if args.coverage:
-            run_unit = False
-            run_e2e = False
-
-        if run_unit:
-            self.run_phase("Unit Tests", mode, args)
-
-        if run_e2e:
-            self.run_phase("Integration Tests", mode, args)
-
-        if run_lint:
-            self.run_phase("Linting", mode, args)
-
-        if args.coverage:
-            self.run_phase("Coverage", mode, args)
-
-        self.print_test_summary(target or "all")
-
-        if getattr(args, "json_output", False) and self.results:
-            import json
-
-            print(json.dumps(self.results, indent=2), file=sys.stderr, flush=True)
-
-        is_single_phase = (
-            getattr(args, "lint_only", False)
-            or getattr(args, "unit_only", False)
-            or getattr(args, "e2e_only", False)
-        )
-        if is_single_phase:
-            target_name = target or "all"
-            log_success(
-                "\n💡 Tip: Isolated phase completed successfully! Run the full suite to verify everything:"
-            )
-            log_success(f"   leedevkit test {target_name}\n")
+    def handle_test(self, args: argparse.Namespace) -> None:
+        self._test_handler.handle_test(args)
 
     def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
-        if self.dry_run:
-            log_info(f"🔍 Dry-run: Phase [{phase_name}] for [{mode}]")
-            return
-
-        granular_map = {
-            ("Linting", "api"): "lint-api",
-            ("Unit Tests", "api"): "unit-api",
-            ("Integration Tests", "api"): "int-api",
-            ("Coverage", "api"): "api",
-            ("Linting", "web"): "lint-web",
-            ("Unit Tests", "web"): "unit-web",
-            ("Integration Tests", "web"): "e2e-web",
-            ("Coverage", "web"): "web",
-        }
-        granular_mode = granular_map.get((phase_name, mode))
-
-        if granular_mode:
-            log_info(
-                f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
-            )
-            _lifecycle_up(granular_mode)
-            if phase_name == "Integration Tests" and granular_mode in (
-                "int-api",
-                "api",
-            ):
-                _lifecycle_up("infra-db")
-                _lifecycle_up("infra-redis")
-                _lifecycle_up("infra-pooler")
-
-        log_info(f"🔹 Running {phase_name}...")
-        func_map: dict[str, typing.Callable[..., typing.Any]] = {
-            "Startup": lambda: _lifecycle_up(mode),
-            "Linting": lambda: leedevkit_run_lint(
-                getattr(args, "component", "") or "",
-                mode,
-                fix=getattr(args, "fix", False),
-            ),
-            "Unit Tests": lambda: leedevkit_run_unit(
-                getattr(args, "component", "") or "",
-                mode,
-                test_pattern=getattr(args, "pattern", "") or "",
-            ),
-            "Integration Tests": lambda: leedevkit_run_integration(
-                getattr(args, "component", "") or "",
-                mode,
-                test_pattern=getattr(args, "pattern", "") or "",
-            ),
-            "Coverage": lambda: leedevkit_run_coverage(
-                getattr(args, "component", "") or "",
-                mode,
-                getattr(args, "unit_only", False),
-            ),
-            "Database Setup": self.handle_db_setup_phase,
-            "Prebuild": self.handle_prebuild_phase,
-        }
-
-        func = func_map.get(phase_name)
-        if func is None:
-            log_error(f"Unknown phase: {phase_name}")
-            sys.exit(1)
-
-        start = time.time()
-        res = func()
-        elapsed = time.time() - start
-
-        self.results[phase_name] = {
-            "status": "pass" if res else "fail",
-            "duration_s": round(elapsed, 1),
-        }
-
-        if granular_mode:
-            log_info(
-                f"🔹 Tearing down isolated environment for: {phase_name} ({granular_mode})"
-            )
-            lifecycle_down("all")
-
-        if res is False:
-            is_single_phase = (
-                getattr(args, "lint_only", False)
-                or getattr(args, "unit_only", False)
-                or getattr(args, "e2e_only", False)
-            )
-            target = getattr(args, "target", "api")
-            if not is_single_phase:
-                if phase_name == "Linting":
-                    log_warn(
-                        f"\n💡 Tip: To quickly verify only linting/formatting fixes, run:\n   leedevkit test {target} --lint-only\n"
-                    )
-                elif phase_name == "Unit Tests":
-                    log_warn(
-                        f"\n💡 Tip: To focus on unit tests and skip linting/e2e, run:\n   leedevkit test {target} --unit-only\n"
-                    )
-                elif phase_name == "Integration Tests":
-                    log_warn(
-                        f"\n💡 Tip: To focus on integration/E2E tests only, run:\n   leedevkit test {target} --e2e-only\n"
-                    )
-            # Continue to next phase instead of immediate exit — AI needs all results
-            if phase_name != "Linting":  # lint failures are non-blocking
-                sys.exit(1)
+        self._test_handler.run_phase(phase_name, mode, args)
 
     def handle_manage(self, args: argparse.Namespace) -> None:
         """Handle 'manage' commands using a dispatch map for simplicity."""
@@ -751,137 +565,13 @@ None
 
     def handle_test_infra(self) -> None:
         """Run all test files with coverage enforcement."""
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(SCRIPTS_DIR)
-        tests_dir = SCRIPTS_DIR / "tests"
-        test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
-        venv_pytest = DEVKIT_ROOT / ".venv" / "bin" / "pytest"
-        cmd = [
-            str(venv_pytest),
-            "--cov=scripts",
-            "--cov-report=term-missing",
-            "--cov-fail-under=80",
-        ] + test_files
-        self.execute_safe(cmd, env=env)
+        self._test_handler.handle_test_infra()
 
-    def handle_run(self, args: argparse.Namespace) -> None:  # noqa: PLR0915
-        self.needs_cleanup = True
-        self._inject_rust_version_env()
-        tool = args.tool
-        tool_args = args.args
-
-        if getattr(args, "pooler", False):
-            pooler_host = os.environ.get("SUPAVISOR_HOST", "pgbouncer_tx")
-            pooler_port = os.environ.get("SUPAVISOR_PORT", "6543")
-            os.environ["DATABASE_POOLER_URL"] = (
-                f"postgres://test_user:test_password@{pooler_host}:{pooler_port}/test_database"
-            )
-            self.env_vars["DATABASE_POOLER_URL"] = os.environ["DATABASE_POOLER_URL"]
-
-        # Resolve target service dynamically based on context
-        caller_dir = Path.cwd()
-        rel_dir = ""
-        with contextlib.suppress(ValueError):
-            rel_dir = str(caller_dir.relative_to(PROJECT_ROOT))
-
-        service = self.tool_map.get(tool, "apiserver")
-        if "webdashboard" in rel_dir or any("webdashboard" in arg for arg in tool_args):
-            service = "webdashboard"
-        elif "agent-main" in rel_dir or any("agent-main" in arg for arg in tool_args):
-            service = "agent-main"
-        elif "apiserver" in rel_dir or any("apiserver" in arg for arg in tool_args):
-            service = "apiserver"
-
-        if tool_args and tool_args[0] == "--":
-            tool_args = tool_args[1:]
-
-        # Sanitize AI-provided arguments BEFORE any processing
-        tool_args = sanitize(tool_args, die_on_error=True)
-
-        log_info(f"🛠️ Running {tool} inside container environment...")
-
-        compose_cmd = self.compose_engine + [
-            "-p",
-            self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
-        ]
-
-        if tool in ["cargo", "diesel"]:
-            needs_db = tool == "diesel"
-            if tool == "cargo" and tool_args:
-                first_arg = tool_args[0]
-                if first_arg in ["run", "test", "nextest"]:
-                    needs_db = True
-
-            if needs_db:
-                log_info(f"🔹 Bringing up backend dependencies for {tool}...")
-                _lifecycle_up("infra-db")
-
-                log_info(
-                    "ℹ️ 🔹 Bringing up backend dependencies for connection pooler..."
-                )
-                _lifecycle_up("infra-pooler")
-            compose_cmd.extend(["--profile", "int-api"])
-            if needs_db:
-                compose_cmd.extend(
-                    ["--profile", "infra-db", "--profile", "infra-redis"]
-                )
-                if "DATABASE_POOLER_URL" in os.environ:
-                    _lifecycle_up("infra-pooler")  # pragma: no cover
-                    compose_cmd.extend(
-                        ["--profile", "infra-pooler"]
-                    )  # pragma: no cover
-        else:
-            compose_cmd.extend(["--profile", "frontend"])
-
-        compose_cmd.extend(
-            [
-                "-f",
-                str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-            ]
-        )
-
-        if tool == "npm":
-            first = tool_args[0] if tool_args else ""
-            is_standalone = tool_args and first in ("--version", "--help", "-v", "-h")
-            if is_standalone:
-                # standalone: compose run --no-deps --entrypoint bun (no prefix needed)
-                compose_cmd.extend(
-                    ["run", "-T", "--rm", "--no-deps", "--entrypoint", "bun", service]
-                )
-                if tool_args:
-                    compose_cmd.extend(tool_args)
-            else:
-                is_running = self._is_service_running(service)
-                if is_running:
-                    compose_cmd.extend(["exec", "-T", service])
-                else:
-                    compose_cmd.extend(["run", "-T", "--rm"])
-                self._handle_run_npm(compose_cmd, tool_args, service, is_running)
-        elif tool == "cargo":
-            if not needs_db:
-                compose_cmd.extend(["run", "-T", "--rm", "--no-deps"])
-            else:
-                compose_cmd.extend(["run", "-T", "--rm"])
-            self._handle_run_cargo(compose_cmd, tool_args, service)
-        else:  # diesel
-            compose_cmd.extend(
-                ["run", "-T", "--rm", "--entrypoint", tool, service]
-            )  # pragma: no cover
-            if tool_args:  # pragma: no cover
-                compose_cmd.extend(tool_args)  # pragma: no cover
-
-        self.execute_safe(compose_cmd)
+    def handle_run(self, args: argparse.Namespace) -> None:
+        self._run_handler.handle_run(args)
 
     def _is_service_running(self, service: str) -> bool:
-        res = subprocess.run(
-            [self.engine, "ps", "--format", "{{.Names}}"],
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            check=False,
-        )
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-        return any(project_name in n and service in n for n in res.stdout.splitlines())
+        return self._run_handler.is_service_running(service)
 
     # ── Self-update ────────────────────────────────────────────────────────────
 
@@ -959,85 +649,23 @@ None
         service: str,
         is_running: bool = True,
     ) -> None:
-        """Run npm/bun commands via compose exec/run into container.
-
-        Auto-detects if container is running. If not, uses compose run with custom entrypoint.
-        """
-        npm_min_args = 2
-        is_typecheck = (
-            len(tool_args) >= npm_min_args
-            and tool_args[0] == "run"
-            and tool_args[1] == "typecheck"
-        )
-        if is_typecheck:
-            tool_args[1] = "type-check"
-
-        first_arg = tool_args[0] if tool_args else ""
-
-        executable = "bun"
-        if first_arg in ("bun", "npm", "bash", "sh"):
-            executable = first_arg
-            tool_args = tool_args[1:]
-
-        if is_running:
-            compose_cmd.extend([executable])
-        else:
-            compose_cmd.extend(["--entrypoint", executable, service])
-
-        if tool_args:
-            compose_cmd.extend(tool_args)
+        """Run npm/bun commands via compose exec/run into container."""
+        self._run_handler._handle_run_npm(compose_cmd, tool_args, service, is_running)
 
     def _handle_run_cargo(
         self, compose_cmd: list[str], tool_args: list[str], service: str
     ) -> None:
-        caller_dir = Path.cwd()
-        rel_dir = ""
-        with contextlib.suppress(ValueError):
-            rel_dir = str(caller_dir.relative_to(PROJECT_ROOT))
-            if rel_dir == ".":
-                rel_dir = ""
-
-        workdir = f"/workspace/{rel_dir}" if rel_dir else "/workspace"
-        compose_cmd.extend(
-            [
-                "--workdir",
-                workdir,
-                "--entrypoint",
-                "cargo",
-                service,
-            ]
-        )
-        if tool_args:
-            # AI Agent behavior correction: silently convert "cargo test" to "cargo nextest run"
-            if tool_args[0] == "test":
-                tool_args = ["nextest", "run", "--test-threads", "4"] + tool_args[1:]
-            compose_cmd.extend(tool_args)
+        """Run cargo commands via compose inside the Rust service container."""
+        self._run_handler._handle_run_cargo(compose_cmd, tool_args, service)
 
     def handle_lint_infra(self) -> None:
-        log_info("🎨 Linting infrastructure scripts...")
-        venv_bin = DEVKIT_ROOT / ".venv" / "bin"
-        self.execute_safe([str(venv_bin / "ruff"), "check", str(SCRIPTS_DIR)])
-        self.execute_safe([str(venv_bin / "mypy"), str(SCRIPTS_DIR)])
-
-        sh_files = [str(f) for f in PROJECT_ROOT.glob("*.sh")]
-        sh_files += [str(f) for f in SCRIPTS_DIR.glob("*.sh")]
-        if shutil.which("shellcheck"):
-            self.execute_safe(["shellcheck"] + sh_files)
-
-        log_success("✨ Infrastructure linting passed!")
+        self._test_handler.handle_lint_infra()
 
     def handle_fmt_infra(self) -> None:
-        log_info("💅 Formatting infrastructure scripts...")
-        venv_bin = DEVKIT_ROOT / ".venv" / "bin"
-        self.execute_safe([str(venv_bin / "ruff"), "format", str(SCRIPTS_DIR)])
-        log_success("✨ Infrastructure formatting completed!")
+        self._test_handler.handle_fmt_infra()
 
     def handle_verify_infra(self) -> None:
-        log_info("🚀 Starting full infrastructure verification...")
-        self.handle_fmt_infra()
-        self.handle_lint_infra()
-        self.handle_test_infra()
-        log_success("✨ Infrastructure is Premium Grade!")
+        self._test_handler.handle_verify_infra()
 
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install.
@@ -1050,288 +678,29 @@ None
           5. Install community skills from catalog/TOML
           6. Pin devkit version in leedevkit.toml
         """
-        import re
-        import shutil
-        from pathlib import Path
+        self._init_handler.handle_init(force=force)
 
-        from _devkit_config import _load_toml
-
-        root = Path.cwd()
-        config_toml = root / "leedevkit.toml"
-
-        # ── Step 0: Load or create leedevkit.toml ──
-        if not config_toml.exists() or force:
-            # Use the devkit source repo's template (before we have .leedevkit/)
-            # Auto-detect project type: Cargo.toml → rust template, else default
-            source_root = Path(__file__).resolve().parent.parent
-            if (root / "Cargo.toml").exists():
-                template = source_root / "templates" / "leedevkit.rust.toml"
-            else:
-                template = source_root / "templates" / "leedevkit.default.toml"
-            if template.exists():
-                config_toml.write_text(template.read_text())
-                log_success("Created leedevkit.toml (edit it for your project)")
-
-        cfg = _load_toml(config_toml) if config_toml.exists() else {}
-        devkit_version = cfg.get("devkit", {}).get("version", "latest")
-
-        # ── Step 1: Ensure .leedevkit/ exists with correct version ──
-        leedevkit_dir = root / ".leedevkit"
-        installed_version = self._read_installed_version(leedevkit_dir)
-
-        if force or not leedevkit_dir.exists() or installed_version != devkit_version:
-            log_info(f"Installing devkit {devkit_version} into .leedevkit/ ...")
-            self._install_devkit(root, leedevkit_dir, devkit_version, force=force)
-        else:
-            log_info(f"Devkit {devkit_version} already installed in .leedevkit/")
-
-        # Re-resolve devkit root now that .leedevkit/ exists
-        from _devkit_config import get_devkit_root
-        devkit = get_devkit_root()
-
-        # ── Step 2: Ensure the DevKit-local virtual environment ──
-        ensure_venv = devkit / "scripts" / "_ensure-venv.sh"
-        if not ensure_venv.is_file():
-            raise RuntimeError(f"DevKit venv bootstrap is missing: {ensure_venv}")
-        setup = subprocess.run(
-            ["bash", str(ensure_venv)],
-            capture_output=True,
-            text=True,
-            check=False,
-            stdin=subprocess.DEVNULL,
-        )
-        if setup.returncode != 0:
-            detail = setup.stderr.strip() or "unknown error"
-            raise RuntimeError(f"Could not set up DevKit virtual environment: {detail}")
-        python_path = Path(setup.stdout.strip().splitlines()[-1]) if setup.stdout.strip() else None
-        expected_python = devkit / ".venv" / "bin" / "python3"
-        if (
-            python_path is None
-            or python_path != expected_python
-            or not python_path.is_file()
-            or not os.access(python_path, os.X_OK)
-        ):
-            raise RuntimeError("DevKit venv bootstrap returned an invalid Python executable")
-        log_success("Virtual environment ready")
-
-        # ── Step 2b: Detect legacy symlinks from old global install ──
-        agent_dir = root / ".agent"
-        legacy_symlinks = self._detect_legacy_symlinks(agent_dir)
-        if legacy_symlinks:
-            log_warn(
-                f"⚠️  Detected {len(legacy_symlinks)} legacy symlink(s) in .agent/ "
-                f"(from old global install):"
-            )
-            for name, target in legacy_symlinks:
-                log_warn(f"      .agent/{name} → {target}")
-            log_info("")
-            log_info("   These are no longer needed with per-project install.")
-            log_info("   To clean up: rm -rf .agent && ./leedevkit init")
-            log_info("")
-
-        # ── Step 3: Copy base AI rules from devkit → project (not symlinks) ──
-        ai_cfg = cfg.get("ai", {})
-        rules_rel = ai_cfg.get("rules_dir", ".agent/rules")
-        project_rules = root / rules_rel
-        devkit_rules = devkit / ".agent" / "rules"
-        if devkit_rules.exists():
-            project_rules.mkdir(parents=True, exist_ok=True)
-            copied = 0
-            for rule_file in sorted(devkit_rules.glob("*.md")):
-                target = project_rules / rule_file.name
-                if not target.exists() or force:
-                    target.write_text(rule_file.read_text())
-                    copied += 1
-            if copied:
-                log_success(f"Populated {rules_rel}/ with {copied} rulebook(s)")
-
-        # Copy overrides.yaml if project doesn't have one
-        override_manifest = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
-        override_path = root / override_manifest
-        if not override_path.exists():
-            devkit_override = devkit / ".agent" / "overrides.yaml"
-            if devkit_override.exists():
-                override_path.parent.mkdir(parents=True, exist_ok=True)
-                override_path.write_text(devkit_override.read_text())
-                log_success(f"Created {override_manifest}")
-
-        # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
-        # Always create a real script (not symlink) so it works even when
-        # the global install is gone or when `leedevkit` is called without ./
-        wrapper = root / "leedevkit"
-        wrapper_target = leedevkit_dir / "bin" / "leedevkit"
-        wrapper_content = (
-            "#!/bin/bash\n"
-            "# LeeDevKit — project-local wrapper (auto-generated by init)\n"
-            "# Delegates to .leedevkit/bin/leedevkit (per-project install)\n"
-            f'exec "{wrapper_target}" "$@"\n'
-        )
-        wrapper.write_text(wrapper_content)
-        wrapper.chmod(0o755)
-        log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
-
-        # ── Step 5: Pin devkit version in leedevkit.toml ──
-        actual_version = (devkit / "VERSION").read_text().strip()
-        current = cfg.get("devkit", {}).get("version", "")
-        if current != actual_version and config_toml.exists():
-            content = config_toml.read_text()
-            if "version =" in content and "[devkit]" in content:
-                content = re.sub(
-                    r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
-                    f'\\1"{actual_version}"',
-                    content, flags=re.DOTALL,
-                )
-                config_toml.write_text(content)
-            log_success(f"Pinned devkit version: {actual_version}")
-
-        # ── Step 6: Auto-install community skills from leedevkit.toml ──
-        self.handle_skills(argparse.Namespace(skills_action="install"))
-
-        log_success("Project initialized. Run ./leedevkit --help to start.")
-
-    def _detect_legacy_symlinks(
-        self, agent_dir: Path
-    ) -> list[tuple[str, str]]:
-        """Detect symlinks in .agent/ that point to the old global install.
-
-        Returns list of (name, target_path) for symlinks whose target
-        resolves under ~/.leedevkit/ (the legacy global install location).
-        """
-        legacy: list[tuple[str, str]] = []
-        if not agent_dir.exists():
-            return legacy
-        global_prefix = str(Path.home() / ".leedevkit")
-        for item in sorted(agent_dir.iterdir()):
-            if item.is_symlink():
-                try:
-                    target = str(item.resolve())
-                except OSError:
-                    target = str(item.readlink())
-                if target.startswith(global_prefix):
-                    legacy.append((item.name, target))
-        return legacy
+    def _detect_legacy_symlinks(self, agent_dir: Path) -> list[tuple[str, str]]:
+        """Detect symlinks in .agent/ that point to the old global install."""
+        return self._init_handler._detect_legacy_symlinks(agent_dir)
 
     def _read_installed_version(self, leedevkit_dir: Path) -> str | None:
         """Read the version installed in .leedevkit/, or None if not installed."""
-        version_file = leedevkit_dir / "VERSION"
-        if version_file.exists():
-            return version_file.read_text().strip()
-        return None
+        return self._init_handler._read_installed_version(leedevkit_dir)
 
     def _install_devkit(
         self, project_root: Path, target_dir: Path, version: str, force: bool = False
     ) -> None:
-        """Download and install devkit into target_dir (.leedevkit/).
-
-        Strategy (in order):
-          1. Local path override (DEVKIT_LOCAL_PATH env) — for development
-          2. GitHub release tarball — for production
-          3. Copy from current devkit source — fallback for dogfooding
-        """
-        import shutil
-
-        if target_dir.exists() and force:
-            shutil.rmtree(target_dir)
-
-        # Strategy 1: local path override
-        local_path = os.environ.get("DEVKIT_LOCAL_PATH")
-        if local_path and Path(local_path).exists():
-            log_info(f"Installing from local path: {local_path}")
-            self._extract_from_source(Path(local_path), target_dir)
-            return
-
-        # Strategy 2: GitHub release tarball
-        # Strip "v" prefix from version for tarball name (v0.1.0 → leedevkit-0.1.0.tar.gz)
-        ver = version.lstrip("v") if version else version
-        if ver and version != "latest":
-            url = (f"https://github.com/vkaylee/leedevkit/releases/download/"
-                   f"{version}/leedevkit-{ver}.tar.gz")
-            log_info(f"Downloading {url} ...")
-            try:
-                self._download_and_extract(url, target_dir)
-                return
-            except Exception as e:
-                log_warn(f"Download failed: {e}")
-
-        # Strategy 3: copy from current devkit source (dogfooding)
-        source_root = Path(__file__).resolve().parent.parent
-        if (source_root / "scripts" / "_orchestrator.py").exists():
-            log_info("Installing from local devkit source ...")
-            self._extract_from_source(source_root, target_dir)
-            return
-
-        raise RuntimeError(
-            f"Cannot install devkit {version}. Set DEVKIT_LOCAL_PATH or "
-            "ensure GitHub release exists."
-        )
+        """Download and install devkit into target_dir (.leedevkit/)."""
+        self._init_handler._install_devkit(project_root, target_dir, version, force=force)
 
     def _extract_from_source(self, source_root: Path, target_dir: Path) -> None:
         """Copy devkit artifacts from a source directory into target_dir."""
-        import shutil
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        # Copy immutable artifacts
-        for item in ["scripts", "templates", "bin", ".agent"]:
-            src = source_root / item
-            dst = target_dir / item
-            if src.exists():
-                if dst.exists():
-                    if src.is_dir():
-                        shutil.rmtree(dst)
-                    else:
-                        dst.unlink()
-                if src.is_dir():
-                    shutil.copytree(src, dst)
-                else:
-                    shutil.copy2(src, dst)
-        # Copy metadata files
-        for fname in ["VERSION", "devkit.manifest.json"]:
-            src = source_root / fname
-            if src.exists():
-                shutil.copy2(src, target_dir / fname)
-        # Ensure bin scripts are executable
-        bin_dir = target_dir / "bin"
-        if bin_dir.exists():
-            for f in bin_dir.iterdir():
-                if f.is_file():
-                    f.chmod(0o755)
-        # Write dev-state.json
-        version = (target_dir / "VERSION").read_text().strip()
-        state = {"version": version, "source": "local"}
-        (target_dir / "dev-state.json").write_text(
-            __import__("json").dumps(state, indent=2)
-        )
-        log_success(f"Installed devkit {version} → {target_dir}")
+        self._init_handler._extract_from_source(source_root, target_dir)
 
     def _download_and_extract(self, url: str, target_dir: Path) -> None:
         """Download a release tarball and extract into target_dir."""
-        import tarfile
-        import tempfile
-
-        tmp = Path(tempfile.mkdtemp())
-        try:
-            tarball = tmp / "release.tar.gz"
-            urllib.request.urlretrieve(url, tarball)
-            # Extract into temp, then move contents
-            extract_dir = tmp / "extracted"
-            extract_dir.mkdir()
-            with tarfile.open(tarball, "r:gz") as tf:
-                tf.extractall(extract_dir)  # noqa: S202
-            # The tarball may contain a single root dir (leedevkit-vX.Y.Z/)
-            contents = list(extract_dir.iterdir())
-            if len(contents) == 1 and contents[0].is_dir():
-                source = contents[0]
-            else:
-                source = extract_dir
-            if target_dir.exists():
-                import shutil
-                shutil.rmtree(target_dir)
-            target_dir.parent.mkdir(parents=True, exist_ok=True)
-            import shutil
-            shutil.move(str(source), str(target_dir))
-        finally:
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
+        self._init_handler._download_and_extract(url, target_dir)
 
     def handle_skills(self, args: argparse.Namespace) -> None:
         """Manage community add-on skills (delegated to SkillsManager)."""
@@ -1356,7 +725,9 @@ None
         # ── .agent directory (per-project, real dir not symlink) ──
         agent_dir = PROJECT_ROOT / ".agent"
         if agent_dir.is_symlink():
-            log_warn("⚠️  .agent is a symlink — expected real directory (run: leedevkit init)")
+            log_warn(
+                "⚠️  .agent is a symlink — expected real directory (run: leedevkit init)"
+            )
         elif agent_dir.is_dir():
             rules_dir = agent_dir / "rules"
             rule_count = len(list(rules_dir.glob("*.md"))) if rules_dir.exists() else 0
@@ -1366,9 +737,14 @@ None
 
         # ── DevKit install location ──
         from _devkit_config import get_devkit_root
+
         try:
             dk = get_devkit_root()
-            dk_version = (dk / "VERSION").read_text().strip() if (dk / "VERSION").exists() else "?"
+            dk_version = (
+                (dk / "VERSION").read_text().strip()
+                if (dk / "VERSION").exists()
+                else "?"
+            )
             log_success(f"✅ DevKit: {dk} (v{dk_version})")
         except Exception as e:
             log_warn(f"⚠️  DevKit: {e}")
@@ -1411,67 +787,14 @@ None
                     log_success(f"✅ Container {r}: Running")
 
     def handle_db_query(self, args: argparse.Namespace) -> None:
-        sql = args.sql
-        log_info(f"🗄️ Executing SQL: {sql}")
-        cmd = [
-            self.engine,
-            "exec",
-            "-t",
-            "leedevkit-dev-db",
-            "psql",
-            "-U",
-            "lee",
-            "-d",
-            "leedevkit",
-            "-c",
-            sql,
-        ]
-        if args.json:
-            cmd += ["-A", "-t", "--json"]
-        self.execute_safe(cmd)
+        self._db_handler.handle_db_query(args)
 
     def handle_diesel(self, args: list[str]) -> None:
         """Wrapper for diesel commands."""
-        caller_dir = Path.cwd()
-        rel_dir = ""
-        with contextlib.suppress(ValueError):
-            rel_dir = str(caller_dir.relative_to(PROJECT_ROOT))
-
-        workdir = f"/workspace/{rel_dir}" if rel_dir else "/workspace"
-        cmd = (
-            self.compose_engine
-            + [
-                "-p",
-                self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
-                "-f",
-                str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-                "run",
-                "-T",
-                "--rm",
-                "--workdir",
-                workdir,
-                "--entrypoint",
-                "diesel",
-                "apiserver",
-            ]
-            + args
-        )
-        self.execute_safe(cmd)
+        self._db_handler.handle_diesel(args)
 
     def get_compose_files(self, env: str) -> list[str]:
-        if env == "dev":
-            return [
-                "-p",
-                "leedevkit-dev",
-                "-f",
-                "docker-compose.yml",
-                "-f",
-                ".compose/docker-compose.dev.yml",
-            ]
-        if env == "test":
-            project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-            return ["-p", project_name, "-f", ".compose/docker-compose.test.yml"]
-        return ["-p", "leedevkit", "-f", "docker-compose.yml"]
+        return self._db_handler.get_compose_files(env)
 
     def execute_safe(
         self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800
@@ -1493,268 +816,13 @@ None
             sys.exit(result.returncode)
 
     def print_test_summary(self, target: str) -> None:
-        total_tests = 0
-        passed_tests = 0
-
-        nextest_pattern = re.compile(r"Summary \[.*?\] (\d+) tests? run: (\d+) passed")
-        vitest_pattern = re.compile(r"Tests\s+(\d+)\s+passed\s+\((\d+)\)")
-        pw_pattern = re.compile(r"^\s*(\d+)\s+passed\s+\(.*?\)", re.MULTILINE)
-
-        log_dir = PROJECT_ROOT / ".test_logs"
-        if log_dir.exists():
-            for log_file in log_dir.glob("*.log"):
-                try:
-                    if log_file.stat().st_mtime < self.start_time:
-                        continue
-
-                    content = log_file.read_text(errors="replace")
-                    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-                    clean_content = ansi_escape.sub("", content)
-
-                    # nextest
-                    matches = list(nextest_pattern.finditer(clean_content))
-                    if matches:
-                        last_match = matches[-1]
-                        total_tests += int(last_match.group(1))
-                        passed_tests += int(last_match.group(2))
-                        continue
-
-                    # vitest
-                    matches = list(vitest_pattern.finditer(clean_content))
-                    if matches:
-                        last_match = matches[-1]
-                        passed_tests += int(last_match.group(1))
-                        total_tests += int(last_match.group(2))
-                        continue
-
-                    # playwright
-                    if "playwright" in log_file.name.lower():
-                        matches = list(pw_pattern.finditer(clean_content))
-                        if matches:
-                            last_match = matches[-1]
-                            passed = int(last_match.group(1))
-                            passed_tests += passed
-                            total_tests += passed
-                except Exception:
-                    pass  # Ignore log parsing errors
-
-        if total_tests > 0:
-            msg = f"All selected tests for [{target}] passed successfully! ({passed_tests}/{total_tests} tests)"
-            log_success(msg)
-        else:
-            log_success(f"All selected tests for [{target}] passed successfully!")
+        self._test_handler.print_test_summary(target)
 
     def handle_db_setup_phase(self) -> bool:
-        log_info("Bringing up database and apiserver containers...")
-        _lifecycle_up("int-api")
-        _lifecycle_up("infra-db")
-        _lifecycle_up("infra-redis")
-
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-        db_container = f"{project_name}_db_system_1"
-
-        # Wait for database container to be ready
-        log_info("Waiting for database container to be ready...")
-        db_ready = False
-        for _ in range(60):
-            res = subprocess.run(
-                [
-                    self.engine,
-                    "exec",
-                    "-i",
-                    db_container,
-                    "pg_isready",
-                    "-U",
-                    "test_user",
-                    "-d",
-                    "test_database",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            if res.returncode == 0:
-                db_ready = True
-                break
-            time.sleep(1)
-
-        if not db_ready:
-            log_error("❌ Database container failed to become ready in time.")
-            return False
-
-        # Drop zombie test databases (from nextest crashed runs)
-        log_info("Cleaning up old test databases...")
-        cleanup_sql = "SELECT 'DROP DATABASE IF EXISTS \"' || datname || '\";' FROM pg_database WHERE datname LIKE 'test_db_%';"
-        cleanup_res = subprocess.run(
-            [
-                self.engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-t",
-                "-c",
-                cleanup_sql,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if cleanup_res.returncode == 0 and cleanup_res.stdout.strip():
-            drop_commands = cleanup_res.stdout.strip()
-            subprocess.run(
-                [
-                    self.engine,
-                    "exec",
-                    "-i",
-                    db_container,
-                    "psql",
-                    "-U",
-                    "test_user",
-                    "-d",
-                    "test_database",
-                ],
-                input=drop_commands,
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-
-        # Create template database
-        log_info("Creating template database...")
-        create_sql = "DROP DATABASE IF EXISTS leedevkit_test_template; CREATE DATABASE leedevkit_test_template;"
-        subprocess.run(
-            [
-                self.engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                create_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-
-        # Run migrations on main database
-        log_info("Running migrations on main database...")
-        main_db_url = "postgres://test_user:test_password@db_system:5432/test_database?sslmode=disable"
-        main_cmd = self.compose_engine + [
-            "-p",
-            project_name,
-            "-f",
-            str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-            "run",
-            "-T",
-            "--rm",
-            "-e",
-            f"DATABASE_URL={main_db_url}",
-            "--entrypoint",
-            "cargo",
-            "apiserver",
-            "test",
-            "--test",
-            "setup_migrations",
-            "--",
-            "run_migrations",
-            "--ignored",
-            "--exact",
-        ]
-        self.execute_safe(main_cmd)
-
-        # Run migrations on template database
-        log_info("Running migrations on template database...")
-        template_db_url = "postgres://test_user:test_password@db_system:5432/leedevkit_test_template?sslmode=disable"
-        template_cmd = self.compose_engine + [
-            "-p",
-            project_name,
-            "-f",
-            str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-            "run",
-            "-T",
-            "--rm",
-            "-e",
-            f"DATABASE_URL={template_db_url}",
-            "--entrypoint",
-            "cargo",
-            "apiserver",
-            "test",
-            "--test",
-            "setup_migrations",
-            "--",
-            "run_migrations",
-            "--ignored",
-            "--exact",
-        ]
-        self.execute_safe(template_cmd)
-
-        # Revoke connect on template to prevent hangs
-        revoke_sql = "REVOKE CONNECT ON DATABASE leedevkit_test_template FROM public;"
-        terminate_sql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'leedevkit_test_template' AND pid <> pg_backend_pid();"
-        subprocess.run(
-            [
-                self.engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                revoke_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        subprocess.run(
-            [
-                self.engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                terminate_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-
-        log_success("✅ Database Setup complete.")
-        return True
+        return self._db_handler.handle_db_setup_phase()
 
     def handle_prebuild_phase(self) -> bool:
-        log_info("Building test Docker images...")
-        project_name = self.env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-        build_cmd = self.compose_engine + [
-            "-p",
-            project_name,
-            "-f",
-            str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-            "build",
-        ]
-        self.execute_safe(build_cmd)
-        log_success("✅ Prebuild complete.")
-        return True
+        return self._db_handler.handle_prebuild_phase()
 
 
 if __name__ == "__main__":  # pragma: no cover

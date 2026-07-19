@@ -223,9 +223,7 @@ def leedevkit_run_integration(
             f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' {_safe_pattern(test_pattern)} "
             f"--no-tests={no_tests_flag}"
         )
-        backend_cmd = build_compose_exec(
-            rust_svc, backend, workdir=workdir, mode=mode
-        )
+        backend_cmd = build_compose_exec(rust_svc, backend, workdir=workdir, mode=mode)
         task_name = (
             f"rust-backend-int-{component_filter}"
             if component_filter

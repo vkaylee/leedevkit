@@ -62,7 +62,9 @@ def test_launch_chromium_returns_remediation_when_browser_install_fails(monkeypa
     chromium = Mock()
     chromium.launch.side_effect = Exception("Executable doesn't exist")
     playwright = Mock(chromium=chromium)
-    monkeypatch.setattr(runner, "_install_chromium", Mock(return_value=(False, "offline")))
+    monkeypatch.setattr(
+        runner, "_install_chromium", Mock(return_value=(False, "offline"))
+    )
 
     launched, error = runner._launch_chromium(playwright)
 

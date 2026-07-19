@@ -3,12 +3,15 @@
 import os
 import sys
 
-import pytest
-
 # Allow importing from the security scan scripts directory
 _SCAN_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "..",
-    ".agent", "skills", "vulnerability-scanner", "scripts",
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    ".agent",
+    "skills",
+    "vulnerability-scanner",
+    "scripts",
 )
 sys.path.insert(0, _SCAN_DIR)
 
@@ -22,6 +25,7 @@ class TestScanDependencies:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import scan_dependencies
+
         result = scan_dependencies(str(tmp_path))
 
         assert len(result["findings"]) >= 1
@@ -32,6 +36,7 @@ class TestScanDependencies:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import scan_dependencies
+
         result = scan_dependencies(str(tmp_path))
 
         assert result["status"] in ("[OK] Supply chain checks passed", "[OK] Secure")
@@ -43,12 +48,14 @@ class TestScanDependencies:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import scan_dependencies
+
         result = scan_dependencies(str(tmp_path))
 
         # npm is locked; yarn/pnpm warnings are expected since those managers
         # aren't in use but the scanner flags every missing lock file.
         npm_missing = [
-            f for f in result["findings"]
+            f
+            for f in result["findings"]
             if f["type"] == "Missing Lock File" and f["message"].startswith("npm:")
         ]
         assert len(npm_missing) == 0
@@ -60,6 +67,7 @@ class TestScanDependencies:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import scan_dependencies
+
         result = scan_dependencies(str(tmp_path))
 
         assert "Missing Lock File" not in str(result["findings"])
@@ -73,6 +81,7 @@ class TestRunFullScan:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import run_full_scan
+
         result = run_full_scan(str(tmp_path), scan_type="deps")
 
         assert "project" in result
@@ -87,6 +96,7 @@ class TestRunFullScan:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import run_full_scan
+
         result = run_full_scan(str(tmp_path), scan_type="secrets")
 
         assert "secrets" in result["scans"]
@@ -97,6 +107,7 @@ class TestRunFullScan:
         monkeypatch.chdir(tmp_path)
 
         from security_scan import run_full_scan
+
         result = run_full_scan(str(tmp_path), scan_type="all")
 
         assert len(result["scans"]) == 4  # deps, secrets, patterns, config

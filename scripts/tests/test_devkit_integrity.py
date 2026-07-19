@@ -217,6 +217,7 @@ class TestVerifyDevkitEdgeCases:
         manifest_path = write_manifest(tmp_path)
         # Manually add a ghost file to manifest
         import json
+
         data = json.loads(manifest_path.read_text())
         data["files"]["ghost.py"] = "abc123"
         manifest_path.write_text(json.dumps(data))
