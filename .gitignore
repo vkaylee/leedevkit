@@ -18,6 +18,9 @@ env/
 htmlcov/
 coverage.xml
 
+# ── Generated release metadata ──
+devkit.manifest.json
+
 # ── Runtime artifacts ──
 .test_logs/
 *.log

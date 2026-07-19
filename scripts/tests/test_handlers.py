@@ -13,6 +13,7 @@ import pytest
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _mock_orchestrator(**overrides):
     """Build a mock orchestrator with sensible defaults for handler testing."""
     orch = MagicMock()
@@ -178,13 +179,13 @@ class TestDbHandler:
         mock_run.return_value.stdout = ""
 
         import _db_handler
+
         with patch.object(_db_handler, "_lifecycle_up", return_value=None):
             result = handler.handle_db_setup_phase()
 
         assert result is True
         pg_isready_calls = [
-            c for c in mock_run.call_args_list
-            if "pg_isready" in str(c)
+            c for c in mock_run.call_args_list if "pg_isready" in str(c)
         ]
         assert len(pg_isready_calls) >= 1
 
@@ -202,6 +203,7 @@ class TestDbHandler:
         mock_run.return_value.stdout = ""
 
         import _db_handler
+
         with patch.object(_db_handler, "_lifecycle_up", return_value=None):
             result = handler.handle_db_setup_phase()
 
@@ -233,8 +235,8 @@ class TestDbHandler:
             elif call_results["count"] == 2:
                 result.returncode = 0
                 result.stdout = (
-                    "DROP DATABASE IF EXISTS \"test_db_abc123\";\n"
-                    "DROP DATABASE IF EXISTS \"test_db_def456\";\n"
+                    'DROP DATABASE IF EXISTS "test_db_abc123";\n'
+                    'DROP DATABASE IF EXISTS "test_db_def456";\n'
                 )
             # All subsequent: success
             else:
@@ -246,6 +248,7 @@ class TestDbHandler:
         mock_sleep.return_value = None
 
         import _db_handler
+
         with patch.object(_db_handler, "_lifecycle_up", return_value=None):
             result = handler.handle_db_setup_phase()
 
@@ -255,7 +258,9 @@ class TestDbHandler:
 
     @patch("time.sleep")
     @patch("subprocess.run")
-    def test_handle_db_setup_calls_execute_safe_for_migrations(self, mock_run, mock_sleep):
+    def test_handle_db_setup_calls_execute_safe_for_migrations(
+        self, mock_run, mock_sleep
+    ):
         """Migrations should be dispatched via _execute_safe (not raw subprocess)."""
         from _db_handler import DbHandler
 
@@ -276,6 +281,7 @@ class TestDbHandler:
         mock_sleep.return_value = None
 
         import _db_handler
+
         with patch.object(_db_handler, "_lifecycle_up", return_value=None):
             result = handler.handle_db_setup_phase()
 
@@ -307,7 +313,8 @@ class TestRunHandler:
         orch.env_vars["COMPOSE_PROJECT_NAME"] = "myproject"
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
-                stdout="myproject_apiserver_1\nmyproject_db_1\n", returncode=0,
+                stdout="myproject_apiserver_1\nmyproject_db_1\n",
+                returncode=0,
             )
             handler = RunHandler(orch)
             assert handler.is_service_running("apiserver") is True
@@ -392,7 +399,8 @@ class TestRunHandler:
         orch.env_vars["COMPOSE_PROJECT_NAME"] = "tp"
         with patch("subprocess.run") as mock_sr:
             mock_sr.return_value = MagicMock(
-                stdout="tp_webdashboard_1\n", returncode=0,
+                stdout="tp_webdashboard_1\n",
+                returncode=0,
             )
             handler = RunHandler(orch)
             args = MagicMock()
@@ -425,7 +433,8 @@ class TestRunHandler:
         orch.env_vars["COMPOSE_PROJECT_NAME"] = "lk"
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
-                stdout="lk_apiserver_1\nlk_db_1\n", returncode=0,
+                stdout="lk_apiserver_1\nlk_db_1\n",
+                returncode=0,
             )
             handler = RunHandler(orch)
             assert handler.is_service_running("apiserver") is True
@@ -462,7 +471,14 @@ class TestTestHandler:
         handler = TestHandler(orch)
         with patch("shutil.which", return_value=None):
             handler.handle_verify_infra()
-        # fmt + lint (ruff+mypy) + test_infra
+
+        commands = [call.args[0] for call in orch.execute_safe.call_args_list]
+        assert any(command[1:3] == ["format", "--check"] for command in commands)
+        assert not any(
+            len(command) >= 2 and command[1] == "format" and "--check" not in command
+            for command in commands
+        )
+        # format check + lint (ruff+mypy) + test_infra
         assert orch.execute_safe.call_count >= 4
 
     def test_handle_test_infra(self):
@@ -664,9 +680,7 @@ class TestTestHandler:
         # Create a fake log with nextest-style output
         log_dir = tmp_path / ".test_logs"
         log_dir.mkdir()
-        (log_dir / "test.log").write_text(
-            "Summary [default] 5 tests run: 5 passed"
-        )
+        (log_dir / "test.log").write_text("Summary [default] 5 tests run: 5 passed")
         with patch("_test_handler.PROJECT_ROOT", tmp_path):
             handler.print_test_summary("my-target")
         # Should not raise
@@ -730,6 +744,7 @@ class TestTestHandlerCoverageGaps:
         monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
 
         from _logging import log_success
+
         handler.print_test_summary("all")
         # No crash — old logs filtered successfully
 
@@ -837,7 +852,9 @@ class TestTestHandlerCoverageGaps:
         handler = TestHandler(orch)
         orch.dry_run = False
 
-        args = argparse.Namespace(target="all", component="", fix=False, pattern="", unit_only=False)
+        args = argparse.Namespace(
+            target="all", component="", fix=False, pattern="", unit_only=False
+        )
         with pytest.raises(SystemExit) as exc:
             handler.run_phase("UnknownPhase", "all", args)
         assert exc.value.code == 1
@@ -851,7 +868,9 @@ class TestTestHandlerCoverageGaps:
         handler = TestHandler(orch)
         orch.dry_run = True
 
-        args = argparse.Namespace(target="all", component="", fix=False, pattern="", unit_only=False)
+        args = argparse.Namespace(
+            target="all", component="", fix=False, pattern="", unit_only=False
+        )
         handler.run_phase("Linting", "all", args)  # Should no-op
 
     def test_handle_test_all_recursive(self, tmp_path, monkeypatch):

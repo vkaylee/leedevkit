@@ -63,9 +63,10 @@ def _find_devkit_root() -> Path:
     if home.exists():
         return home
 
-    # 5. Bundled: ./leedevkit/ relative to project root (legacy)
+    # 5. Bundled: ./leedevkit/ relative to project root (legacy directory layout).
+    # Ignore the project-local CLI wrapper/symlink named `leedevkit`.
     bundled = project_root / "leedevkit"
-    if bundled.exists():
+    if (bundled / "scripts" / "_orchestrator.py").exists():
         return bundled
 
     raise FileNotFoundError(

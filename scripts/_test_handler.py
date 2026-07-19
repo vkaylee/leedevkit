@@ -75,8 +75,14 @@ class TestHandler(HandlerBase):
 
         if getattr(args, "timeout", None):
             import os
+
             timeout_str = str(args.timeout)
-            for key in ("TIMEOUT_LINT", "TIMEOUT_UNIT", "TIMEOUT_INTEGRATION", "TIMEOUT_BUILD"):
+            for key in (
+                "TIMEOUT_LINT",
+                "TIMEOUT_UNIT",
+                "TIMEOUT_INTEGRATION",
+                "TIMEOUT_BUILD",
+            ):
                 os.environ[key] = timeout_str
                 self._orch.env_vars[key] = timeout_str
 
@@ -124,6 +130,7 @@ class TestHandler(HandlerBase):
 
         if getattr(args, "json_output", False) and self._results:
             import json
+
             print(json.dumps(self._results, indent=2), file=sys.stderr, flush=True)
 
         is_single_phase = (
@@ -242,6 +249,7 @@ class TestHandler(HandlerBase):
     def handle_test_infra(self) -> None:
         """Run all test files with coverage enforcement."""
         import os
+
         env = os.environ.copy()
         env["PYTHONPATH"] = str(SCRIPTS_DIR)
         tests_dir = SCRIPTS_DIR / "tests"
@@ -258,6 +266,7 @@ class TestHandler(HandlerBase):
     def handle_lint_infra(self) -> None:
         """Run ruff + mypy on infra scripts, plus shellcheck on shell scripts."""
         import shutil as _shutil
+
         venv_bin = DEVKIT_ROOT / ".venv" / "bin"
         self._execute_safe([str(venv_bin / "ruff"), "check", str(SCRIPTS_DIR)])
         self._execute_safe([str(venv_bin / "mypy"), str(SCRIPTS_DIR)])
@@ -275,9 +284,17 @@ class TestHandler(HandlerBase):
         self._execute_safe([str(venv_bin / "ruff"), "format", str(SCRIPTS_DIR)])
         log_success("✨ Infrastructure formatting completed!")
 
+    def handle_format_check_infra(self) -> None:
+        """Check infra formatting without changing source files."""
+        venv_bin = DEVKIT_ROOT / ".venv" / "bin"
+        self._execute_safe(
+            [str(venv_bin / "ruff"), "format", "--check", str(SCRIPTS_DIR)]
+        )
+        log_success("✨ Infrastructure formatting verified!")
+
     def handle_verify_infra(self) -> None:
-        """Run the full infra verification pipeline: fmt → lint → test."""
-        self.handle_fmt_infra()
+        """Run the read-only infra verification pipeline."""
+        self.handle_format_check_infra()
         self.handle_lint_infra()
         self.handle_test_infra()
 

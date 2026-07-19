@@ -1,5 +1,6 @@
 """Tests for _release_build — release tarball construction."""
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -59,10 +60,15 @@ class TestAgentTestingGuidance:
         assert "tests added/updated" in prompt
         assert "reason no test change is needed" in prompt
         assert "./leedevkit test <target>" in prompt
+        assert "scripts/_release_acceptance.py" in prompt
+        assert "source tests alone are NOT enough" in prompt
 
     def test_testing_standard_defines_test_gate_and_exceptions(self):
         rules = (
             self.repo_root / ".agent" / "rules" / "testing-standards.md"
+        ).read_text()
+        internals = (
+            self.repo_root / ".agent" / "rules" / "devkit-internals.md"
         ).read_text()
 
         assert "Decide autonomously whether tests must be added or updated" in rules
@@ -71,6 +77,9 @@ class TestAgentTestingGuidance:
         assert "documentation-only" in rules
         assert "./leedevkit test <target>" in rules
         assert "./test.sh" not in rules
+        assert "scripts/_release_acceptance.py" in rules
+        assert "Release Packaging Gate" in internals
+        assert "LEEDEVKIT_RELEASE_BASE_URL" in internals
 
 
 class TestBuildRelease:
@@ -80,13 +89,16 @@ class TestBuildRelease:
         repo.mkdir()
         (repo / "VERSION").write_text("0.4.0")
 
-        # Create minimal dirs and files that INCLUDE_DIRS/FILES expect
+        # Create minimal runtime payload required by the release contract.
         for d in INCLUDE_DIRS:
             (repo / d).mkdir(parents=True, exist_ok=True)
         for f in INCLUDE_FILES:
             fpath = repo / f
             if not fpath.exists():
                 fpath.write_text("dummy")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
 
         out_dir = tmp_path / "dist"
         result = build_release(repo, out_dir)
@@ -100,6 +112,12 @@ class TestBuildRelease:
             names = tf.getnames()
             assert any("leedevkit-0.4.0/scripts" in n for n in names)
             assert any("leedevkit-0.4.0/VERSION" in n for n in names)
+            manifest_file = tf.extractfile("leedevkit-0.4.0/devkit.manifest.json")
+            assert manifest_file is not None
+            manifest = json.load(manifest_file)
+            assert manifest["version"] == "0.4.0"
+            assert manifest["file_count"] == len(manifest["files"])
+            assert "bin/leedevkit" in manifest["files"]
 
     def test_missing_version_file_raises(self, tmp_path):
         """build_release should raise FileNotFoundError when VERSION is missing."""
@@ -123,6 +141,9 @@ class TestBuildRelease:
             fpath = repo / f
             if not fpath.exists():
                 fpath.write_text("dummy")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
 
         out_dir = tmp_path / "nested" / "dist"
         result = build_release(repo, out_dir)
@@ -140,6 +161,9 @@ class TestBuildRelease:
             fpath = repo / f
             if not fpath.exists():
                 fpath.write_text("dummy")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
 
         # Create a pycache file that should be excluded
         pycache_dir = repo / "scripts" / "__pycache__"
@@ -194,6 +218,8 @@ class TestMain:
             fpath = repo / f
             if not fpath.exists():
                 fpath.write_text("dummy")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
 
         out_dir = tmp_path / "custom-dist"
         main_args = [

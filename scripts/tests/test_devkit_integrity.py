@@ -69,6 +69,20 @@ class TestWalkFiles:
         assert all("__pycache__" not in p for p in paths)
         assert "real.py" in paths
 
+    def test_excludes_runtime_generated_state(self, tmp_path):
+        for path in (
+            tmp_path / ".venv" / "bin" / "python",
+            tmp_path / "skills.d" / "custom" / "SKILL.md",
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("generated")
+        (tmp_path / "dev-state.json").write_text("{}")
+        (tmp_path / "VERSION").write_text("1.0.0")
+
+        paths = {str(path.relative_to(tmp_path)) for path in _walk_files(tmp_path)}
+
+        assert paths == {"VERSION"}
+
 
 class TestGenerateManifest:
     def test_has_required_keys(self, tmp_path):
@@ -205,6 +219,48 @@ class TestVerificationResultEdgeCases:
 
 
 class TestVerifyDevkitEdgeCases:
+    def test_rejects_version_mismatch(self, tmp_path):
+        (tmp_path / "VERSION").write_text("1.0.0")
+        manifest_path = write_manifest(tmp_path)
+        data = json.loads(manifest_path.read_text())
+        data["version"] = "2.0.0"
+        manifest_path.write_text(json.dumps(data))
+
+        result = verify_devkit(tmp_path)
+
+        assert result.is_clean is False
+        assert "version does not match VERSION" in result.invalid_manifest
+
+    def test_rejects_invalid_algorithm_and_count(self, tmp_path):
+        (tmp_path / "VERSION").write_text("1.0.0")
+        manifest_path = write_manifest(tmp_path)
+        data = json.loads(manifest_path.read_text())
+        data["algorithm"] = "md5"
+        data["file_count"] = 99
+        manifest_path.write_text(json.dumps(data))
+
+        result = verify_devkit(tmp_path)
+
+        assert "algorithm must be sha256" in result.invalid_manifest
+        assert "file_count does not match files" in result.invalid_manifest
+
+    def test_rejects_non_object_files(self, tmp_path):
+        (tmp_path / "VERSION").write_text("1.0.0")
+        (tmp_path / "devkit.manifest.json").write_text(
+            json.dumps(
+                {
+                    "version": "1.0.0",
+                    "algorithm": "sha256",
+                    "file_count": 0,
+                    "files": [],
+                }
+            )
+        )
+
+        result = verify_devkit(tmp_path)
+
+        assert result.invalid_manifest == ["files must be an object"]
+
     def test_verify_with_extra_files(self, tmp_path):
         (tmp_path / "a.txt").write_text("hello")
         write_manifest(tmp_path)
@@ -220,6 +276,7 @@ class TestVerifyDevkitEdgeCases:
 
         data = json.loads(manifest_path.read_text())
         data["files"]["ghost.py"] = "abc123"
+        data["file_count"] = len(data["files"])
         manifest_path.write_text(json.dumps(data))
         result = verify_devkit(tmp_path)
         assert "ghost.py" in result.missing
