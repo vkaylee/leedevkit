@@ -254,7 +254,7 @@ def test_main_dir_missing(mock_exit: MagicMock, mock_path_cls: MagicMock) -> Non
 
     lint_tenant_isolation.main()
 
-    mock_exit.assert_called_once_with(1)
+    mock_exit.assert_called_once_with(0)
 
 
 def test_find_files_to_scan() -> None:

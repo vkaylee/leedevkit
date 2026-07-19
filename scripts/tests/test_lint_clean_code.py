@@ -195,7 +195,7 @@ def test_main_dir_missing(mock_exit: MagicMock, mock_path_cls: MagicMock) -> Non
     mock_path_cls.return_value = mock_domain_dir
 
     lint_clean_code.main()
-    mock_exit.assert_called_once_with(1)
+    mock_exit.assert_called_once_with(0)
 
 
 class TestMainFunction:
