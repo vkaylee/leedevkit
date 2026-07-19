@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import atexit
-import json
 import os
-import shutil
 import signal
-import socket
 import subprocess
 import sys
 import time
 import typing
-import urllib.request
 import uuid
-from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
@@ -24,10 +19,11 @@ from _bootstrap import (
 )
 from _cli_parser import CliParser
 from _db_handler import DbHandler
+from _devkit_config import inject_rust_version_env
 from _init_handler import InitHandler
 from _lifecycle import lifecycle_down
 from _lock_manager import LockManager
-from _logging import log_error, log_info, log_success, log_warn
+from _logging import log_error, log_info, log_warn
 from _run_handler import RunHandler
 from _test_handler import TestHandler
 from _test_modules import (
@@ -76,63 +72,11 @@ class Orchestrator:
         """
         return _resolve_rust_service()
 
-    def _build_mode_map(self) -> dict[str, str]:
-        """Build mode_map from leedevkit.toml services.
-
-        Maps each service to its test mode: Rust → 'api', TypeScript → 'web'.
-        Falls back to hardcoded defaults for backward compatibility.
-        """
-        mode_map: dict[str, str] = {"all": "all"}
-        try:
-            from _bootstrap import PROJECT_ROOT as _project_root
-            from _devkit_config import _load_toml
-
-            config_toml = _project_root / "leedevkit.toml"
-            if config_toml.exists():
-                cfg = _load_toml(config_toml)
-                services = cfg.get("services", {})
-                for name, svc in services.items():
-                    if isinstance(svc, dict):
-                        lang = svc.get("lang", "")
-                        if lang == "rust":
-                            mode_map[name] = "api"
-                        elif lang in ("typescript", "javascript"):
-                            mode_map[name] = "web"
-        except (OSError, ValueError, KeyError):
-            pass
-        # Backward-compat fallbacks
-        mode_map.setdefault("apiserver", "api")
-        mode_map.setdefault("agent-main", "api")
-        mode_map.setdefault("webdashboard", "web")
-        mode_map.setdefault("api", "api")
-        mode_map.setdefault("web", "web")
-        return mode_map
-
     def _inject_rust_version_env(self) -> None:
-        """Read rust_version from leedevkit.toml and set RUST_VERSION env var.
+        """Set RUST_VERSION env var from leedevkit.toml (delegates to _devkit_config)."""
+        from _bootstrap import PROJECT_ROOT as _prj_root
 
-        Defaults to '1.85' if not configured. Users can override with:
-          [services.<name>]
-          rust_version = "1.83"
-        or via environment: RUST_VERSION=1.83 ./leedevkit test all
-        """
-        if "RUST_VERSION" in os.environ:
-            return  # Explicit env override wins
-        try:
-            from _bootstrap import PROJECT_ROOT as _project_root
-            from _devkit_config import _load_toml
-
-            config_toml = _project_root / "leedevkit.toml"
-            if config_toml.exists():
-                cfg = _load_toml(config_toml)
-                services = cfg.get("services", {})
-                for _svc in services.values():
-                    if isinstance(_svc, dict) and "rust_version" in _svc:
-                        os.environ["RUST_VERSION"] = str(_svc["rust_version"])
-                        return
-        except (OSError, ValueError, KeyError):
-            pass
-        os.environ.setdefault("RUST_VERSION", "1.85")
+        inject_rust_version_env(_prj_root)
 
     def register_traps(self) -> None:
         """Register signal handlers and exit hooks for cleanup."""
@@ -160,7 +104,7 @@ class Orchestrator:
             cleanup_log = PROJECT_ROOT / ".test_logs" / "cleanup.log"
             cleanup_log.parent.mkdir(exist_ok=True)
             with cleanup_log.open("a") as f:
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                now = time.strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"\n--- Cleanup started at {now} ---\n")
                 lifecycle_down(self.active_mode)
         except (OSError, ValueError):
@@ -303,75 +247,13 @@ class Orchestrator:
     def _is_service_running(self, service: str) -> bool:
         return self._run_handler.is_service_running(service)
 
-    # ── Self-update ────────────────────────────────────────────────────────────
-
-    def _devkit_root(self) -> Path:
-        """Return the directory this devkit is installed in (parent of scripts/)."""
-        return Path(__file__).resolve().parent.parent
-
-    def _latest_release_version(self) -> str:
-        """Return the latest release tag (e.g. 'v0.2.0') from GitHub Releases."""
-        api = "https://api.github.com/repos/vkaylee/leedevkit/releases/latest"
-        req = urllib.request.Request(
-            api, headers={"Accept": "application/vnd.github+json"}
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                data = json.load(r)
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"Could not reach GitHub Releases: {e}") from e
-        tag = data.get("tag_name")
-        if not tag:
-            raise RuntimeError("GitHub releases/latest returned no tag_name")
-        return tag
+    # ── Self-update (delegated to _update_handler) ─────────────────────────
 
     def handle_update(self, args: argparse.Namespace) -> None:
-        """Download a release tarball and overlay it onto this devkit install."""
-        root = self._devkit_root()
-        current = (root / "VERSION").read_text().strip()  # e.g. "0.1.0"
-        target = args.version  # None → latest
+        """Download and apply a devkit release update."""
+        from _update_handler import handle_update as _do_update
 
-        if target is None:
-            target = self._latest_release_version()  # e.g. "v0.2.0"
-
-        ver = target.lstrip("v")  # tarball version, no "v"
-        if ver == current:
-            log_info(f"Already on latest ({current}).")
-            return
-
-        log_info(f"Updating {current} → {target}")
-
-        # Backup current install to <root>.bak before overwriting.
-        backup = root.with_name(root.name + ".bak")
-        if backup.exists():
-            shutil.rmtree(backup)
-        shutil.move(str(root), str(backup))
-        log_info(f"Backed up current install to {backup.name}/")
-
-        # Download into a temp dir, then move the extracted tree onto root.
-        tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
-        url = (
-            f"https://github.com/vkaylee/leedevkit/releases/download/"
-            f"{target}/leedevkit-{ver}.tar.gz"
-        )
-        try:
-            log_info(f"Downloading {url} ...")
-            self._download_and_extract(url, tmp_extract)
-            if root.exists():
-                shutil.rmtree(root)
-            shutil.move(str(tmp_extract), str(root))
-        except Exception:
-            # Roll back on any failure — broad catch is intentional here
-            # to guarantee rollback regardless of the error type.
-            if root.exists():
-                shutil.rmtree(root)
-            shutil.move(str(backup), str(root))
-            log_warn("Update failed; rolled back to previous version.")
-            raise
-
-        new_ver = (root / "VERSION").read_text().strip()
-        log_success(f"Updated leedevkit {current} → {new_ver}")
-        log_info(f"Previous version kept at {backup.name}/ (safe to remove).")
+        _do_update(args.version)
 
     def _handle_run_npm(
         self,
@@ -440,82 +322,10 @@ class Orchestrator:
         SkillsManager().dispatch(args)
 
     def handle_doctor(self) -> None:
-        from _devkit_config import load_project_config, resolve_ai_rules
+        """Run system health check (delegated to _doctor module)."""
+        from _doctor import run_doctor
 
-        log_info("🩺 Running LeeDevKit System Doctor...")
-
-        # ── Project config ──
-        try:
-            cfg = load_project_config()
-            name = cfg.get("project", {}).get("name", "unknown")
-            targets = list(cfg.get("targets", {}).keys())
-            log_success(f"✅ Project: {name} (targets: {', '.join(targets)})")
-        except (OSError, ValueError, KeyError) as e:
-            log_warn(f"⚠️  leedevkit.toml: {e}")
-
-        # ── .agent directory (per-project, real dir not symlink) ──
-        agent_dir = PROJECT_ROOT / ".agent"
-        if agent_dir.is_symlink():
-            log_warn(
-                "⚠️  .agent is a symlink — expected real directory (run: leedevkit init)"
-            )
-        elif agent_dir.is_dir():
-            rules_dir = agent_dir / "rules"
-            rule_count = len(list(rules_dir.glob("*.md"))) if rules_dir.exists() else 0
-            log_success(f"✅ .agent/ (real directory, {rule_count} rulebooks)")
-        else:
-            log_warn("⚠️  .agent directory missing (run: leedevkit init)")
-
-        # ── DevKit install location ──
-        from _devkit_config import get_devkit_root
-
-        try:
-            dk = get_devkit_root()
-            dk_version = (
-                (dk / "VERSION").read_text().strip()
-                if (dk / "VERSION").exists()
-                else "?"
-            )
-            log_success(f"✅ DevKit: {dk} (v{dk_version})")
-        except (OSError, ValueError) as e:
-            log_warn(f"⚠️  DevKit: {e}")
-
-        # ── AI rules ──
-        try:
-            rules = resolve_ai_rules()
-            log_success(f"✅ AI rules: {len(rules)} files loaded")
-        except (OSError, ValueError, KeyError) as e:
-            log_warn(f"⚠️  AI rules: {e}")
-
-        engine = self.engine
-        log_success(f"✅ Container Engine: {engine}")
-
-        default_ports = [3000, 8000, 5432]
-        connection_timeout = 0.5
-        for port in default_ports:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(connection_timeout)
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                log_info(f"⚠️  Port {port} is occupied")
-            s.close()
-
-        if (PROJECT_ROOT / ".venv").exists():
-            log_success("✅ Virtual Environment: Found")
-        else:
-            log_info("💡 Virtual Environment: Missing (will be created on next run)")
-
-        if engine:
-            res = subprocess.run(
-                [engine, "ps", "--format", "{{.Names}}"],
-                capture_output=True,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                check=False,
-            )
-            names = res.stdout.splitlines()
-            for r in ["leedevkit-dev-db", "leedevkit-dev-api"]:
-                if any(r in n for n in names):
-                    log_success(f"✅ Container {r}: Running")
+        run_doctor(self.engine)
 
     def handle_db_query(self, args: argparse.Namespace) -> None:
         self._db_handler.handle_db_query(args)

@@ -15,6 +15,8 @@ import typing
 from typing import TYPE_CHECKING
 
 from _bootstrap import DEVKIT_ROOT, PROJECT_ROOT, SCRIPTS_DIR
+from _devkit_config import build_mode_map, inject_rust_version_env
+from _handler_base import HandlerBase
 from _lifecycle import lifecycle_down
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _logging import log_error, log_info, log_success, log_warn
@@ -27,26 +29,17 @@ from _test_modules import (
 
 if TYPE_CHECKING:
     import argparse
-    from typing import Any
 
 
-class TestHandler:
+class TestHandler(HandlerBase):
     """Test orchestration extracted from the Orchestrator god class.
 
+    Inherits shared property forwarding and _execute_safe from HandlerBase.
     Manages the test pipeline: parse args → resolve targets → run phases
     (lint, unit, integration, coverage) → print summary.
     """
 
-    __slots__ = ("_orch",)
-
-    def __init__(self, orchestrator: Any) -> None:
-        self._orch = orchestrator
-
     # ── helpers that forward to the orchestrator ──
-
-    @property
-    def _dry_run(self) -> bool:
-        return self._orch.dry_run
 
     @property
     def _results(self) -> dict[str, dict[str, typing.Any]]:
@@ -55,15 +48,6 @@ class TestHandler:
     @property
     def _start_time(self) -> float:
         return self._orch.start_time
-
-    def _execute_safe(self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800) -> None:
-        self._orch.execute_safe(cmd, env=env, timeout=timeout)
-
-    def _build_mode_map(self) -> dict[str, str]:
-        return self._orch._build_mode_map()
-
-    def _inject_rust_version_env(self) -> None:
-        self._orch._inject_rust_version_env()
 
     # ── public API ──
 
@@ -78,7 +62,7 @@ class TestHandler:
                 self.handle_verify_infra()
             return
 
-        mode_map = self._build_mode_map()
+        mode_map = build_mode_map()
         service_names = [k for k in mode_map if k not in ("all", "api", "web")]
 
         mode = mode_map.get(target or "all", "all")
@@ -86,7 +70,7 @@ class TestHandler:
         args.component = component_filter
 
         self._orch.active_mode = mode
-        self._inject_rust_version_env()
+        inject_rust_version_env()
         log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
 
         if getattr(args, "timeout", None):

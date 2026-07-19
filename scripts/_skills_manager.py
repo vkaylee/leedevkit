@@ -12,8 +12,8 @@ from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT
 
-# Re-use the logging helpers from the main orchestrator module.
-from _orchestrator import log_error, log_info, log_success, log_warn
+# Re-use the logging helpers from the shared logging module.
+from _logging import log_error, log_info, log_success, log_warn
 
 
 class SkillsManager:

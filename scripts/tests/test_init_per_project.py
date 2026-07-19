@@ -340,11 +340,7 @@ class TestHandleInitFromTarball:
             shutil.copy(str(tarball_path), str(filename))
 
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")  # disable local fallback
-        import _orchestrator
 
-        monkeypatch.setattr(
-            _orchestrator.urllib.request, "urlretrieve", fake_urlretrieve
-        )
         # InitHandler imports urllib.request lazily inside _download_and_extract
         import urllib.request as _urllib_req
 

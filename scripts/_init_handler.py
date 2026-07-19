@@ -11,26 +11,19 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from _devkit_config import _load_toml
+from _handler_base import HandlerBase
 from _logging import log_info, log_success, log_warn
 
-if TYPE_CHECKING:
-    from typing import Any
 
-
-class InitHandler:
+class InitHandler(HandlerBase):
     """Project initialization logic extracted from the Orchestrator god class.
 
+    Inherits shared property forwarding from HandlerBase.
     Orchestrates the init flow: create config → install devkit → set up venv
     → copy AI rules → create wrapper → pin version → install skills.
     """
-
-    __slots__ = ("_orch",)
-
-    def __init__(self, orchestrator: Any) -> None:
-        self._orch = orchestrator
 
     # ── public API ──
 

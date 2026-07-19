@@ -536,7 +536,12 @@ class TestTestHandler:
         args.fix = False
         args.json_output = False
         args.component = ""
-        handler.handle_test(args)
+        with (
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_lint", return_value=True),
+        ):
+            handler.handle_test(args)
         # run_phase was called for Linting
         assert "Linting" in orch.results
 
@@ -558,7 +563,12 @@ class TestTestHandler:
         args.fix = False
         args.json_output = False
         args.component = ""
-        handler.handle_test(args)
+        with (
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+        ):
+            handler.handle_test(args)
         assert "Unit Tests" in orch.results
 
     def test_handle_test_coverage(self):
@@ -579,7 +589,12 @@ class TestTestHandler:
         args.fix = False
         args.json_output = False
         args.component = ""
-        handler.handle_test(args)
+        with (
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_coverage", return_value=True),
+        ):
+            handler.handle_test(args)
         assert "Coverage" in orch.results
 
     def test_handle_test_sets_timeout_env(self):
@@ -600,7 +615,14 @@ class TestTestHandler:
         args.fix = False
         args.json_output = False
         args.component = ""
-        with patch.dict("os.environ", {}, clear=True):
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+            patch("_test_handler.leedevkit_run_lint", return_value=True),
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+        ):
             handler.handle_test(args)
             assert orch.env_vars.get("TIMEOUT_LINT") == "600"
 

@@ -264,6 +264,68 @@ def resolve_targets() -> list[str]:
     return ["all", "api", "web", "apiserver", "agent-main", "webdashboard", "infra"]
 
 
+# ── Mode map & Rust version injection (extracted from Orchestrator) ────────
+
+
+def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
+    """Build mode_map from leedevkit.toml services.
+
+    Maps each service to its test mode: Rust → 'api', TypeScript → 'web'.
+    Falls back to hardcoded defaults for backward compatibility.
+    """
+    if project_root is None:
+        project_root = _find_project_root()
+
+    mode_map: dict[str, str] = {"all": "all"}
+    try:
+        config_toml = project_root / "leedevkit.toml"
+        if config_toml.exists():
+            cfg = _load_toml(config_toml)
+            services = cfg.get("services", {})
+            for name, svc in services.items():
+                if isinstance(svc, dict):
+                    lang = svc.get("lang", "")
+                    if lang == "rust":
+                        mode_map[name] = "api"
+                    elif lang in ("typescript", "javascript"):
+                        mode_map[name] = "web"
+    except (OSError, ValueError, KeyError):
+        pass
+    # Backward-compat fallbacks
+    mode_map.setdefault("apiserver", "api")
+    mode_map.setdefault("agent-main", "api")
+    mode_map.setdefault("webdashboard", "web")
+    mode_map.setdefault("api", "api")
+    mode_map.setdefault("web", "web")
+    return mode_map
+
+
+def inject_rust_version_env(project_root: Path | None = None) -> None:
+    """Read rust_version from leedevkit.toml and set RUST_VERSION env var.
+
+    Defaults to '1.85' if not configured. Users can override with:
+      [services.<name>]
+      rust_version = "1.83"
+    or via environment: RUST_VERSION=1.83 ./leedevkit test all
+    """
+    if "RUST_VERSION" in os.environ:
+        return  # Explicit env override wins
+    if project_root is None:
+        project_root = _find_project_root()
+    try:
+        config_toml = project_root / "leedevkit.toml"
+        if config_toml.exists():
+            cfg = _load_toml(config_toml)
+            services = cfg.get("services", {})
+            for _svc in services.values():
+                if isinstance(_svc, dict) and "rust_version" in _svc:
+                    os.environ["RUST_VERSION"] = str(_svc["rust_version"])
+                    return
+    except (OSError, ValueError, KeyError):
+        pass
+    os.environ.setdefault("RUST_VERSION", "1.85")
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":  # pragma: no cover

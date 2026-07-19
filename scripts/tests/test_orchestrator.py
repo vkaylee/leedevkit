@@ -141,22 +141,22 @@ class TestPrintTestSummaryParsing:
 
 class TestLogFunctions:
     def test_log_info(self, capsys):
-        from _orchestrator import log_info
+        from _logging import log_info
 
         log_info("test message")
 
     def test_log_success(self, capsys):
-        from _orchestrator import log_success
+        from _logging import log_success
 
         log_success("test success")
 
     def test_log_warn(self, capsys):
-        from _orchestrator import log_warn
+        from _logging import log_warn
 
         log_warn("test warning")
 
     def test_log_error(self, capsys):
-        from _orchestrator import log_error
+        from _logging import log_error
 
         log_error("test error")
 
@@ -497,7 +497,7 @@ class TestOrchestratorEdgeCases:
             orch.handle_diesel(["migration", "list"])
 
     def test_log_error_with_file(self, tmp_path):
-        from _orchestrator import log_error
+        from _logging import log_error
 
         f = (tmp_path / "err.log").open("w")
         log_error("test", file=f)
@@ -522,7 +522,7 @@ class TestOrchestratorEdgeCases:
 
 class TestLogFunctionsMore:
     def test_log_info_contains_emoji(self, capsys):
-        from _orchestrator import log_info
+        from _logging import log_info
 
         log_info("hello")
         out = capsys.readouterr()
@@ -530,19 +530,19 @@ class TestLogFunctionsMore:
         assert "hello" in out.err
 
     def test_log_success_contains_checkmark(self, capsys):
-        from _orchestrator import log_success
+        from _logging import log_success
 
         log_success("done")
         assert "done" in capsys.readouterr().err
 
     def test_log_warn_contains_warning(self, capsys):
-        from _orchestrator import log_warn
+        from _logging import log_warn
 
         log_warn("careful")
         assert "careful" in capsys.readouterr().err
 
     def test_log_error_contains_cross(self):
-        from _orchestrator import log_error
+        from _logging import log_error
         import io
 
         buf = io.StringIO()
@@ -847,44 +847,39 @@ class TestHandleManageMocked:
 
 
 class TestBuildModeMap:
-    """Tests for _build_mode_map to cover the config-parsing branch."""
+    """Tests for build_mode_map to cover the config-parsing branch."""
 
     def test_falls_back_to_defaults_when_no_config(self, tmp_path):
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            result = orch._build_mode_map()
-            assert result["apiserver"] == "api"
-            assert result["webdashboard"] == "web"
-            assert result["all"] == "all"
+        with patch("_devkit_config._find_project_root", return_value=tmp_path):
+            result = build_mode_map()
+        assert result["apiserver"] == "api"
+        assert result["webdashboard"] == "web"
+        assert result["all"] == "all"
 
     def test_parses_rust_service_from_config(self, tmp_path):
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
         config_toml = tmp_path / "leedevkit.toml"
         config_toml.write_text("""
 [services.myservice]
 lang = "rust"
 """)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            with patch("_bootstrap.PROJECT_ROOT", tmp_path):
-                orch = Orchestrator()
-                result = orch._build_mode_map()
+        with patch("_devkit_config._find_project_root", return_value=tmp_path):
+            result = build_mode_map()
         assert result.get("myservice") == "api"
 
     def test_parses_typescript_service_from_config(self, tmp_path):
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
         config_toml = tmp_path / "leedevkit.toml"
         config_toml.write_text("""
 [services.frontend]
 lang = "typescript"
 """)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            with patch("_bootstrap.PROJECT_ROOT", tmp_path):
-                orch = Orchestrator()
-                result = orch._build_mode_map()
+        with patch("_devkit_config._find_project_root", return_value=tmp_path):
+            result = build_mode_map()
         assert result.get("frontend") == "web"
 
 
@@ -1268,41 +1263,37 @@ class TestLatestReleaseVersion:
         return _open
 
     def test_returns_tag_name(self, monkeypatch):
-        from _orchestrator import Orchestrator
         import json
+
+        from _update_handler import _latest_release_version
 
         body = json.dumps({"tag_name": "v0.2.0"}).encode()
         monkeypatch.setattr(
-            "_orchestrator.urllib.request.urlopen", self._fake_urlopen(body)
+            "_update_handler.urllib.request.urlopen", self._fake_urlopen(body)
         )
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            assert orch._latest_release_version() == "v0.2.0"
+        assert _latest_release_version() == "v0.2.0"
 
     def test_raises_when_no_tag_name(self, monkeypatch):
-        from _orchestrator import Orchestrator
         import json
+
+        from _update_handler import _latest_release_version
 
         body = json.dumps({"name": "v0.2.0"}).encode()
         monkeypatch.setattr(
-            "_orchestrator.urllib.request.urlopen", self._fake_urlopen(body)
+            "_update_handler.urllib.request.urlopen", self._fake_urlopen(body)
         )
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            with pytest.raises(RuntimeError, match="no tag_name"):
-                orch._latest_release_version()
+        with pytest.raises(RuntimeError, match="no tag_name"):
+            _latest_release_version()
 
     def test_wraps_network_failure(self, monkeypatch):
-        from _orchestrator import Orchestrator
+        from _update_handler import _latest_release_version
 
         def _boom(req, timeout=15):
             raise OSError("offline")
 
-        monkeypatch.setattr("_orchestrator.urllib.request.urlopen", _boom)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            with pytest.raises(RuntimeError, match="Could not reach"):
-                orch._latest_release_version()
+        monkeypatch.setattr("_update_handler.urllib.request.urlopen", _boom)
+        with pytest.raises(RuntimeError, match="Could not reach"):
+            _latest_release_version()
 
 
 class TestHandleUpdate:
@@ -1316,36 +1307,30 @@ class TestHandleUpdate:
         return root
 
     def test_already_on_latest_skips(self, tmp_path, monkeypatch, capsys):
-        from _orchestrator import Orchestrator
+        from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
-        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            args = argparse.Namespace(version="v0.1.0")
-            orch.handle_update(args)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        handle_update(target="v0.1.0")
         out = capsys.readouterr().err
         assert "Already on latest (0.1.0)" in out
         # No backup created
         assert not (tmp_path / "devkit.bak").exists()
 
     def test_successful_update_backs_up_and_overlays(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
+        from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
 
-        def fake_download(self, url, target_dir):
+        def fake_download(url, target_dir):
             # Mimic _download_and_extract: populate target_dir with new tree
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.2.0")
             (target_dir / "scripts").mkdir()
 
-        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
-        monkeypatch.setattr(Orchestrator, "_download_and_extract", fake_download)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            args = argparse.Namespace(version="v0.2.0")
-            orch.handle_update(args)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        monkeypatch.setattr("_update_handler._download_and_extract", fake_download)
+        handle_update(target="v0.2.0")
         # New version installed
         assert (root / "VERSION").read_text() == "0.2.0"
         assert (root / "scripts").is_dir()
@@ -1355,45 +1340,40 @@ class TestHandleUpdate:
         assert not list(tmp_path.glob(".leedevkit-update-*"))
 
     def test_rollback_on_download_failure(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
+        from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
 
-        def boom(self, url, target_dir):
+        def boom(url, target_dir):
             raise RuntimeError("network down")
 
-        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
-        monkeypatch.setattr(Orchestrator, "_download_and_extract", boom)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            args = argparse.Namespace(version="v0.2.0")
-            with pytest.raises(RuntimeError, match="network down"):
-                orch.handle_update(args)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        monkeypatch.setattr("_update_handler._download_and_extract", boom)
+        with pytest.raises(RuntimeError, match="network down"):
+            handle_update(target="v0.2.0")
         # Rolled back: original tree intact, no leftover backup
         assert (root / "VERSION").read_text() == "0.1.0"
         assert not (tmp_path / "devkit.bak").exists()
 
     def test_uses_latest_release_when_no_version(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
+        from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
 
         captured = {}
 
-        def fake_download(self, url, target_dir):
+        def fake_download(url, target_dir):
             captured["url"] = url
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.0")
 
-        monkeypatch.setattr(Orchestrator, "_devkit_root", lambda self: root)
-        monkeypatch.setattr(Orchestrator, "_download_and_extract", fake_download)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        monkeypatch.setattr("_update_handler._download_and_extract", fake_download)
         monkeypatch.setattr(
-            Orchestrator, "_latest_release_version", lambda self: "v0.3.0"
+            "_update_handler._latest_release_version", lambda: "v0.3.0"
         )
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            args = argparse.Namespace(version=None)
-            orch.handle_update(args)
+        handle_update(target=None)
+        assert "v0.3.0" in captured["url"]
         assert (root / "VERSION").read_text() == "0.3.0"
         # URL built from the resolved latest tag
         assert "v0.3.0/leedevkit-0.3.0.tar.gz" in captured["url"]

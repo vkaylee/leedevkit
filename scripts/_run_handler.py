@@ -16,50 +16,26 @@ from typing import TYPE_CHECKING
 
 from _arg_sanitizer import sanitize
 from _bootstrap import PROJECT_ROOT
+from _devkit_config import inject_rust_version_env
+from _handler_base import HandlerBase
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _logging import log_info
 
 if TYPE_CHECKING:
     import argparse
-    from typing import Any
 
 
-class RunHandler:
+class RunHandler(HandlerBase):
     """Container command execution extracted from the Orchestrator god class.
 
-    Receives a reference to the orchestrator for shared state (engine,
-    compose_engine, env_vars, dry_run, execute_safe, tool_map).
+    Inherits shared property forwarding and _execute_safe from HandlerBase.
     """
-
-    __slots__ = ("_orch",)
-
-    def __init__(self, orchestrator: Any) -> None:
-        self._orch = orchestrator
 
     # ── helpers that forward to the orchestrator ──
 
     @property
-    def _engine(self) -> str:
-        return self._orch.engine
-
-    @property
-    def _compose_engine(self) -> list[str]:
-        return self._orch.compose_engine
-
-    @property
-    def _env_vars(self) -> dict[str, str]:
-        return self._orch.env_vars
-
-    @property
-    def _dry_run(self) -> bool:
-        return self._orch.dry_run
-
-    @property
     def _tool_map(self) -> dict[str, str]:
         return self._orch.tool_map
-
-    def _execute_safe(self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800) -> None:
-        self._orch.execute_safe(cmd, env=env, timeout=timeout)
 
     # ── public API ──
 
@@ -83,7 +59,7 @@ class RunHandler:
         executes it safely.
         """
         self._orch.needs_cleanup = True
-        self._orch._inject_rust_version_env()
+        inject_rust_version_env()
         tool = args.tool
         tool_args = args.args
 

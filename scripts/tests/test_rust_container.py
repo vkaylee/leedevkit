@@ -251,42 +251,39 @@ class TestOrchestratorRustDetection:
             assert orch.tool_map["cargo"] == "apiserver"
 
     def test_build_mode_map_with_rust_service(self, tmp_path, monkeypatch):
-        """_build_mode_map includes services from config."""
+        """build_mode_map includes services from config."""
         proj = _make_project_with_rust_service(tmp_path)
         _setup_bootstrap_paths(monkeypatch, proj)
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            mode_map = orch._build_mode_map()
-            assert mode_map["rust"] == "api"
-            assert mode_map["all"] == "all"
+        with patch("_devkit_config._find_project_root", return_value=proj):
+            mode_map = build_mode_map()
+        assert mode_map["rust"] == "api"
+        assert mode_map["all"] == "all"
 
     def test_build_mode_map_multi_service(self, tmp_path, monkeypatch):
-        """_build_mode_map handles Rust + TS services."""
+        """build_mode_map handles Rust + TS services."""
         proj = _make_project_with_multi_services(tmp_path)
         _setup_bootstrap_paths(monkeypatch, proj)
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            mode_map = orch._build_mode_map()
-            assert mode_map["apiserver"] == "api"
-            assert mode_map["webdashboard"] == "web"
+        with patch("_devkit_config._find_project_root", return_value=proj):
+            mode_map = build_mode_map()
+        assert mode_map["apiserver"] == "api"
+        assert mode_map["webdashboard"] == "web"
 
     def test_build_mode_map_fallback(self, tmp_path, monkeypatch):
         """No config → fallback services present."""
         proj = tmp_path / "empty"
         proj.mkdir()
         _setup_bootstrap_paths(monkeypatch, proj)
-        from _orchestrator import Orchestrator
+        from _devkit_config import build_mode_map
 
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            mode_map = orch._build_mode_map()
-            assert mode_map["apiserver"] == "api"
-            assert mode_map["agent-main"] == "api"
-            assert mode_map["webdashboard"] == "web"
+        with patch("_devkit_config._find_project_root", return_value=proj):
+            mode_map = build_mode_map()
+        assert mode_map["apiserver"] == "api"
+        assert mode_map["agent-main"] == "api"
+        assert mode_map["webdashboard"] == "web"
 
 
 # ── handle_init: auto-detect Cargo.toml ────────────────────────────────────
