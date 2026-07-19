@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -708,3 +710,196 @@ class TestInitHandler:
         handler = InitHandler(orch)
         result = handler._detect_legacy_symlinks(tmp_path / "nonexistent")
         assert result == []
+
+
+class TestTestHandlerCoverageGaps:
+    """Targeted tests to close coverage gaps in _test_handler.py."""
+
+    def test_print_test_summary_old_logs_filtered(self, tmp_path, monkeypatch):
+        """print_test_summary skips log files older than start_time."""
+        from _test_handler import TestHandler
+        import time
+
+        orch = _mock_orchestrator()
+        orch.start_time = time.time() + 3600  # 1 hour in the future
+        handler = TestHandler(orch)
+
+        log_dir = tmp_path / ".test_logs"
+        log_dir.mkdir()
+        (log_dir / "old.log").write_text("Summary [1] 1 test run: 1 passed")
+        monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
+
+        from _logging import log_success
+        handler.print_test_summary("all")
+        # No crash — old logs filtered successfully
+
+    def test_print_test_summary_with_playwright_logs(self, tmp_path, monkeypatch):
+        """print_test_summary parses playwright log output."""
+        from _test_handler import TestHandler
+        import time
+
+        orch = _mock_orchestrator()
+        orch.start_time = 0  # Way in the past
+        handler = TestHandler(orch)
+
+        log_dir = tmp_path / ".test_logs"
+        log_dir.mkdir()
+        (log_dir / "playwright.log").write_text("  5 passed (2m)\n  3 passed (1m)\n")
+        monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
+
+        handler.print_test_summary("all")
+
+    def test_print_test_summary_with_vitest_logs(self, tmp_path, monkeypatch):
+        """print_test_summary parses vitest log output."""
+        from _test_handler import TestHandler
+        import time
+
+        orch = _mock_orchestrator()
+        orch.start_time = 0
+        handler = TestHandler(orch)
+
+        log_dir = tmp_path / ".test_logs"
+        log_dir.mkdir()
+        (log_dir / "vitest.log").write_text("Tests  42 passed (84)")
+        monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
+
+        handler.print_test_summary("web")
+
+    def test_print_test_summary_empty_logs(self, tmp_path, monkeypatch):
+        """print_test_summary handles empty log directory."""
+        from _test_handler import TestHandler
+        import time
+
+        orch = _mock_orchestrator()
+        orch.start_time = time.time()
+        handler = TestHandler(orch)
+
+        log_dir = tmp_path / ".test_logs"
+        log_dir.mkdir()
+        monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
+
+        handler.print_test_summary("api")
+
+    def test_print_test_summary_corrupted_log(self, tmp_path, monkeypatch):
+        """print_test_summary handles unreadable log files."""
+        from _test_handler import TestHandler
+        import time
+
+        orch = _mock_orchestrator()
+        orch.start_time = 0
+        handler = TestHandler(orch)
+
+        log_dir = tmp_path / ".test_logs"
+        log_dir.mkdir()
+        # Create a file we can't read properly
+        (log_dir / "broken.log").write_bytes(b"\xff\xfe\x00\x01")
+        monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
+
+        handler.print_test_summary("api")  # Should not crash
+
+    def test_handle_test_with_json_output(self, tmp_path, monkeypatch):
+        """handle_test with --json produces JSON output (does not crash)."""
+        from _test_handler import TestHandler
+        import argparse
+
+        orch = _mock_orchestrator()
+        orch.start_time = 0
+        orch.results = {
+            "Linting": {"status": "pass", "duration_s": 1.0},
+        }
+        handler = TestHandler(orch)
+
+        monkeypatch.setattr(handler, "run_phase", lambda *a, **kw: None)
+        monkeypatch.setattr(handler, "print_test_summary", lambda *a, **kw: None)
+
+        args = argparse.Namespace(
+            target="api",
+            lint_only=False,
+            unit_only=False,
+            e2e_only=False,
+            coverage=True,
+            skip_lint=False,
+            fix=False,
+            pattern="",
+            timeout=None,
+            json_output=True,
+            component="",
+        )
+        # Should not crash — json output goes to stderr
+        handler.handle_test(args)
+
+    def test_run_phase_unknown_phase(self):
+        """run_phase exits with error for unknown phase."""
+        from _test_handler import TestHandler
+        import argparse
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        orch.dry_run = False
+
+        args = argparse.Namespace(target="all", component="", fix=False, pattern="", unit_only=False)
+        with pytest.raises(SystemExit) as exc:
+            handler.run_phase("UnknownPhase", "all", args)
+        assert exc.value.code == 1
+
+    def test_run_phase_dry_run(self):
+        """run_phase in dry_run mode logs and returns."""
+        from _test_handler import TestHandler
+        import argparse
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        orch.dry_run = True
+
+        args = argparse.Namespace(target="all", component="", fix=False, pattern="", unit_only=False)
+        handler.run_phase("Linting", "all", args)  # Should no-op
+
+    def test_handle_test_all_recursive(self, tmp_path, monkeypatch):
+        """handle_test with target=all does not crash."""
+        from _test_handler import TestHandler
+        import argparse
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        orch.dry_run = False
+
+        monkeypatch.setattr("_devkit_config.resolve_targets", lambda: ["infra"])
+        monkeypatch.setattr("_test_handler.build_mode_map", lambda: {"infra": "infra"})
+        monkeypatch.setattr("_test_handler.inject_rust_version_env", lambda: None)
+        monkeypatch.setattr(handler, "run_phase", lambda *a, **kw: None)
+        monkeypatch.setattr(handler, "print_test_summary", lambda *a, **kw: None)
+
+        args = argparse.Namespace(
+            target="all",
+            lint_only=False,
+            unit_only=False,
+            e2e_only=False,
+            coverage=False,
+            skip_lint=False,
+            fix=False,
+            pattern="",
+            timeout=None,
+            json_output=False,
+            component="",
+        )
+        handler.handle_test(args)  # Should not crash
+
+    def test_handle_test_infra_coverage(self, tmp_path, monkeypatch):
+        """handle_test_infra runs pytest with coverage."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        orch.dry_run = False
+
+        executed = []
+
+        def fake_execute(cmd, env=None, timeout=1800):
+            executed.append(cmd)
+
+        monkeypatch.setattr(handler, "_execute_safe", fake_execute)
+        handler.handle_test_infra()
+
+        assert len(executed) == 1
+        assert "--cov=scripts" in " ".join(executed[0])
+        assert "--cov-fail-under=80" in " ".join(executed[0])

@@ -368,3 +368,221 @@ class TestSkillsManagerInternals:
 
         mgr = SkillsManager()
         mgr._install_from_toml()  # No config → no-op
+
+
+class TestSkillsManagerCoverageGaps:
+    """Targeted tests to close coverage gaps in _skills_manager.py."""
+
+    def test_install_from_toml_with_entries(self, monkeypatch, tmp_path):
+        """_install_from_toml installs skills from leedevkit.toml."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        # Mock load_project_config to return entries
+        monkeypatch.setattr(
+            _devkit_config, "load_project_config",
+            lambda: {"addons": {"skills": [{"url": "https://github.com/x/y.git", "version": "main"}]}},
+        )
+
+        # Avoid real git clone
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": ""})())
+        monkeypatch.setattr("_skills_manager.SkillsManager._read_lock", lambda self: {"y": "abc123"})
+        monkeypatch.setattr("_skills_manager.SkillsManager._write_lock", lambda self: None)
+
+        mgr = SkillsManager()
+        mgr._install_from_toml()
+
+    def test_install_from_toml_with_string_entry(self, monkeypatch, tmp_path):
+        """_install_from_toml handles string entries (no version)."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        monkeypatch.setattr(
+            _devkit_config, "load_project_config",
+            lambda: {"addons": {"skills": ["https://github.com/x/z.git"]}},
+        )
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": ""})())
+        monkeypatch.setattr("_skills_manager.SkillsManager._read_lock", lambda self: {})
+        monkeypatch.setattr("_skills_manager.SkillsManager._write_lock", lambda self: None)
+
+        mgr = SkillsManager()
+        mgr._install_from_toml()
+
+    def test_install_from_toml_load_error(self, monkeypatch, tmp_path):
+        """_install_from_toml handles config load error gracefully."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        monkeypatch.setattr(
+            _devkit_config, "load_project_config",
+            lambda: (_ for _ in ()).throw(OSError("config missing")),
+        )
+
+        mgr = SkillsManager()
+        mgr._install_from_toml()  # Should not raise
+
+    def test_add_from_url_non_url(self, monkeypatch, tmp_path):
+        """_add_from_url with non-URL logs error."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        errors = []
+        monkeypatch.setattr("_skills_manager.log_error", lambda msg: errors.append(msg))
+        monkeypatch.setattr("_skills_manager.log_warn", lambda msg: None)
+
+        mgr = SkillsManager()
+        # "my-skill" is not a URL
+        mgr._add_from_url("my-skill", "main")
+        assert len(errors) >= 1
+        assert any("not a valid URL" in e or "in the skills catalog" in e for e in errors)
+
+    def test_add_from_url_empty(self, monkeypatch, tmp_path):
+        """_add_from_url with empty URL logs error."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        errors = []
+        monkeypatch.setattr("_skills_manager.log_error", lambda msg: errors.append(msg))
+
+        mgr = SkillsManager()
+        mgr._add_from_url("", "main")
+        assert len(errors) >= 1
+        assert any("Usage:" in e for e in errors)
+
+    def test_remove_nonexistent(self, monkeypatch, tmp_path):
+        """_remove with nonexistent name logs warning."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        warnings = []
+        monkeypatch.setattr("_skills_manager.log_warn", lambda msg: warnings.append(msg))
+
+        mgr = SkillsManager()
+        mgr._remove("nonexistent-skill")
+        assert len(warnings) >= 1
+        assert any("not found" in w for w in warnings)
+
+    def test_read_lock_json_format(self, monkeypatch, tmp_path):
+        """_read_lock handles JSON format lock file."""
+        import json
+        from _skills_manager import SkillsManager
+
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_path.write_text(json.dumps({"skill-a": "abc123"}))
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("_skills_manager.SkillsManager._lock_path", classmethod(lambda cls: lock_path))
+
+        mgr = SkillsManager()
+        result = mgr._read_lock()
+        assert result == {"skill-a": "abc123"}
+
+    def test_write_lock_json_fallback(self, monkeypatch, tmp_path):
+        """_write_lock does not crash when skill repos exist."""
+        from _skills_manager import SkillsManager
+
+        lock_path = tmp_path / "leedevkit.lock"
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("_skills_manager.SkillsManager._lock_path", classmethod(lambda cls: lock_path))
+
+        # Create a fake installed skill with .git directory
+        (tmp_path / "skills.d" / "my-skill").mkdir(parents=True)
+        (tmp_path / "skills.d" / "my-skill" / ".git").mkdir(exist_ok=True)
+
+        # Fake subprocess to return a sha
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "abc123", "stderr": ""})())
+        # Mock log_success to avoid stderr issues
+        monkeypatch.setattr("_skills_manager.log_success", lambda msg: None)
+
+        mgr = SkillsManager()
+        mgr._write_lock()
+        assert lock_path.exists()
+
+    def test_load_catalog_missing(self, monkeypatch, tmp_path):
+        """_load_catalog returns {} when catalog file is missing."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        mgr = SkillsManager()
+        result = mgr._load_catalog()
+        assert result == {}
+
+    def test_load_catalog_parse_error(self, monkeypatch, tmp_path):
+        """_load_catalog handles TOML parse errors gracefully."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        agent_dir = tmp_path / ".agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "skills-catalog.toml").write_text("[[invalid toml")
+
+        mgr = SkillsManager()
+        result = mgr._load_catalog()
+        assert result == {}
+
+    def test_update_and_lock_no_git_dirs(self, capsys, monkeypatch, tmp_path):
+        """_update_and_lock handles repos without .git."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        monkeypatch.setattr("_skills_manager.SkillsManager._write_lock", lambda self: None)
+
+        (tmp_path / "skills.d" / "plain-dir").mkdir(parents=True)
+        mgr = SkillsManager()
+        mgr._update_and_lock()  # Should not crash
+
+    def test_install_by_name_not_in_catalog(self, monkeypatch, tmp_path):
+        """_install_by_name logs error when not in catalog."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        errors = []
+        monkeypatch.setattr("_skills_manager.log_error", lambda msg: errors.append(msg))
+
+        mgr = SkillsManager()
+        mgr._install_by_name("unknown-skill")
+        assert len(errors) >= 1
+        assert any("not found in catalog" in e for e in errors)
+
+    def test_list_no_builtins_no_installed(self, monkeypatch, tmp_path):
+        """_list handles empty builtins and installed gracefully."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+
+        # Mock log_info to avoid stderr closed issues
+        logged = []
+        monkeypatch.setattr("_skills_manager.log_info", lambda msg: logged.append(msg))
+
+        mgr = SkillsManager()
+        mgr._list()
+        assert any("Skills" in m for m in logged)
+        assert any("No community skills" in m for m in logged)

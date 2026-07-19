@@ -13,6 +13,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from _download import download_and_extract_tarball
 from _logging import log_info, log_success, log_warn
 
 
@@ -36,34 +37,6 @@ def _latest_release_version() -> str:
     if not tag:
         raise RuntimeError("GitHub releases/latest returned no tag_name")
     return tag
-
-
-def _download_and_extract(url: str, target_dir: Path) -> None:
-    """Download a release tarball and extract into target_dir."""
-    import shutil as _shutil
-    import tarfile
-    import tempfile
-
-    tmp = Path(tempfile.mkdtemp())
-    try:
-        tarball = tmp / "release.tar.gz"
-        urllib.request.urlretrieve(url, tarball)
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        with tarfile.open(tarball, "r:gz") as tf:
-            tf.extractall(extract_dir)  # noqa: S202
-        # The tarball may contain a single root dir (leedevkit-vX.Y.Z/)
-        contents = list(extract_dir.iterdir())
-        if len(contents) == 1 and contents[0].is_dir():
-            source = contents[0]
-        else:
-            source = extract_dir
-        if target_dir.exists():
-            _shutil.rmtree(target_dir)
-        target_dir.parent.mkdir(parents=True, exist_ok=True)
-        _shutil.move(str(source), str(target_dir))
-    finally:
-        _shutil.rmtree(tmp, ignore_errors=True)
 
 
 def handle_update(target: str | None = None) -> None:
@@ -94,13 +67,10 @@ def handle_update(target: str | None = None) -> None:
 
     # Download into a temp dir, then move the extracted tree onto root.
     tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
-    url = (
-        f"https://github.com/vkaylee/leedevkit/releases/download/"
-        f"{target}/leedevkit-{ver}.tar.gz"
-    )
+    url = f"https://github.com/vkaylee/leedevkit/archive/refs/tags/{target}.tar.gz"
     try:
         log_info(f"Downloading {url} ...")
-        _download_and_extract(url, tmp_extract)
+        download_and_extract_tarball(url, tmp_extract)
         if root.exists():
             shutil.rmtree(root)
         shutil.move(str(tmp_extract), str(root))

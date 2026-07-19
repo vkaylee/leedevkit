@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from _devkit_config import _load_toml
+from _download import download_and_extract_tarball
 from _handler_base import HandlerBase
 from _logging import log_info, log_success, log_warn
 
@@ -172,7 +173,9 @@ class InitHandler(HandlerBase):
             log_success(f"Pinned devkit version: {actual_version}")
 
         # ── Step 6: Auto-install community skills from leedevkit.toml ──
-        self._orch.handle_skills(argparse.Namespace(skills_action="install"))
+        from _skills_manager import SkillsManager
+
+        SkillsManager().dispatch(argparse.Namespace(skills_action="install"))
 
         log_success("Project initialized. Run ./leedevkit --help to start.")
 
@@ -229,12 +232,12 @@ class InitHandler(HandlerBase):
         ver = version.lstrip("v") if version else version
         if ver and version != "latest":
             url = (
-                f"https://github.com/vkaylee/leedevkit/releases/download/"
-                f"{version}/leedevkit-{ver}.tar.gz"
+                f"https://github.com/vkaylee/leedevkit/archive/refs/tags/"
+                f"{version}.tar.gz"
             )
             log_info(f"Downloading {url} ...")
             try:
-                self._download_and_extract(url, target_dir)
+                download_and_extract_tarball(url, target_dir)
                 return
             except Exception as e:
                 log_warn(f"Download failed: {e}")
@@ -288,31 +291,3 @@ class InitHandler(HandlerBase):
             __import__("json").dumps(state, indent=2)
         )
         log_success(f"Installed devkit {version} → {target_dir}")
-
-    def _download_and_extract(self, url: str, target_dir: Path) -> None:
-        """Download a release tarball and extract into target_dir."""
-        import shutil as _shutil
-        import tarfile
-        import tempfile
-        import urllib.request
-
-        tmp = Path(tempfile.mkdtemp())
-        try:
-            tarball = tmp / "release.tar.gz"
-            urllib.request.urlretrieve(url, tarball)
-            extract_dir = tmp / "extracted"
-            extract_dir.mkdir()
-            with tarfile.open(tarball, "r:gz") as tf:
-                tf.extractall(extract_dir)  # noqa: S202
-            # The tarball may contain a single root dir (leedevkit-vX.Y.Z/)
-            contents = list(extract_dir.iterdir())
-            if len(contents) == 1 and contents[0].is_dir():
-                source = contents[0]
-            else:
-                source = extract_dir
-            if target_dir.exists():
-                _shutil.rmtree(target_dir)
-            target_dir.parent.mkdir(parents=True, exist_ok=True)
-            _shutil.move(str(source), str(target_dir))
-        finally:
-            _shutil.rmtree(tmp, ignore_errors=True)

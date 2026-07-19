@@ -341,7 +341,7 @@ class TestHandleInitFromTarball:
 
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")  # disable local fallback
 
-        # InitHandler imports urllib.request lazily inside _download_and_extract
+        # download_and_extract_tarball uses urllib.request (via _download module)
         import urllib.request as _urllib_req
 
         monkeypatch.setattr(_urllib_req, "urlretrieve", fake_urlretrieve)
@@ -441,13 +441,15 @@ class TestLegacySymlinkDetection:
         # Symlink to fake global (simulating old init)
         (agent_dir / "scripts").symlink_to(fake_global / "scripts")
         monkeypatch.chdir(project)
+        from _init_handler import InitHandler
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
+        handler = InitHandler(orch)
         # Patch Path.home to point to fake home
         monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "fake-home")
-        detected = orch._detect_legacy_symlinks(agent_dir)
+        detected = handler._detect_legacy_symlinks(agent_dir)
         assert len(detected) == 1
         assert detected[0][0] == "scripts"
 
@@ -457,11 +459,13 @@ class TestLegacySymlinkDetection:
         agent_dir.mkdir()
         (agent_dir / "custom-stuff").mkdir()
         (agent_dir / "custom-stuff" / "file.txt").write_text("hello")
+        from _init_handler import InitHandler
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
-        detected = orch._detect_legacy_symlinks(agent_dir)
+        handler = InitHandler(orch)
+        detected = handler._detect_legacy_symlinks(agent_dir)
         assert detected == []
 
     def test_ignores_symlinks_to_other_targets(self, tmp_path):
@@ -471,11 +475,13 @@ class TestLegacySymlinkDetection:
         other_target = tmp_path / "other-location"
         other_target.mkdir()
         (agent_dir / "ext").symlink_to(other_target)
+        from _init_handler import InitHandler
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
-        detected = orch._detect_legacy_symlinks(agent_dir)
+        handler = InitHandler(orch)
+        detected = handler._detect_legacy_symlinks(agent_dir)
         assert detected == []
 
     def test_init_warns_about_legacy_symlinks(self, tmp_path, monkeypatch, capsys):

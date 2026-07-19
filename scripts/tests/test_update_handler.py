@@ -21,11 +21,11 @@ class TestDevkitRoot:
 
 
 class TestDownloadAndExtract:
-    """Tests for _download_and_extract()."""
+    """Tests for download_and_extract_tarball()."""
 
     def test_extracts_single_root_dir_tarball(self, tmp_path, monkeypatch):
         """Tarball with a single root dir extracts to target_dir."""
-        from _update_handler import _download_and_extract
+        from _download import download_and_extract_tarball
 
         # Build a tarball with a single root dir
         tarball_path = tmp_path / "release.tar.gz"
@@ -44,10 +44,10 @@ class TestDownloadAndExtract:
             import shutil
             shutil.copy(str(tarball_path), str(filename))
 
-        monkeypatch.setattr("_update_handler.urllib.request.urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
 
         target = tmp_path / "dest"
-        _download_and_extract("https://example.com/v0.2.0.tar.gz", target)
+        download_and_extract_tarball("https://example.com/v0.2.0.tar.gz", target)
 
         # Single root dir stripped — contents moved directly to target
         assert (target / "VERSION").read_text() == "0.2.0"
@@ -55,7 +55,7 @@ class TestDownloadAndExtract:
 
     def test_extracts_flat_tarball(self, tmp_path, monkeypatch):
         """Tarball without a single root dir copies contents as-is."""
-        from _update_handler import _download_and_extract
+        from _download import download_and_extract_tarball
 
         tarball_path = tmp_path / "release.tar.gz"
         source_root = tmp_path / "source"
@@ -71,17 +71,17 @@ class TestDownloadAndExtract:
             import shutil
             shutil.copy(str(tarball_path), str(filename))
 
-        monkeypatch.setattr("_update_handler.urllib.request.urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
 
         target = tmp_path / "dest"
-        _download_and_extract("https://example.com/v0.2.0.tar.gz", target)
+        download_and_extract_tarball("https://example.com/v0.2.0.tar.gz", target)
 
         assert (target / "VERSION").read_text() == "0.2.0"
         assert (target / "README.md").read_text() == "# Hello"
 
     def test_overwrites_existing_target(self, tmp_path, monkeypatch):
         """Existing target_dir is removed before moving new one."""
-        from _update_handler import _download_and_extract
+        from _download import download_and_extract_tarball
 
         target = tmp_path / "dest"
         target.mkdir()
@@ -99,15 +99,15 @@ class TestDownloadAndExtract:
             import shutil
             shutil.copy(str(tarball_path), str(filename))
 
-        monkeypatch.setattr("_update_handler.urllib.request.urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
 
-        _download_and_extract("https://example.com/v0.3.0.tar.gz", target)
+        download_and_extract_tarball("https://example.com/v0.3.0.tar.gz", target)
         assert (target / "VERSION").read_text() == "0.3.0"
         assert not (target / "OLD").exists()
 
 
 class TestHandleUpdateRollback:
-    """Test rollback behavior when _download_and_extract fails."""
+    """Test rollback behavior when download_and_extract_tarball fails."""
 
     def test_rollback_restores_previous_version(self, tmp_path, monkeypatch):
         """Failed update restores original devkit from backup."""
@@ -122,7 +122,7 @@ class TestHandleUpdateRollback:
         def boom(url, target_dir):
             raise RuntimeError("network down")
 
-        monkeypatch.setattr("_update_handler._download_and_extract", boom)
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", boom)
 
         with pytest.raises(RuntimeError, match="network down"):
             handle_update(target="v0.2.0")
@@ -141,18 +141,11 @@ class TestHandleUpdateRollback:
 
         monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
 
-        # _download_and_extract succeeds, but let's test the exception path
-        # by making the download succeed but root removal fail
+        # download_and_extract_tarball succeeds; test the success path
         def fake_download(url, target_dir):
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.2.0")
-            # root will be the backup after shutil.move
-            # We simulate failure by having root not exist when _download_and_extract returns
-            # Actually the code path: after _download_and_extract, it does:
-            #   if root.exists(): shutil.rmtree(root)
-            #   shutil.move(str(tmp_extract), str(root))
-            # If root already doesn't exist, rmtree is skipped, move works.
-            # The except block only fires if _download_and_extract raises.
+            # The except block only fires if download_and_extract_tarball raises.
             pass
 
         # Simulate success path with backup already present
@@ -160,7 +153,7 @@ class TestHandleUpdateRollback:
         backup.mkdir()
         (backup / "OLD").write_text("old-backup")
 
-        monkeypatch.setattr("_update_handler._download_and_extract", fake_download)
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
 
         handle_update(target="v0.2.0")
 

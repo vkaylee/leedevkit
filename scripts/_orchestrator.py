@@ -173,7 +173,9 @@ class Orchestrator:
         elif args.command == "run":
             self.handle_run(args)
         elif args.command == "update":
-            self.handle_update(args)
+            from _update_handler import handle_update as _do_update
+
+            _do_update(args.version)
 
     def handle_test(self, args: argparse.Namespace) -> None:
         self._test_handler.handle_test(args)
@@ -190,7 +192,7 @@ class Orchestrator:
             "sync:api": lambda: self.execute_safe(
                 ["/bin/bash", "-c", f'source "{SCRIPTS_DIR}/_sync-api.sh"']
             ),
-            "test:infra": self.handle_test_infra,
+            "test:infra": lambda: self._test_handler.handle_test_infra(),
             "migrate:run": lambda: self.handle_diesel(["migration", "run"]),
             "migrate:revert": lambda: self.handle_diesel(["migration", "revert"]),
             "migrate:status": lambda: self.handle_diesel(["migration", "list"]),
@@ -244,32 +246,7 @@ class Orchestrator:
     def handle_run(self, args: argparse.Namespace) -> None:
         self._run_handler.handle_run(args)
 
-    def _is_service_running(self, service: str) -> bool:
-        return self._run_handler.is_service_running(service)
-
-    # ── Self-update (delegated to _update_handler) ─────────────────────────
-
-    def handle_update(self, args: argparse.Namespace) -> None:
-        """Download and apply a devkit release update."""
-        from _update_handler import handle_update as _do_update
-
-        _do_update(args.version)
-
-    def _handle_run_npm(
-        self,
-        compose_cmd: list[str],
-        tool_args: list[str],
-        service: str,
-        is_running: bool = True,
-    ) -> None:
-        """Run npm/bun commands via compose exec/run into container."""
-        self._run_handler._handle_run_npm(compose_cmd, tool_args, service, is_running)
-
-    def _handle_run_cargo(
-        self, compose_cmd: list[str], tool_args: list[str], service: str
-    ) -> None:
-        """Run cargo commands via compose inside the Rust service container."""
-        self._run_handler._handle_run_cargo(compose_cmd, tool_args, service)
+    # ── CLI Facade — public API methods (called from dispatch map + tests) ───
 
     def handle_lint_infra(self) -> None:
         self._test_handler.handle_lint_infra()
@@ -281,39 +258,8 @@ class Orchestrator:
         self._test_handler.handle_verify_infra()
 
     def handle_init(self, force: bool = False) -> None:
-        """Set up project with per-project devkit install.
-
-        Flow:
-          1. Ensure .leedevkit/ exists (download release tarball if needed)
-          2. Create project-local .venv inside .leedevkit/
-          3. Copy base AI rules from devkit → project (not symlinks)
-          4. Create ./leedevkit wrapper → .leedevkit/bin/leedevkit
-          5. Install community skills from catalog/TOML
-          6. Pin devkit version in leedevkit.toml
-        """
+        """Set up project with per-project devkit install."""
         self._init_handler.handle_init(force=force)
-
-    def _detect_legacy_symlinks(self, agent_dir: Path) -> list[tuple[str, str]]:
-        """Detect symlinks in .agent/ that point to the old global install."""
-        return self._init_handler._detect_legacy_symlinks(agent_dir)
-
-    def _read_installed_version(self, leedevkit_dir: Path) -> str | None:
-        """Read the version installed in .leedevkit/, or None if not installed."""
-        return self._init_handler._read_installed_version(leedevkit_dir)
-
-    def _install_devkit(
-        self, project_root: Path, target_dir: Path, version: str, force: bool = False
-    ) -> None:
-        """Download and install devkit into target_dir (.leedevkit/)."""
-        self._init_handler._install_devkit(project_root, target_dir, version, force=force)
-
-    def _extract_from_source(self, source_root: Path, target_dir: Path) -> None:
-        """Copy devkit artifacts from a source directory into target_dir."""
-        self._init_handler._extract_from_source(source_root, target_dir)
-
-    def _download_and_extract(self, url: str, target_dir: Path) -> None:
-        """Download a release tarball and extract into target_dir."""
-        self._init_handler._download_and_extract(url, target_dir)
 
     def handle_skills(self, args: argparse.Namespace) -> None:
         """Manage community add-on skills (delegated to SkillsManager)."""
