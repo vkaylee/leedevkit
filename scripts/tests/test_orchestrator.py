@@ -143,11 +143,9 @@ class TestLogFunctions:
 
 class TestLeedevkitDir:
     def test_lock_path_at_root(self):
-        from _orchestrator import Orchestrator
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            path = orch._lock_path()
-            assert path.name == "leedevkit.lock"
+        from _skills_manager import SkillsManager
+        path = SkillsManager._lock_path()
+        assert path.name == "leedevkit.lock"
 
     def test_init_creates_files(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator
@@ -224,12 +222,10 @@ class TestLeedevkitDir:
                 orch.handle_init(force=False)
 
     def test_load_catalog(self):
-        from _orchestrator import Orchestrator
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            catalog = orch._load_skills_catalog()
-            assert isinstance(catalog, dict)
-            assert "ui-ux-pro-max" in catalog
+        from _skills_manager import SkillsManager
+        catalog = SkillsManager()._load_catalog()
+        assert isinstance(catalog, dict)
+        assert "ui-ux-pro-max" in catalog
 
     def test_skills_install_not_in_catalog(self):
         from _orchestrator import Orchestrator
@@ -253,29 +249,25 @@ class TestVersionInToml:
 
 class TestLockFile:
     def test_read_lock_missing(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
-        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            lock = orch._read_lock()
-            assert lock == {}
+        from _skills_manager import SkillsManager
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        lock = SkillsManager._read_lock()
+        assert lock == {}
 
     def test_read_lock_valid(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
+        from _skills_manager import SkillsManager
         import tomli_w
         lock_path = tmp_path / "leedevkit.lock"
         lock_path.parent.mkdir(exist_ok=True)
         with open(lock_path, "wb") as f:
             tomli_w.dump({"my-skill": "abc123def"}, f)
-        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            data = orch._read_lock()
-            assert "my-skill" in data
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        data = SkillsManager._read_lock()
+        assert "my-skill" in data
 
     def test_write_lock(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
-        monkeypatch.setattr("_orchestrator.PROJECT_ROOT", tmp_path)
+        from _skills_manager import SkillsManager
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
         skills_d = tmp_path / "skills.d"
         skills_d.mkdir()
         (skills_d / ".git").mkdir()
@@ -287,10 +279,11 @@ class TestLockFile:
                 return m
             return orig_run(*a, **kw)
         monkeypatch.setattr("subprocess.run", fake_run)
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            orch._write_lock(skills_d)
-            assert (tmp_path / "leedevkit.lock").exists()
+        mgr = SkillsManager()
+        # Override skills_d to point to our tmp path
+        mgr._skills_d = skills_d
+        mgr._write_lock()
+        assert (tmp_path / "leedevkit.lock").exists()
 
 
 class TestSkillsSubCommands:
