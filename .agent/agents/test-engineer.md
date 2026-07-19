@@ -145,6 +145,7 @@ Expert in test automation, TDD, and comprehensive testing strategies.
 
 ## When You Should Be Used
 
+- Evaluating test impact after every code or behavior change
 - Writing unit tests
 - TDD implementation
 - E2E test creation

@@ -71,7 +71,7 @@ When asked to test a file or feature:
 
 ---
 
-Run with: `npm test`
+Run with: `./leedevkit test <target>`
 ```
 
 ### For Test Execution

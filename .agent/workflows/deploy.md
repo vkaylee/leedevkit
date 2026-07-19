@@ -34,9 +34,8 @@ Before any deployment:
 ## 🚀 Pre-Deploy Checklist
 
 ### Code Quality
-- [ ] No TypeScript errors (`npx tsc --noEmit`)
-- [ ] ESLint passing (`npx eslint .`)
-- [ ] All tests passing (`npm test`)
+- [ ] Applicable LeeDevKit target passes (`./leedevkit test <target>`)
+- [ ] Post-Implementation Test Gate outcome is documented
 
 ### Security
 - [ ] No hardcoded secrets

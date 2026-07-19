@@ -2,13 +2,13 @@
 
 import os
 import sys
+from pathlib import Path
 import tarfile
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from _release_build import (
-    EXCLUDE_PATTERNS,
     INCLUDE_DIRS,
     INCLUDE_FILES,
     _should_exclude,
@@ -47,6 +47,32 @@ class TestShouldExclude:
         assert _should_exclude("VERSION") is False
 
 
+class TestAgentTestingGuidance:
+    """Guard the mandatory post-implementation test decision in shipped context."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+
+    def test_base_prompt_requires_explicit_test_impact_outcome(self):
+        prompt = (self.repo_root / "templates" / "CLAUDE.base.md").read_text()
+
+        assert "Post-Implementation Test Gate" in prompt
+        assert "tests added/updated" in prompt
+        assert "reason no test change is needed" in prompt
+        assert "./leedevkit test <target>" in prompt
+
+    def test_testing_standard_defines_test_gate_and_exceptions(self):
+        rules = (
+            self.repo_root / ".agent" / "rules" / "testing-standards.md"
+        ).read_text()
+
+        assert "Decide autonomously whether tests must be added or updated" in rules
+        assert "No test change needed" in rules
+        assert "Bug fixes and regressions" in rules
+        assert "documentation-only" in rules
+        assert "./leedevkit test <target>" in rules
+        assert "./test.sh" not in rules
+
+
 class TestBuildRelease:
     def test_happy_path_creates_tarball(self, tmp_path):
         """build_release should create a valid .tar.gz with expected contents."""
@@ -82,6 +108,7 @@ class TestBuildRelease:
         out_dir = tmp_path / "dist"
 
         import pytest
+
         with pytest.raises(FileNotFoundError, match="VERSION file not found"):
             build_release(repo, out_dir)
 
@@ -142,7 +169,6 @@ class TestMain:
                 "--repo-root",
                 str(fake_root),
             ]
-            import argparse
             old_argv = sys.argv
             try:
                 sys.argv = main_args
@@ -177,7 +203,6 @@ class TestMain:
             "--output",
             str(out_dir),
         ]
-        import argparse
         old_argv = sys.argv
         try:
             sys.argv = main_args

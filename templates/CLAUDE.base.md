@@ -12,6 +12,7 @@
 3. **Structured Errors:** Use domain-specific error types. NEVER throw generic errors.
 4. **Boy Scout Rule:** If you see a typo, bad pattern, or visible bug nearby, FIX IT IMMEDIATELY.
 5. **Output Redirection (CRITICAL):** For ALL terminal commands, append `> logs/run_{slug}.log 2>&1 </dev/null`. Always prefix with `mkdir -p logs &&`.
+6. **Post-Implementation Test Gate:** After EVERY code or behavior change, inspect affected tests and explicitly report either tests added/updated or a behavior-based reason no test change is needed. Run the applicable `./leedevkit test <target>` before declaring completion.
 
 ## 🥇 Layer 1: CRITICAL PROTOCOL
 **Before writing ANY code or proposing solutions:**

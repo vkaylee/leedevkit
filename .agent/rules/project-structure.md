@@ -7,7 +7,7 @@
 | Agent (ZK Worker) | Rust | `agent-main/` |
 | Web Dashboard | React + TypeScript | `webdashboard/` |
 | Containers | Compose | `docker-compose*.yml` |
-| Tests | Rust + Playwright | `./test.sh` |
+| Tests | Rust + Playwright | `./leedevkit test <target>` |
 
 ## 2. Commit Convention
 Use conventional commits for all changes: 

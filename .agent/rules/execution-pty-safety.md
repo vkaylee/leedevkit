@@ -15,9 +15,9 @@ All standard development tools run inside isolated Podman containers. You MUST e
 | Diesel/DB | `diesel print-schema` | `./scripts/_diesel.sh print-schema` | `apiserver_test` |
 
 ## 2. Test Execution & Coverage (MANDATORY)
-- **Running Tests:** NEVER run `cargo test` directly on the host (especially on WSL2 due to I/O freezes). ALWAYS use the `./test.sh` script.
-  - Examples: `./test.sh api`, `./test.sh web`, `./test.sh all`
-- **Checking Coverage:** When asked to check test coverage, use the `--coverage` flag (e.g., `./test.sh api --coverage`). This flag will enforce the 100% threshold.
+- **Running Tests:** NEVER run framework test commands directly on the host. ALWAYS use the project-local LeeDevKit wrapper.
+  - Examples: `./leedevkit test api`, `./leedevkit test web`, `./leedevkit test all`
+- **Checking Coverage:** Use the `--coverage` flag on the applicable target (e.g., `./leedevkit test api --coverage`).
 
 ## 3. Git Protocol
 - **Git Protocol:** NEVER run `git` directly. ALWAYS use the `./scripts/git.sh` wrapper.
@@ -41,7 +41,7 @@ Use `run-inline` instead — writes code to a temp file, executes via `_safe_run
 - `./scripts/ai-tools/run-inline -l bash -c 'echo $HOME'`
 
 ## 7. Avoiding PTY Hangs on Scripts (MANDATORY)
-> **CRITICAL:** When running ANY script or command that spawns child processes (`./test.sh`, `./scripts/_cargo.sh`, `npm run`, etc.) inside the AI terminal, the PTY may hang indefinitely waiting for child processes (like docker-compose or rustc) to close their file descriptors.
+> **CRITICAL:** When running ANY script or command that spawns child processes (`./leedevkit test`, `./scripts/_cargo.sh`, `npm run`, etc.) inside the AI terminal, the PTY may hang indefinitely waiting for child processes (like docker-compose or rustc) to close their file descriptors.
 - **UNIVERSAL RULE - ALWAYS REDIRECT OUTPUT:** You MUST ALWAYS redirect script output to a file and read it via your native `view_file` tool, regardless of how fast you think it will run:
   ✅ `> run.log 2>&1 </dev/null`
 - **NEVER** run commands normally without this redirection. Do not guess execution time!

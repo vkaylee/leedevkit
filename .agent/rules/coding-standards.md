@@ -47,7 +47,7 @@ If you see a bug, typo, or poor pattern nearby while working on a file, FIX IT I
 When working on specific concerns, also consult:
 - `@[.agent/rules/leeattend-context.md]` — **Read first** — Project patterns, handler signatures, DB conventions, API format
 - `@[.agent/rules/database-rules.md]` — Multi-tenancy, N+1 prevention, migrations, soft deletes
-- `@[.agent/rules/testing-standards.md]` — Test organization, coverage thresholds, `./test.sh` runner
+- `@[.agent/rules/testing-standards.md]` — Mandatory post-implementation test gate, coverage thresholds, `./leedevkit test` runner
 - `@[.agent/rules/access-control.md]` — RBAC enforcement, JWT, permission granularity
 - `@[.agent/rules/data-governance.md]` — PII masking, data classification, retention
 - `@[.agent/rules/design-rules.md]` — UI/UX, design system, responsive, accessibility
