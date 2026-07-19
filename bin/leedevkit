@@ -14,10 +14,7 @@ set -euo pipefail
 RESOLVED="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$RESOLVED")/.." && pwd)"
 
-# Ensure venv and get python path
-PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
-
-if [ $# -eq 0 ]; then
+print_usage() {
     echo "leedevkit — Enterprise DevKit for AI-first projects"
     echo ""
     echo "Usage: leedevkit <command> [args...]"
@@ -32,11 +29,36 @@ if [ $# -eq 0 ]; then
     echo "  version  Show devkit version"
     echo ""
     echo "Run 'leedevkit <command> --help' for details."
+}
+
+if [ $# -eq 0 ]; then
+    print_usage
     exit 0
 fi
 
 COMMAND="$1"
 shift
+
+case "$COMMAND" in
+    version|--version|-v)
+        cat "$SCRIPT_DIR/VERSION"
+        exit 0
+        ;;
+    help|--help|-h)
+        print_usage
+        exit 0
+        ;;
+    test|manage|init|doctor|skills|update)
+        ;;
+    *)
+        echo "Unknown command: $COMMAND"
+        echo "Run 'leedevkit' without arguments for usage."
+        exit 1
+        ;;
+esac
+
+# Python-backed commands initialize the project-local environment lazily.
+PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
 
 case "$COMMAND" in
     test)
@@ -56,16 +78,5 @@ case "$COMMAND" in
         ;;
     update)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" update "$@"
-        ;;
-    version|--version|-v)
-        cat "$SCRIPT_DIR/VERSION"
-        ;;
-    help|--help|-h)
-        exec "$0"  # show usage above
-        ;;
-    *)
-        echo "Unknown command: $COMMAND"
-        echo "Run 'leedevkit' without arguments for usage."
-        exit 1
         ;;
 esac

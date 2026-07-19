@@ -9,6 +9,7 @@ set -euo pipefail
 
 REPO="vkaylee/leedevkit"
 VERSION="${1:-latest}"
+RELEASE_BASE_URL="${LEEDEVKIT_RELEASE_BASE_URL:-https://github.com/$REPO/releases}"
 
 # Must be in a project directory (has .git or leedevkit.toml)
 if [ ! -d .git ] && [ ! -f leedevkit.toml ]; then
@@ -38,7 +39,7 @@ trap 'rm -rf $TMP_DIR' EXIT
 
 # Strip "v" prefix for tarball name (v0.1.0 → leedevkit-0.1.0.tar.gz)
 VER="${VERSION_TAG#v}"
-TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
+TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
 
 if command -v curl &>/dev/null; then
@@ -50,15 +51,59 @@ else
     exit 1
 fi
 
-# Extract into .leedevkit/ in current directory
-rm -rf .leedevkit
-tar -xzf "$TMP_DIR/leedevkit.tar.gz" -C "$TMP_DIR"
-EXTRACTED=$(find "$TMP_DIR" -maxdepth 1 -type d -name 'leedevkit-*' | head -1)
-if [ -z "$EXTRACTED" ]; then
+# Extract and validate in temporary staging before replacing an existing install.
+STAGE_DIR="$TMP_DIR/stage"
+mkdir -p "$STAGE_DIR"
+python3 - "$TMP_DIR/leedevkit.tar.gz" "$STAGE_DIR" <<'PY'
+import sys
+import tarfile
+from pathlib import Path, PurePosixPath
+
+archive_path = Path(sys.argv[1])
+destination = Path(sys.argv[2]).resolve()
+with tarfile.open(archive_path, "r:gz") as archive:
+    members = archive.getmembers()
+    for member in members:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or ".." in path.parts:
+            raise SystemExit(f"Unsafe archive path: {member.name}")
+        if not (member.isfile() or member.isdir()):
+            raise SystemExit(f"Unsupported archive member: {member.name}")
+    archive.extractall(destination, members=members)
+PY
+EXTRACTED=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'leedevkit-*' -print -quit)
+ENTRY_COUNT=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 | wc -l)
+if [ "$ENTRY_COUNT" -ne 1 ] || [ -z "$EXTRACTED" ]; then
     echo "❌ Unexpected tarball structure"
     exit 1
 fi
-mv "$EXTRACTED" .leedevkit
+if [ ! -f "$EXTRACTED/VERSION" ] || [ "$(tr -d '\r\n' < "$EXTRACTED/VERSION")" != "$VER" ]; then
+    echo "❌ Release VERSION does not match $VER"
+    exit 1
+fi
+for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
+    if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
+        echo "❌ Release missing required file: $REQUIRED"
+        exit 1
+    fi
+done
+DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
+
+BACKUP=""
+if [ -e .leedevkit ]; then
+    BACKUP="$TMP_DIR/previous-leedevkit"
+    mv .leedevkit "$BACKUP"
+fi
+if ! mv "$EXTRACTED" .leedevkit; then
+    if [ -n "$BACKUP" ] && [ -e "$BACKUP" ]; then
+        mv "$BACKUP" .leedevkit
+    fi
+    echo "❌ Failed to activate release"
+    exit 1
+fi
+if [ -n "$BACKUP" ]; then
+    rm -rf "$BACKUP"
+fi
 
 # Ensure scripts are executable
 chmod +x .leedevkit/scripts/*.py 2>/dev/null || true

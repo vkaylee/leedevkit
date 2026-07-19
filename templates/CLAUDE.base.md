@@ -46,14 +46,28 @@ For New Features / Bug Fixes: 🔴 STOP and ASK minimum 3 strategic questions.
 ## 🔧 LAYER 6: DEVKIT COMMANDS
 | Command | Purpose |
 |---|---|
-| `leedevkit test infra --lint-only` | Quick format + lint check |
+| `leedevkit test infra --lint-only` | Quick lint/type check |
 | `leedevkit test infra --unit-only` | Unit tests only |
+| `leedevkit test infra` | Format check + lint + unit/coverage |
 | `leedevkit test all` | Full suite (lint + unit + e2e) |
 | `leedevkit test all --json` | Machine-readable output |
 | `leedevkit manage up dev` | Start dev environment |
 | `leedevkit manage db:setup` | Init database + migrations |
 | `leedevkit doctor` | System health check |
 | `leedevkit skills list` | Browse available skills |
+| `leedevkit version` | Print installed version (no venv/network) |
+
+### Release packaging gate (devkit itself)
+When changing packaging, install, bootstrap, update, versioning, or release layout of LeeDevKit itself, source tests alone are NOT enough. Also run:
+
+```bash
+python3 scripts/_release_build.py --repo-root . --output /tmp/dist
+python3 scripts/_release_acceptance.py \
+  --repo-root . \
+  --artifact /tmp/dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz
+```
+
+This black-box gate builds the real artifact and verifies offline `version`/`help` plus local bootstrap. Do not declare packaging work complete if it fails.
 
 ## 📦 LAYER 7: INSTALLED SKILLS
 > Community skills installed via `leedevkit skills install`. Each has its own

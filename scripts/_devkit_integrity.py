@@ -31,6 +31,8 @@ except ImportError:
 
 
 MANIFEST_FILE = "devkit.manifest.json"
+RUNTIME_DIRS = {".venv", "skills.d", "__pycache__"}
+RUNTIME_FILES = {"dev-state.json", ".DS_Store"}
 
 
 def _read_manifest(devkit_root: Path) -> dict | None:
@@ -54,13 +56,14 @@ def _compute_file_hash(path: Path) -> str:
 
 
 def _walk_files(root: Path) -> list[Path]:
-    """List all regular files under root, excluding manifest and __pycache__."""
-    ignore = {MANIFEST_FILE, ".DS_Store"}
+    """List immutable files under root, excluding generated runtime state."""
     files: list[Path] = []
     for entry in root.rglob("*"):
-        if entry.is_file() and entry.name not in ignore:
-            if "__pycache__" not in entry.parts:
-                files.append(entry)
+        if not entry.is_file() or entry.name in {MANIFEST_FILE, *RUNTIME_FILES}:
+            continue
+        relative_parts = entry.relative_to(root).parts
+        if not any(part in RUNTIME_DIRS for part in relative_parts):
+            files.append(entry)
     return sorted(files)
 
 
@@ -85,7 +88,10 @@ def generate_manifest(devkit_root: Path | None = None) -> dict:
 
     return {
         "version": version,
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "generated_at": __import__("datetime")
+        .datetime.now(__import__("datetime").timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "algorithm": "sha256",
         "file_count": len(hashes),
         "files": hashes,
@@ -113,10 +119,17 @@ class VerificationResult:
         self.missing: list[str] = []
         self.extra: list[str] = []  # files not in manifest
         self.no_manifest: bool = False
+        self.invalid_manifest: list[str] = []
 
     @property
     def is_clean(self) -> bool:
-        return not (self.modified or self.missing or self.extra or self.no_manifest)
+        return not (
+            self.modified
+            or self.missing
+            or self.extra
+            or self.no_manifest
+            or self.invalid_manifest
+        )
 
     def report(self) -> str:
         lines: list[str] = []
@@ -131,6 +144,10 @@ class VerificationResult:
             return "\n".join(lines)
 
         lines.append("❌ Devkit integrity FAILED:")
+        if self.invalid_manifest:
+            lines.append("\n  Invalid manifest:")
+            for issue in self.invalid_manifest:
+                lines.append(f"    {issue}")
         if self.modified:
             lines.append(f"\n  Modified ({len(self.modified)}):")
             for path, expected, actual in self.modified:
@@ -161,8 +178,30 @@ def verify_devkit(devkit_root: Path | None = None) -> VerificationResult:
     if manifest is None:
         result.no_manifest = True
         return result
+    if not isinstance(manifest, dict):
+        result.invalid_manifest.append("manifest root must be an object")
+        return result
 
-    expected = manifest.get("files", {})
+    files = manifest.get("files")
+    if manifest.get("algorithm") != "sha256":
+        result.invalid_manifest.append("algorithm must be sha256")
+    if not isinstance(files, dict):
+        result.invalid_manifest.append("files must be an object")
+    else:
+        if manifest.get("file_count") != len(files):
+            result.invalid_manifest.append("file_count does not match files")
+
+    version_file = devkit_root / "VERSION"
+    actual_version = (
+        version_file.read_text().strip() if version_file.exists() else "unknown"
+    )
+    if manifest.get("version") != actual_version:
+        result.invalid_manifest.append("version does not match VERSION")
+
+    if result.invalid_manifest:
+        return result
+
+    expected = files
     actual_files = {
         str(f.relative_to(devkit_root)): f for f in _walk_files(devkit_root)
     }

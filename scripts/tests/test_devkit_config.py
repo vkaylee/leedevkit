@@ -123,14 +123,24 @@ class TestFindDevkitRoot:
 
 
 class TestResolveAiRules:
-    def test_returns_list_of_paths(self):
+    def test_returns_list_of_paths(self, monkeypatch):
+        import _devkit_config
+
+        repo_root = Path(__file__).resolve().parents[2]
+        monkeypatch.setenv("DEVKIT_HOME", str(repo_root))
+        _devkit_config._DEVKIT_ROOT = None
         rules = resolve_ai_rules()
         assert isinstance(rules, list)
         # All returned paths should be Path objects
         for rule in rules:
             assert isinstance(rule, Path)
 
-    def test_devkit_internals_included(self):
+    def test_devkit_internals_included(self, monkeypatch):
+        import _devkit_config
+
+        repo_root = Path(__file__).resolve().parents[2]
+        monkeypatch.setenv("DEVKIT_HOME", str(repo_root))
+        _devkit_config._DEVKIT_ROOT = None
         rules = resolve_ai_rules()
         rule_names = [r.name for r in rules]
         # The override manifest in .agent/overrides.yaml adds devkit-internals.md

@@ -8,6 +8,56 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
+class TestCliFastPaths:
+    @staticmethod
+    def _make_artifact(tmp_path):
+        root = tmp_path / "artifact"
+        (root / "bin").mkdir(parents=True)
+        (root / "scripts").mkdir()
+        source = Path(__file__).resolve().parents[2] / "bin" / "leedevkit"
+        cli = root / "bin" / "leedevkit"
+        cli.write_bytes(source.read_bytes())
+        cli.chmod(0o755)
+        (root / "VERSION").write_text("9.8.7\n")
+        ensure = root / "scripts" / "_ensure-venv.sh"
+        ensure.write_text('#!/bin/bash\ntouch "$(dirname "$0")/CALLED"\nexit 99\n')
+        ensure.chmod(0o755)
+        return root, cli
+
+    def test_identity_and_help_do_not_initialize_venv(self, tmp_path):
+        root, cli = self._make_artifact(tmp_path)
+
+        for args in ([], ["version"], ["--version"], ["--help"]):
+            result = subprocess.run(
+                [str(cli), *args], capture_output=True, text=True, timeout=10
+            )
+            assert result.returncode == 0
+
+        assert not (root / "scripts" / "CALLED").exists()
+        assert not (root / ".venv").exists()
+
+    def test_unknown_command_does_not_initialize_venv(self, tmp_path):
+        root, cli = self._make_artifact(tmp_path)
+
+        result = subprocess.run(
+            [str(cli), "not-a-command"], capture_output=True, text=True, timeout=10
+        )
+
+        assert result.returncode == 1
+        assert "Unknown command" in result.stdout
+        assert not (root / "scripts" / "CALLED").exists()
+
+    def test_python_command_initializes_venv(self, tmp_path):
+        root, cli = self._make_artifact(tmp_path)
+
+        result = subprocess.run(
+            [str(cli), "test"], capture_output=True, text=True, timeout=10
+        )
+
+        assert result.returncode != 0
+        assert (root / "scripts" / "CALLED").exists()
+
+
 class TestCliHelp:
     def test_test_help(self):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
@@ -137,8 +187,13 @@ name = "TestProject"
 languages = ["python"]
 """)
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(
+            "DEVKIT_HOME", str(Path(__file__).resolve().parent.parent.parent)
+        )
         from _devkit_config import load_project_config
+        import _devkit_config
 
+        _devkit_config._DEVKIT_ROOT = None
         cfg = load_project_config()
         assert cfg["project"]["name"] == "TestProject"
 

@@ -12,7 +12,7 @@ languages = ["python", "bash"]
 
 # ── Targets ──────────────────────────────────────────────────────────────────
 # "infra" triggers the built-in infrastructure verification:
-#   format → lint → test (100% coverage on scripts/)
+#   format check → lint → test (minimum 80% coverage on scripts/)
 
 [targets]
 all = ["infra"]

@@ -32,8 +32,11 @@ A test change MAY be unnecessary for documentation-only, comment-only, formattin
 | **Applicable target** | `./leedevkit test <target>` | Required verification before completion |
 | **Coverage** | `./leedevkit test <target> --coverage` | Coverage verification for changed logic |
 | **Full suite** | `./leedevkit test all` | Cross-target regression verification |
+| **Release packaging** | `python3 scripts/_release_build.py ...` then `python3 scripts/_release_acceptance.py ...` | Required for packaging/install/bootstrap/update changes in LeeDevKit itself |
 
 Use the narrowest target that fully covers the change. Run the full suite when the change crosses targets or affects shared infrastructure. Do not use background execution (`&`). Follow `execution-pty-safety.md` for output handling.
+
+When the change affects LeeDevKit packaging, bootstrap, install, update, versioning, or release artifacts, also run the release acceptance gate from `devkit-internals.md`. Passing source unit tests alone does **not** complete packaging work.
 
 ## 3. Core Testing Principles
 

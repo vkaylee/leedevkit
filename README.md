@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 # Always use ./leedevkit (project-local), NOT leedevkit (global)
 ./leedevkit test infra --lint-only  # ruff + mypy (Python) / cargo fmt + clippy (Rust)
 ./leedevkit test infra --unit-only  # pytest / cargo nextest / bun test
-./leedevkit test infra              # format + lint + test + coverage
+./leedevkit test infra              # format check + lint + test + coverage
 ./leedevkit test all                # full suite across all targets
 
 # For Rust-only projects (library, CLI, tool):
@@ -307,7 +307,7 @@ infra = ["infra"]
 ```bash
 leedevkit test infra --lint-only   # ruff + mypy
 leedevkit test infra               # format + lint + pytest --cov
-leedevkit test all                 # full pipeline (291 tests, 46% coverage)
+leedevkit test all                 # full pipeline with an 80% coverage gate
 ```
 
 ## License
