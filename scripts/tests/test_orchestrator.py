@@ -28,9 +28,9 @@ class TestOrchestratorProperties:
 
 class TestResolveTargets:
     def test_returns_list(self):
-        from _orchestrator import _resolve_targets
+        from _devkit_config import resolve_targets
 
-        targets = _resolve_targets()
+        targets = resolve_targets()
         assert isinstance(targets, list)
         assert len(targets) > 0
         assert "all" in targets
@@ -39,7 +39,7 @@ class TestResolveTargets:
 
 class TestColors:
     def test_colors_defined(self):
-        from _orchestrator import Colors
+        from _logging import Colors
 
         assert Colors.GREEN and Colors.RED and Colors.NC
 
@@ -513,7 +513,7 @@ class TestOrchestratorEdgeCases:
             assert orch.env_vars["USE_DOCKER"] == "true"
 
     def test_colors_values(self):
-        from _orchestrator import Colors
+        from _logging import Colors
 
         assert Colors.GREEN == "\033[0;32m"
         assert Colors.RED == "\033[0;31m"
@@ -841,6 +841,157 @@ class TestHandleManageMocked:
             orch.dry_run = True
             args = argparse.Namespace(subcommand="prebuild")
             orch.handle_manage(args)
+
+
+# ── Coverage gap fillers: _build_mode_map, _inject_rust_version_env, etc. ──
+
+
+class TestBuildModeMap:
+    """Tests for _build_mode_map to cover the config-parsing branch."""
+
+    def test_falls_back_to_defaults_when_no_config(self, tmp_path):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            result = orch._build_mode_map()
+            assert result["apiserver"] == "api"
+            assert result["webdashboard"] == "web"
+            assert result["all"] == "all"
+
+    def test_parses_rust_service_from_config(self, tmp_path):
+        from _orchestrator import Orchestrator
+
+        config_toml = tmp_path / "leedevkit.toml"
+        config_toml.write_text("""
+[services.myservice]
+lang = "rust"
+""")
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            with patch("_bootstrap.PROJECT_ROOT", tmp_path):
+                orch = Orchestrator()
+                result = orch._build_mode_map()
+        assert result.get("myservice") == "api"
+
+    def test_parses_typescript_service_from_config(self, tmp_path):
+        from _orchestrator import Orchestrator
+
+        config_toml = tmp_path / "leedevkit.toml"
+        config_toml.write_text("""
+[services.frontend]
+lang = "typescript"
+""")
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            with patch("_bootstrap.PROJECT_ROOT", tmp_path):
+                orch = Orchestrator()
+                result = orch._build_mode_map()
+        assert result.get("frontend") == "web"
+
+
+class TestInjectRustVersionEnv:
+    """Tests for _inject_rust_version_env."""
+
+    def test_default_when_no_config(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch._inject_rust_version_env()
+        import os
+        assert os.environ.get("RUST_VERSION") == "1.85"
+
+    def test_env_override_wins(self):
+        from _orchestrator import Orchestrator
+        import os
+
+        os.environ["RUST_VERSION"] = "1.99"
+        try:
+            with patch.object(Orchestrator, "register_traps", return_value=None):
+                orch = Orchestrator()
+                orch._inject_rust_version_env()
+            assert os.environ["RUST_VERSION"] == "1.99"
+        finally:
+            del os.environ["RUST_VERSION"]
+
+
+class TestComposeEngineCmd:
+    """Tests for compose_engine_cmd property."""
+
+    def test_returns_joined_string(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            # Just verify the property is callable and returns a string
+            result = orch.compose_engine_cmd
+            assert isinstance(result, str)
+
+
+class TestCleanup:
+    """Tests for orchestator cleanup."""
+
+    def test_cleanup_no_needs_cleanup_returns_early(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.needs_cleanup = False
+            orch.cleanup()  # Should no-op
+
+    def test_cleanup_dry_run_returns_early(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.needs_cleanup = True
+            orch.dry_run = True
+            orch.cleanup()  # Should no-op
+
+    def test_cleanup_active_calls_lifecycle_down(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.needs_cleanup = True
+            orch.dry_run = False
+            orch.active_mode = "all"
+            orch.lock_fd = None
+            with patch("_orchestrator.lifecycle_down") as mock_down:
+                orch.cleanup()
+            mock_down.assert_called_once_with("all")
+
+    def test_cleanup_with_lock_releases(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            orch.needs_cleanup = True
+            orch.dry_run = False
+            orch.active_mode = "all"
+            orch.lock_fd = 999  # Fake fd
+            with patch("_orchestrator.lifecycle_down"):
+                with patch("_orchestrator.LockManager.release") as mock_release:
+                    orch.cleanup()
+            mock_release.assert_called_once()
+            assert orch.lock_fd is None
+
+
+class TestRunMethod:
+    """Tests for Orchestrator.run() branches."""
+
+    def test_run_update_command(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+        args = type("Args", (), {
+            "command": "update",
+            "dry_run": False,
+        })()
+        with patch.object(orch.parser, "parse_args", return_value=args):
+            with patch.object(orch, "handle_update") as mock_update:
+                orch.run()
+        mock_update.assert_called_once()
 
     def test_handle_manage_db_setup_dry(self):
         from _orchestrator import Orchestrator

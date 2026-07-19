@@ -14,24 +14,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from _devkit_config import _load_toml
+from _logging import log_info, log_success, log_warn
 
 if TYPE_CHECKING:
     from typing import Any
-
-
-def _log_info(msg: str) -> None:
-    import sys as _sys
-    print(f"\033[0;34m\033[1mℹ️ {msg}\033[0m", file=_sys.stderr, flush=True)
-
-
-def _log_success(msg: str) -> None:
-    import sys as _sys
-    print(f"\033[0;32m\033[1m✅ {msg}\033[0m", file=_sys.stderr, flush=True)
-
-
-def _log_warn(msg: str) -> None:
-    import sys as _sys
-    print(f"\033[1;33m\033[1m⚠️ {msg}\033[0m", file=_sys.stderr, flush=True)
 
 
 class InitHandler:
@@ -75,7 +61,7 @@ class InitHandler:
                 template = source_root / "templates" / "leedevkit.default.toml"
             if template.exists():
                 config_toml.write_text(template.read_text())
-                _log_success("Created leedevkit.toml (edit it for your project)")
+                log_success("Created leedevkit.toml (edit it for your project)")
 
         cfg = _load_toml(config_toml) if config_toml.exists() else {}
         devkit_version = cfg.get("devkit", {}).get("version", "latest")
@@ -85,10 +71,10 @@ class InitHandler:
         installed_version = self._read_installed_version(leedevkit_dir)
 
         if force or not leedevkit_dir.exists() or installed_version != devkit_version:
-            _log_info(f"Installing devkit {devkit_version} into .leedevkit/ ...")
+            log_info(f"Installing devkit {devkit_version} into .leedevkit/ ...")
             self._install_devkit(root, leedevkit_dir, devkit_version, force=force)
         else:
-            _log_info(f"Devkit {devkit_version} already installed in .leedevkit/")
+            log_info(f"Devkit {devkit_version} already installed in .leedevkit/")
 
         devkit = get_devkit_root()
 
@@ -121,22 +107,22 @@ class InitHandler:
             raise RuntimeError(
                 "DevKit venv bootstrap returned an invalid Python executable"
             )
-        _log_success("Virtual environment ready")
+        log_success("Virtual environment ready")
 
         # ── Step 2b: Detect legacy symlinks from old global install ──
         agent_dir = root / ".agent"
         legacy_symlinks = self._detect_legacy_symlinks(agent_dir)
         if legacy_symlinks:
-            _log_warn(
+            log_warn(
                 f"⚠️  Detected {len(legacy_symlinks)} legacy symlink(s) in .agent/ "
                 "(from old global install):"
             )
             for name, target in legacy_symlinks:
-                _log_warn(f"      .agent/{name} → {target}")
-            _log_info("")
-            _log_info("   These are no longer needed with per-project install.")
-            _log_info("   To clean up: rm -rf .agent && ./leedevkit init")
-            _log_info("")
+                log_warn(f"      .agent/{name} → {target}")
+            log_info("")
+            log_info("   These are no longer needed with per-project install.")
+            log_info("   To clean up: rm -rf .agent && ./leedevkit init")
+            log_info("")
 
         # ── Step 3: Copy base AI rules from devkit → project (not symlinks) ──
         ai_cfg = cfg.get("ai", {})
@@ -152,7 +138,7 @@ class InitHandler:
                     target.write_text(rule_file.read_text())
                     copied += 1
             if copied:
-                _log_success(f"Populated {rules_rel}/ with {copied} rulebook(s)")
+                log_success(f"Populated {rules_rel}/ with {copied} rulebook(s)")
 
         # Copy overrides.yaml if project doesn't have one
         override_manifest = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
@@ -162,7 +148,7 @@ class InitHandler:
             if devkit_override.exists():
                 override_path.parent.mkdir(parents=True, exist_ok=True)
                 override_path.write_text(devkit_override.read_text())
-                _log_success(f"Created {override_manifest}")
+                log_success(f"Created {override_manifest}")
 
         # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
         wrapper = root / "leedevkit"
@@ -175,7 +161,7 @@ class InitHandler:
         )
         wrapper.write_text(wrapper_content)
         wrapper.chmod(0o755)
-        _log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
+        log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
 
         # ── Step 5: Pin devkit version in leedevkit.toml ──
         actual_version = (devkit / "VERSION").read_text().strip()
@@ -190,12 +176,12 @@ class InitHandler:
                     flags=re.DOTALL,
                 )
                 config_toml.write_text(content)
-            _log_success(f"Pinned devkit version: {actual_version}")
+            log_success(f"Pinned devkit version: {actual_version}")
 
         # ── Step 6: Auto-install community skills from leedevkit.toml ──
         self._orch.handle_skills(argparse.Namespace(skills_action="install"))
 
-        _log_success("Project initialized. Run ./leedevkit --help to start.")
+        log_success("Project initialized. Run ./leedevkit --help to start.")
 
     def _detect_legacy_symlinks(self, agent_dir: Path) -> list[tuple[str, str]]:
         """Detect symlinks in .agent/ that point to the old global install.
@@ -242,7 +228,7 @@ class InitHandler:
         # Strategy 1: local path override
         local_path = os.environ.get("DEVKIT_LOCAL_PATH")
         if local_path and Path(local_path).exists():
-            _log_info(f"Installing from local path: {local_path}")
+            log_info(f"Installing from local path: {local_path}")
             self._extract_from_source(Path(local_path), target_dir)
             return
 
@@ -253,17 +239,17 @@ class InitHandler:
                 f"https://github.com/vkaylee/leedevkit/releases/download/"
                 f"{version}/leedevkit-{ver}.tar.gz"
             )
-            _log_info(f"Downloading {url} ...")
+            log_info(f"Downloading {url} ...")
             try:
                 self._download_and_extract(url, target_dir)
                 return
             except Exception as e:
-                _log_warn(f"Download failed: {e}")
+                log_warn(f"Download failed: {e}")
 
         # Strategy 3: copy from current devkit source (dogfooding)
         source_root = Path(__file__).resolve().parent.parent
         if (source_root / "scripts" / "_orchestrator.py").exists():
-            _log_info("Installing from local devkit source ...")
+            log_info("Installing from local devkit source ...")
             self._extract_from_source(source_root, target_dir)
             return
 
@@ -308,7 +294,7 @@ class InitHandler:
         (target_dir / "dev-state.json").write_text(
             __import__("json").dumps(state, indent=2)
         )
-        _log_success(f"Installed devkit {version} → {target_dir}")
+        log_success(f"Installed devkit {version} → {target_dir}")
 
     def _download_and_extract(self, url: str, target_dir: Path) -> None:
         """Download a release tarball and extract into target_dir."""

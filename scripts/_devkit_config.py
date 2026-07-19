@@ -252,6 +252,18 @@ def resolve_ai_rules(project_root: Path | None = None) -> list[Path]:
     return result
 
 
+def resolve_targets() -> list[str]:
+    """Resolve valid test targets from leedevkit.toml, falling back to defaults."""
+    try:
+        cfg = load_project_config()
+        targets = cfg.get("targets", {})
+        if targets:
+            return list(targets.keys())
+    except Exception:
+        pass
+    return ["all", "api", "web", "apiserver", "agent-main", "webdashboard", "infra"]
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":  # pragma: no cover

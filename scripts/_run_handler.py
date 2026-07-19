@@ -17,15 +17,11 @@ from typing import TYPE_CHECKING
 from _arg_sanitizer import sanitize
 from _bootstrap import PROJECT_ROOT
 from _lifecycle import lifecycle_up as _lifecycle_up
+from _logging import log_info
 
 if TYPE_CHECKING:
     import argparse
     from typing import Any
-
-
-def _log_info(msg: str) -> None:
-    import sys
-    print(f"\033[0;34m\033[1mℹ️ {msg}\033[0m", file=sys.stderr, flush=True)
 
 
 class RunHandler:
@@ -119,7 +115,7 @@ class RunHandler:
         # Sanitize AI-provided arguments BEFORE any processing
         tool_args = sanitize(tool_args, die_on_error=True)
 
-        _log_info(f"🛠️ Running {tool} inside container environment...")
+        log_info(f"🛠️ Running {tool} inside container environment...")
 
         compose_cmd = self._compose_engine + [
             "-p",
@@ -135,10 +131,10 @@ class RunHandler:
                     needs_db = True
 
             if needs_db:
-                _log_info(f"🔹 Bringing up backend dependencies for {tool}...")
+                log_info(f"🔹 Bringing up backend dependencies for {tool}...")
                 _lifecycle_up("infra-db")
 
-                _log_info(
+                log_info(
                     "ℹ️ 🔹 Bringing up backend dependencies for connection pooler..."
                 )
                 _lifecycle_up("infra-pooler")

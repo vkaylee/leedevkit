@@ -15,29 +15,12 @@ from typing import TYPE_CHECKING
 
 from _bootstrap import PROJECT_ROOT
 from _lifecycle import lifecycle_up as _lifecycle_up
+from _logging import log_error, log_info, log_success
 
 if TYPE_CHECKING:
     from typing import Any
 
     import argparse
-
-
-def _log_info(msg: str) -> None:
-    import sys
-
-    print(f"\033[0;34m\033[1mℹ️ {msg}\033[0m", file=sys.stderr, flush=True)
-
-
-def _log_success(msg: str) -> None:
-    import sys
-
-    print(f"\033[0;32m\033[1m✅ {msg}\033[0m", file=sys.stderr, flush=True)
-
-
-def _log_error(msg: str) -> None:
-    import sys
-
-    print(f"\033[0;31m\033[1m❌ {msg}\033[0m", file=sys.stderr, flush=True)
 
 
 # ── Protocol: minimal interface the Orchestrator must provide ──
@@ -99,7 +82,7 @@ class DbHandler:
     def handle_db_query(self, args: argparse.Namespace) -> None:
         """Execute an arbitrary SQL query against the dev database."""
         sql = args.sql
-        _log_info(f"🗄️ Executing SQL: {sql}")
+        log_info(f"🗄️ Executing SQL: {sql}")
         cmd = [
             self._engine,
             "exec",
@@ -149,7 +132,7 @@ class DbHandler:
 
     def handle_prebuild_phase(self) -> bool:
         """Build test Docker images ahead of the test suite."""
-        _log_info("Building test Docker images...")
+        log_info("Building test Docker images...")
         project_name = self._env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
         build_cmd = self._compose_engine + [
             "-p",
@@ -159,7 +142,7 @@ class DbHandler:
             "build",
         ]
         self._execute_safe(build_cmd)
-        _log_success("✅ Prebuild complete.")
+        log_success("✅ Prebuild complete.")
         return True
 
     def handle_db_setup_phase(self) -> bool:
@@ -173,7 +156,7 @@ class DbHandler:
           5. Run migrations on main and template databases.
           6. Revoke CONNECT on the template to prevent accidental use.
         """
-        _log_info("Bringing up database and apiserver containers...")
+        log_info("Bringing up database and apiserver containers...")
         _lifecycle_up("int-api")
         _lifecycle_up("infra-db")
         _lifecycle_up("infra-redis")
@@ -182,7 +165,7 @@ class DbHandler:
         db_container = f"{project_name}_db_system_1"
 
         # ── Wait for database container to be ready ──
-        _log_info("Waiting for database container to be ready...")
+        log_info("Waiting for database container to be ready...")
         db_ready = False
         for _ in range(60):
             res = subprocess.run(
@@ -207,11 +190,11 @@ class DbHandler:
             time.sleep(1)
 
         if not db_ready:
-            _log_error("❌ Database container failed to become ready in time.")
+            log_error("❌ Database container failed to become ready in time.")
             return False
 
         # ── Drop zombie test databases ──
-        _log_info("Cleaning up old test databases...")
+        log_info("Cleaning up old test databases...")
         cleanup_sql = (
             "SELECT 'DROP DATABASE IF EXISTS \"' || datname || '\";' "
             "FROM pg_database WHERE datname LIKE 'test_db_%';"
@@ -257,7 +240,7 @@ class DbHandler:
             )
 
         # ── Create template database ──
-        _log_info("Creating template database...")
+        log_info("Creating template database...")
         create_sql = (
             "DROP DATABASE IF EXISTS leedevkit_test_template; "
             "CREATE DATABASE leedevkit_test_template;"
@@ -282,7 +265,7 @@ class DbHandler:
         )
 
         # ── Run migrations on main database ──
-        _log_info("Running migrations on main database...")
+        log_info("Running migrations on main database...")
         main_db_url = (
             "postgres://test_user:test_password@db_system:5432/"
             "test_database?sslmode=disable"
@@ -311,7 +294,7 @@ class DbHandler:
         self._execute_safe(main_cmd)
 
         # ── Run migrations on template database ──
-        _log_info("Running migrations on template database...")
+        log_info("Running migrations on template database...")
         template_db_url = (
             "postgres://test_user:test_password@db_system:5432/"
             "leedevkit_test_template?sslmode=disable"
@@ -382,5 +365,5 @@ class DbHandler:
             check=False,
         )
 
-        _log_success("✅ Database Setup complete.")
+        log_success("✅ Database Setup complete.")
         return True
