@@ -98,7 +98,7 @@ class Orchestrator:
                             mode_map[name] = "api"
                         elif lang in ("typescript", "javascript"):
                             mode_map[name] = "web"
-        except Exception:
+        except (OSError, ValueError, KeyError):
             pass
         # Backward-compat fallbacks
         mode_map.setdefault("apiserver", "api")
@@ -130,7 +130,7 @@ class Orchestrator:
                     if isinstance(_svc, dict) and "rust_version" in _svc:
                         os.environ["RUST_VERSION"] = str(_svc["rust_version"])
                         return
-        except Exception:
+        except (OSError, ValueError, KeyError):
             pass
         os.environ.setdefault("RUST_VERSION", "1.85")
 
@@ -318,7 +318,7 @@ class Orchestrator:
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 data = json.load(r)
-        except Exception as e:
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
             raise RuntimeError(f"Could not reach GitHub Releases: {e}") from e
         tag = data.get("tag_name")
         if not tag:
@@ -361,7 +361,8 @@ class Orchestrator:
                 shutil.rmtree(root)
             shutil.move(str(tmp_extract), str(root))
         except Exception:
-            # Roll back on any failure.
+            # Roll back on any failure — broad catch is intentional here
+            # to guarantee rollback regardless of the error type.
             if root.exists():
                 shutil.rmtree(root)
             shutil.move(str(backup), str(root))
@@ -449,7 +450,7 @@ class Orchestrator:
             name = cfg.get("project", {}).get("name", "unknown")
             targets = list(cfg.get("targets", {}).keys())
             log_success(f"✅ Project: {name} (targets: {', '.join(targets)})")
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             log_warn(f"⚠️  leedevkit.toml: {e}")
 
         # ── .agent directory (per-project, real dir not symlink) ──
@@ -476,14 +477,14 @@ class Orchestrator:
                 else "?"
             )
             log_success(f"✅ DevKit: {dk} (v{dk_version})")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             log_warn(f"⚠️  DevKit: {e}")
 
         # ── AI rules ──
         try:
             rules = resolve_ai_rules()
             log_success(f"✅ AI rules: {len(rules)} files loaded")
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             log_warn(f"⚠️  AI rules: {e}")
 
         engine = self.engine

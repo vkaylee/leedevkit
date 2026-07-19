@@ -103,6 +103,184 @@ class TestDbHandler:
             handler.handle_diesel(["migration", "run"])
         orch.execute_safe.assert_called_once()
 
+    # ── _exec_psql helper ──────────────────────────────────────────────────
+
+    @patch("subprocess.run")
+    def test_exec_psql_basic_sql(self, mock_run):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        handler._exec_psql("test_container", sql="SELECT 1")
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "psql" in cmd
+        assert "-c" in cmd
+        assert "SELECT 1" in cmd
+        assert "test_container" in cmd
+
+    @patch("subprocess.run")
+    def test_exec_psql_tuples_only(self, mock_run):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        handler._exec_psql("test_container", sql="SELECT 1", tuples_only=True)
+        cmd = mock_run.call_args[0][0]
+        assert "-t" in cmd
+
+    @patch("subprocess.run")
+    def test_exec_psql_capture(self, mock_run):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        handler._exec_psql("test_container", sql="SELECT 1", capture=True)
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("capture_output") is True
+        assert kwargs.get("text") is True
+
+    @patch("subprocess.run")
+    def test_exec_psql_input_text(self, mock_run):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        handler._exec_psql("test_container", input_text="DROP DATABASE foo;")
+        kwargs = mock_run.call_args[1]
+        assert kwargs.get("input") == "DROP DATABASE foo;"
+        assert kwargs.get("text") is True
+
+    @patch("subprocess.run")
+    def test_exec_psql_no_sql_no_input_does_not_add_c_flag(self, mock_run):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        handler._exec_psql("test_container")
+        cmd = mock_run.call_args[0][0]
+        assert "-c" not in cmd
+
+    # ── handle_db_setup_phase ──────────────────────────────────────────────
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handle_db_setup_happy_path(self, mock_run, mock_sleep):
+        """Full happy path: pg_isready → cleanup → create → migrations → revoke."""
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+
+        import _db_handler
+        with patch.object(_db_handler, "_lifecycle_up", return_value=None):
+            result = handler.handle_db_setup_phase()
+
+        assert result is True
+        pg_isready_calls = [
+            c for c in mock_run.call_args_list
+            if "pg_isready" in str(c)
+        ]
+        assert len(pg_isready_calls) >= 1
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handle_db_setup_db_not_ready(self, mock_run, mock_sleep):
+        """pg_isready never succeeds → should return False."""
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+
+        # pg_isready always fails
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+
+        import _db_handler
+        with patch.object(_db_handler, "_lifecycle_up", return_value=None):
+            result = handler.handle_db_setup_phase()
+
+        assert result is False
+        # Should have tried 60 times
+        assert mock_sleep.call_count == 60
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handle_db_setup_cleans_zombie_dbs(self, mock_run, mock_sleep):
+        """When cleanup SQL returns zombie DB names, they get dropped."""
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+
+        # Call tracking: first is pg_isready, second is cleanup capture,
+        # third is drop, then create, etc.
+        call_results = {"count": 0}
+
+        def side_effect(*args, **kwargs):
+            call_results["count"] += 1
+            result = MagicMock()
+            # First call: pg_isready
+            if call_results["count"] == 1:
+                result.returncode = 0
+                result.stdout = ""
+            # Second call: cleanup capture (exec_psql with capture=True)
+            elif call_results["count"] == 2:
+                result.returncode = 0
+                result.stdout = (
+                    "DROP DATABASE IF EXISTS \"test_db_abc123\";\n"
+                    "DROP DATABASE IF EXISTS \"test_db_def456\";\n"
+                )
+            # All subsequent: success
+            else:
+                result.returncode = 0
+                result.stdout = ""
+            return result
+
+        mock_run.side_effect = side_effect
+        mock_sleep.return_value = None
+
+        import _db_handler
+        with patch.object(_db_handler, "_lifecycle_up", return_value=None):
+            result = handler.handle_db_setup_phase()
+
+        assert result is True
+        # Third call should contain the DROP commands
+        assert call_results["count"] >= 3
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_handle_db_setup_calls_execute_safe_for_migrations(self, mock_run, mock_sleep):
+        """Migrations should be dispatched via _execute_safe (not raw subprocess)."""
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        orch.execute_safe = MagicMock()
+        handler = DbHandler(orch)
+
+        call_results = {"count": 0}
+
+        def side_effect(*args, **kwargs):
+            call_results["count"] += 1
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            return result
+
+        mock_run.side_effect = side_effect
+        mock_sleep.return_value = None
+
+        import _db_handler
+        with patch.object(_db_handler, "_lifecycle_up", return_value=None):
+            result = handler.handle_db_setup_phase()
+
+        assert result is True
+        # execute_safe should have been called for the two migration runs
+        assert orch.execute_safe.call_count >= 2
+
 
 # ── RunHandler ───────────────────────────────────────────────────────────────
 

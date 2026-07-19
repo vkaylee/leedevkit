@@ -18,6 +18,8 @@ import sys
 import tarfile
 from pathlib import Path
 
+from _logging import log_error, log_info, log_success
+
 
 # ── Items to include in the release tarball ──
 INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent", "container"]
@@ -51,14 +53,14 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
     tarball_name = f"leedevkit-{version}.tar.gz"
     tarball_path = output_dir / tarball_name
 
-    print(f"Building {tarball_path} ...")
+    log_info(f"Building {tarball_path} ...")
 
     with tarfile.open(tarball_path, "w:gz") as tf:
         # Add directories
         for dirname in INCLUDE_DIRS:
             dir_path = repo_root / dirname
             if dir_path.exists():
-                print(f"  + {dirname}/")
+                log_info(f"  + {dirname}/")
                 tf.add(
                     dir_path,
                     arcname=f"leedevkit-{version}/{dirname}",
@@ -69,11 +71,11 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
         for fname in INCLUDE_FILES:
             fpath = repo_root / fname
             if fpath.exists():
-                print(f"  + {fname}")
+                log_info(f"  + {fname}")
                 tf.add(fpath, arcname=f"leedevkit-{version}/{fname}")
 
     size_kb = tarball_path.stat().st_size // 1024
-    print(f"\n✅ {tarball_path} ({size_kb} KB)")
+    log_success(f"✅ {tarball_path} ({size_kb} KB)")
     return tarball_path
 
 
@@ -91,10 +93,9 @@ def main() -> None:
     output_dir = Path(args.output).resolve()
 
     if not (repo_root / "scripts" / "_orchestrator.py").exists():
-        print(
-            f"Error: {repo_root} does not look like a leedevkit repo "
-            f"(scripts/_orchestrator.py missing)",
-            file=sys.stderr,
+        log_error(
+            f"{repo_root} does not look like a leedevkit repo "
+            f"(scripts/_orchestrator.py missing)"
         )
         sys.exit(1)
 

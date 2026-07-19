@@ -63,6 +63,57 @@ class DbHandler:
 
     # ── public API ──
 
+    def _exec_psql(
+        self,
+        db_container: str,
+        *,
+        sql: str | None = None,
+        input_text: str | None = None,
+        tuples_only: bool = False,
+        capture: bool = False,
+    ) -> "subprocess.CompletedProcess[str]":
+        """Run a psql command inside a database container.
+
+        Provides a single canonical form for the repeated pattern of
+        ``[engine, exec, -i, <container>, psql, -U, test_user, -d, test_database, ...]``
+        that appears throughout handle_db_setup_phase().
+
+        Args:
+            db_container: Name of the running Postgres container.
+            sql: SQL to pass via ``-c``.
+            input_text: SQL to feed via stdin (mutually exclusive with *sql*).
+            tuples_only: Add ``-t`` flag for tuples-only output.
+            capture: If True, capture stdout/stderr as text; otherwise discard.
+        """
+        cmd: list[str] = [
+            self._engine,
+            "exec",
+            "-i",
+            db_container,
+            "psql",
+            "-U",
+            "test_user",
+            "-d",
+            "test_database",
+        ]
+        if tuples_only:
+            cmd.append("-t")
+        if sql is not None:
+            cmd.extend(["-c", sql])
+
+        kwargs: dict[str, Any] = {"check": False}
+        if capture:
+            kwargs["capture_output"] = True
+            kwargs["text"] = True
+        else:
+            kwargs["stdout"] = subprocess.DEVNULL
+            kwargs["stderr"] = subprocess.DEVNULL
+        if input_text is not None:
+            kwargs["input"] = input_text
+            kwargs["text"] = True
+
+        return subprocess.run(cmd, **kwargs)
+
     def get_compose_files(self, env: str) -> list[str]:
         """Return compose-file arguments for the given environment."""
         if env == "dev":
@@ -199,45 +250,12 @@ class DbHandler:
             "SELECT 'DROP DATABASE IF EXISTS \"' || datname || '\";' "
             "FROM pg_database WHERE datname LIKE 'test_db_%';"
         )
-        cleanup_res = subprocess.run(
-            [
-                self._engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-t",
-                "-c",
-                cleanup_sql,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+        cleanup_res = self._exec_psql(
+            db_container, sql=cleanup_sql, tuples_only=True, capture=True
         )
         if cleanup_res.returncode == 0 and cleanup_res.stdout.strip():
             drop_commands = cleanup_res.stdout.strip()
-            subprocess.run(
-                [
-                    self._engine,
-                    "exec",
-                    "-i",
-                    db_container,
-                    "psql",
-                    "-U",
-                    "test_user",
-                    "-d",
-                    "test_database",
-                ],
-                input=drop_commands,
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            self._exec_psql(db_container, input_text=drop_commands)
 
         # ── Create template database ──
         log_info("Creating template database...")
@@ -245,24 +263,7 @@ class DbHandler:
             "DROP DATABASE IF EXISTS leedevkit_test_template; "
             "CREATE DATABASE leedevkit_test_template;"
         )
-        subprocess.run(
-            [
-                self._engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                create_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        self._exec_psql(db_container, sql=create_sql)
 
         # ── Run migrations on main database ──
         log_info("Running migrations on main database...")
@@ -328,42 +329,8 @@ class DbHandler:
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
             "WHERE datname = 'leedevkit_test_template' AND pid <> pg_backend_pid();"
         )
-        subprocess.run(
-            [
-                self._engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                revoke_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        subprocess.run(
-            [
-                self._engine,
-                "exec",
-                "-i",
-                db_container,
-                "psql",
-                "-U",
-                "test_user",
-                "-d",
-                "test_database",
-                "-c",
-                terminate_sql,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        self._exec_psql(db_container, sql=revoke_sql)
+        self._exec_psql(db_container, sql=terminate_sql)
 
         log_success("✅ Database Setup complete.")
         return True

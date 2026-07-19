@@ -134,7 +134,7 @@ class SkillsManager:
         try:
             cfg = load_project_config()
             entries = cfg.get("addons", {}).get("skills", [])
-        except Exception:
+        except (OSError, ValueError, KeyError):
             entries = []
 
         lock = self._read_lock()
@@ -268,7 +268,7 @@ class SkillsManager:
             from _devkit_config import _load_toml
 
             return _load_toml(catalog_path).get("skills", {})
-        except Exception:
+        except (OSError, ValueError, KeyError):
             return {}
 
     @staticmethod
@@ -284,11 +284,11 @@ class SkillsManager:
 
                 with open(path, "rb") as f:
                     return tomllib.load(f)
-            except Exception:
+            except (OSError, ValueError):
                 pass
             try:
                 return json.loads(path.read_text())
-            except Exception:
+            except (OSError, ValueError, json.JSONDecodeError):
                 pass
         return {}
 

@@ -341,7 +341,7 @@ class TestHandler:
                             passed = int(last_match.group(1))
                             passed_tests += passed
                             total_tests += passed
-                except Exception:
+                except (OSError, UnicodeDecodeError, ValueError):
                     pass
 
         if total_tests > 0:
