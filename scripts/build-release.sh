@@ -20,11 +20,13 @@ if [ -z "$VERSION_TAG" ]; then
 fi
 
 OUTPUT_DIR="${2:-/tmp}"
-REPO="https://github.com/vkaylee/leedevkit.git"
+REPO="${LEEDEVKIT_REPO:-https://github.com/vkaylee/leedevkit.git}"
 VER="${VERSION_TAG#v}"
 CANONICAL="leedevkit-${VER}"
 TARBALL_NAME="${CANONICAL}.tar.gz"
 WORKDIR="/tmp/leedevkit-build-$$"
+
+mkdir -p "$OUTPUT_DIR"
 
 cleanup() {
     rm -rf "$WORKDIR"

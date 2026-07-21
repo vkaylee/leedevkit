@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 import tarfile
@@ -83,6 +84,36 @@ class TestAgentTestingGuidance:
 
 
 class TestBuildRelease:
+    def test_shell_builder_uses_canonical_root_and_verified_manifest(self, tmp_path):
+        """Run the shipped shell builder against a local tag, without network."""
+        repo_root = Path(__file__).resolve().parents[2]
+        output = tmp_path / "dist"
+        result = subprocess.run(
+            [
+                "bash",
+                str(repo_root / "scripts" / "build-release.sh"),
+                "v0.3.15",
+                str(output),
+            ],
+            cwd=repo_root,
+            env={**os.environ, "LEEDEVKIT_REPO": str(repo_root)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr or result.stdout
+        artifact = output / "leedevkit-0.3.15.tar.gz"
+        with tarfile.open(artifact, "r:gz") as archive:
+            roots = {Path(name).parts[0] for name in archive.getnames() if name}
+            assert roots == {"leedevkit-0.3.15"}
+            manifest = archive.extractfile(
+                "leedevkit-0.3.15/devkit.manifest.json"
+            )
+            assert manifest is not None
+            assert json.load(manifest)["version"] == "0.3.15"
+
     def test_happy_path_creates_tarball(self, tmp_path):
         """build_release should create a valid .tar.gz with expected contents."""
         repo = tmp_path / "repo"

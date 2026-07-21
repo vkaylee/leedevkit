@@ -199,6 +199,37 @@ class TestHandleInitFromSource:
 
         assert orchestrator.exists()
 
+    def test_failed_download_does_not_destroy_running_install(
+        self, tmp_path, monkeypatch
+    ):
+        """Exercise the original 404 → fallback failure through _install_devkit."""
+        project = _make_project(tmp_path / "project", version="0.3.11")
+        target = _make_devkit_source(project, version="0.3.14")
+        orchestrator = target / "scripts" / "_orchestrator.py"
+
+        import _init_handler
+
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")
+        monkeypatch.setattr(
+            _init_handler,
+            "__file__",
+            str(target / "scripts" / "_init_handler.py"),
+        )
+
+        def fail_download(_url, _destination):
+            raise OSError("simulated 404")
+
+        monkeypatch.setattr(
+            _init_handler, "download_and_extract_tarball", fail_download
+        )
+
+        with pytest.raises(RuntimeError, match="target directory itself"):
+            _init_handler.InitHandler(None)._install_devkit(
+                project, target, "0.3.11", force=False
+            )
+
+        assert orchestrator.read_text() == "# orchestrator stub\n"
+
     def test_installs_devkit_into_leedevkit_dir(self, tmp_path, monkeypatch):
         """Init copies devkit artifacts from source into .leedevkit/."""
         project = _make_project(tmp_path / "project")

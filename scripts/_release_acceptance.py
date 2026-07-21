@@ -123,7 +123,9 @@ def _assert_bootstrap(
     project.mkdir()
     (project / ".git").mkdir()
     (project / "leedevkit.toml").write_text(
-        '[devkit]\nversion = "0.0.1"\n\n[project]\nname = "acceptance"\n'
+        '[service]\nversion = "9.8.7"\n\n'
+        '[devkit]\nversion = "0.0.1"\n\n'
+        '[project]\nname = "acceptance"\n'
     )
     bootstrap_env = {
         **env,
@@ -147,6 +149,8 @@ def _assert_bootstrap(
     config = (project / "leedevkit.toml").read_text()
     if f'version = "{version}"' not in config:
         raise RuntimeError("bootstrap did not update the existing version pin")
+    if '[service]\nversion = "9.8.7"' not in config:
+        raise RuntimeError("bootstrap changed a version outside [devkit]")
 
     sentinel = installed / "SENTINEL"
     sentinel.write_text("preserve")
@@ -167,6 +171,20 @@ def _assert_bootstrap(
         raise RuntimeError("bootstrap unexpectedly accepted a missing artifact")
     if sentinel.read_text() != "preserve":
         raise RuntimeError("failed bootstrap replaced the existing installation")
+    if (project / "leedevkit.toml").read_text() != config:
+        raise RuntimeError("failed bootstrap changed the existing version pin")
+
+    fresh_project = workspace / "fresh-project"
+    fresh_project.mkdir()
+    (fresh_project / ".git").mkdir()
+    _run(
+        ["bash", str(repo_root / "bootstrap.sh"), f"v{version}"],
+        fresh_project,
+        bootstrap_env,
+    )
+    fresh_config = (fresh_project / "leedevkit.toml").read_text()
+    if f'version = "{version}"' not in fresh_config:
+        raise RuntimeError("bootstrap wrote a v-prefixed version into a new config")
 
 
 def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
