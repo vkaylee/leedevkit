@@ -515,3 +515,158 @@ class TestLegacySymlinkDetection:
         assert (agent_dir / "scripts").is_symlink()
         # Verify custom rule was preserved
         assert (agent_dir / "rules" / "my-rule.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# Tests: custom rules_dir symlink (CLAUDE.md compatibility)
+# ---------------------------------------------------------------------------
+
+
+class TestCustomRulesDirSymlink:
+    def test_creates_symlink_when_rules_dir_is_custom(self, tmp_path, monkeypatch):
+        """When rules_dir is custom (e.g., .attendagent/rules), create .agent/rules symlink."""
+        project = _make_project(tmp_path / "project")
+        # Configure custom rules_dir
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[project]\nname = "test"\n'
+            '[ai]\nrules_dir = ".attendagent/rules"\n'
+        )
+        source = _make_devkit_source(tmp_path / "source")
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+        # Verify custom rules_dir has files
+        custom_rules = project / ".attendagent" / "rules"
+        assert custom_rules.exists()
+        assert (custom_rules / "coding-standards.md").exists()
+        # Verify .agent/rules symlink exists and points to custom rules
+        default_rules = project / ".agent" / "rules"
+        assert default_rules.is_symlink()
+        assert default_rules.resolve() == custom_rules.resolve()
+        # Verify symlink is accessible
+        assert (default_rules / "coding-standards.md").exists()
+
+    def test_fixes_broken_symlink(self, tmp_path, monkeypatch):
+        """If .agent/rules symlink is broken, init fixes it."""
+        project = _make_project(tmp_path / "project")
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[project]\nname = "test"\n'
+            '[ai]\nrules_dir = ".attendagent/rules"\n'
+        )
+        source = _make_devkit_source(tmp_path / "source")
+        # Create broken symlink
+        agent_dir = project / ".agent"
+        agent_dir.mkdir(parents=True)
+        broken_target = tmp_path / "nonexistent"
+        (agent_dir / "rules").symlink_to(broken_target)
+        assert (agent_dir / "rules").is_symlink()
+        assert not (agent_dir / "rules").exists()  # broken
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+        # Verify symlink is fixed
+        default_rules = project / ".agent" / "rules"
+        custom_rules = project / ".attendagent" / "rules"
+        assert default_rules.is_symlink()
+        assert default_rules.resolve() == custom_rules.resolve()
+        assert (default_rules / "coding-standards.md").exists()
+
+    def test_fixes_wrong_target_symlink(self, tmp_path, monkeypatch):
+        """If .agent/rules symlink points to wrong target, init fixes it."""
+        project = _make_project(tmp_path / "project")
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[project]\nname = "test"\n'
+            '[ai]\nrules_dir = ".attendagent/rules"\n'
+        )
+        source = _make_devkit_source(tmp_path / "source")
+        # Create symlink pointing to wrong target
+        agent_dir = project / ".agent"
+        agent_dir.mkdir(parents=True)
+        wrong_target = tmp_path / "wrong-location"
+        wrong_target.mkdir()
+        (agent_dir / "rules").symlink_to(wrong_target)
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+        # Verify symlink is fixed
+        default_rules = project / ".agent" / "rules"
+        custom_rules = project / ".attendagent" / "rules"
+        assert default_rules.is_symlink()
+        assert default_rules.resolve() == custom_rules.resolve()
+
+    def test_preserves_real_directory(self, tmp_path, monkeypatch):
+        """If .agent/rules is a real directory (not symlink), don't touch it."""
+        project = _make_project(tmp_path / "project")
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[project]\nname = "test"\n'
+            '[ai]\nrules_dir = ".attendagent/rules"\n'
+        )
+        source = _make_devkit_source(tmp_path / "source")
+        # Create real directory at .agent/rules
+        agent_dir = project / ".agent"
+        agent_dir.mkdir(parents=True)
+        real_rules = agent_dir / "rules"
+        real_rules.mkdir()
+        (real_rules / "custom-rule.md").write_text("# Custom\n")
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+        # Verify real directory is preserved
+        default_rules = project / ".agent" / "rules"
+        assert not default_rules.is_symlink()
+        assert default_rules.is_dir()
+        assert (default_rules / "custom-rule.md").exists()
+        assert (default_rules / "custom-rule.md").read_text() == "# Custom\n"
+
+    def test_no_symlink_when_rules_dir_is_default(self, tmp_path, monkeypatch):
+        """When rules_dir is .agent/rules (default), no symlink is created."""
+        project = _make_project(tmp_path / "project")
+        # Use default rules_dir
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[project]\nname = "test"\n'
+            '[ai]\nrules_dir = ".agent/rules"\n'
+        )
+        source = _make_devkit_source(tmp_path / "source")
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            orch = Orchestrator()
+            orch.handle_init(force=False)
+        # Verify .agent/rules is a real directory, not symlink
+        default_rules = project / ".agent" / "rules"
+        assert not default_rules.is_symlink()
+        assert default_rules.is_dir()
+        assert (default_rules / "coding-standards.md").exists()

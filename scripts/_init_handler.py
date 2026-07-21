@@ -134,6 +134,15 @@ class InitHandler(HandlerBase):
             if copied:
                 log_success(f"Populated {rules_rel}/ with {copied} rulebook(s)")
 
+        # ── Step 3b: Create .agent/rules symlink if rules_dir is custom ──
+        # CLAUDE.md template hardcodes .agent/rules/, so we create a symlink
+        # when the project uses a custom rules_dir (e.g., .attendagent/rules).
+        # This ensures AI agents can find rulebooks regardless of config.
+        default_rules_rel = ".agent/rules"
+        if rules_rel != default_rules_rel and project_rules.exists():
+            default_rules = root / default_rules_rel
+            self._ensure_rules_symlink(default_rules, project_rules, rules_rel)
+
         # Copy overrides.yaml if project doesn't have one
         override_manifest = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
         override_path = root / override_manifest
@@ -198,6 +207,51 @@ class InitHandler(HandlerBase):
                 if target.startswith(global_prefix):
                     legacy.append((item.name, target))
         return legacy
+
+    def _ensure_rules_symlink(
+        self, default_rules: Path, project_rules: Path, rules_rel: str
+    ) -> None:
+        """Ensure .agent/rules symlink points to the custom rules directory.
+
+        Creates or repairs symlink so CLAUDE.md's hardcoded .agent/rules/ paths
+        work even when project uses a custom rules_dir (e.g., .attendagent/rules).
+
+        Behavior:
+          - If default_rules is a broken symlink → remove and recreate
+          - If default_rules is a valid symlink to wrong target → remove and recreate
+          - If default_rules is a real directory → skip (user may have created it manually)
+          - If default_rules doesn't exist → create symlink
+        """
+        # Check if it's a symlink (valid or broken)
+        if default_rules.is_symlink():
+            try:
+                current_target = default_rules.resolve()
+                expected_target = project_rules.resolve()
+                if current_target == expected_target:
+                    # Symlink is correct
+                    return
+                # Symlink points to wrong target → remove and recreate
+                log_warn(
+                    f"⚠️  .agent/rules symlink points to wrong target, fixing..."
+                )
+                default_rules.unlink()
+            except OSError:
+                # Broken symlink → remove and recreate
+                log_warn(
+                    f"⚠️  .agent/rules symlink is broken, fixing..."
+                )
+                default_rules.unlink()
+        elif default_rules.exists():
+            # It's a real directory, not a symlink → don't touch it
+            # User may have created it manually or it's from an old init
+            return
+
+        # Create symlink
+        default_rules.parent.mkdir(parents=True, exist_ok=True)
+        default_rules.symlink_to(project_rules.resolve())
+        log_success(
+            f"Created symlink .agent/rules → {rules_rel} (for CLAUDE.md compatibility)"
+        )
 
     def _read_installed_version(self, leedevkit_dir: Path) -> str | None:
         """Read the version installed in .leedevkit/, or None if not installed."""
