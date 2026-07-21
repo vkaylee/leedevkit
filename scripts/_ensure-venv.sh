@@ -20,7 +20,6 @@ REQUIRED_PACKAGES=(
     "pyyaml"
     "ruff"
     "mypy"
-    "playwright"
 )
 REQUIRED_IMPORTS=(
     "pytest"
@@ -31,16 +30,17 @@ REQUIRED_IMPORTS=(
     "yaml"
     "ruff"
     "mypy"
-    "playwright"
 )
+
+PIP_TIMEOUT="${PIP_TIMEOUT:-120}"
 
 if [ ! -f "$PYTHON_BIN" ]; then
     echo "🔧 Creating virtual environment..." >&2
     python3 -m venv "$VENV_DIR"
     echo "⬆️  Upgrading pip..." >&2
-    "$PYTHON_BIN" -m pip install --upgrade --quiet pip
+    "$PYTHON_BIN" -m pip install --upgrade --quiet --timeout "$PIP_TIMEOUT" pip
     echo "📦 Installing packages..." >&2
-    "$PYTHON_BIN" -m pip install --quiet "${REQUIRED_PACKAGES[@]}"
+    "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" "${REQUIRED_PACKAGES[@]}"
     echo "✅ Virtual environment ready" >&2
 else
     # Check for missing packages and install them.
@@ -54,9 +54,15 @@ else
     done
     if [ ${#MISSING[@]} -gt 0 ]; then
         echo "📦 Installing missing packages: ${MISSING[*]}" >&2
-        "$PYTHON_BIN" -m pip install --upgrade --quiet pip
-        "$PYTHON_BIN" -m pip install --quiet "${MISSING[@]}"
+        "$PYTHON_BIN" -m pip install --upgrade --quiet --timeout "$PIP_TIMEOUT" pip
+        "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" "${MISSING[@]}"
     fi
+fi
+
+# playwright is lazy-loaded — install without browser download (no hang)
+if ! "$PYTHON_BIN" -c "import playwright" 2>/dev/null; then
+    echo "📦 Installing playwright (browsers skipped — no hang)" >&2
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" playwright
 fi
 
 # Always output the python binary path as the last line
