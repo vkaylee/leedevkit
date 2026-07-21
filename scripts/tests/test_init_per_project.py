@@ -137,6 +137,68 @@ class TestDevKitRootPriority:
 
 
 class TestHandleInitFromSource:
+    @pytest.mark.parametrize("configured_version", ["v0.3.14", "latest"])
+    def test_equivalent_version_does_not_reinstall(
+        self, tmp_path, monkeypatch, configured_version
+    ):
+        """A prefixed or latest pin must not reinstall an existing release."""
+        project = _make_project(tmp_path / "project", version=configured_version)
+        source = _make_devkit_source(tmp_path / "source", version="0.3.14")
+        target = project / ".leedevkit"
+        import shutil
+
+        shutil.copytree(source, target)
+        monkeypatch.chdir(project)
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with (
+            patch("_orchestrator.Orchestrator.register_traps", return_value=None),
+            patch("_init_handler.InitHandler._install_devkit") as install,
+        ):
+            from _orchestrator import Orchestrator
+
+            Orchestrator().handle_init(force=False)
+
+        install.assert_not_called()
+
+    def test_unprefixed_version_downloads_v_tag(self, tmp_path, monkeypatch):
+        """Config versions without ``v`` still resolve GitHub's v-prefixed tag."""
+        project = _make_project(tmp_path / "project", version="0.3.11")
+        target = project / ".leedevkit"
+        requested_urls = []
+
+        def fake_download(url, destination):
+            requested_urls.append(url)
+            destination.mkdir(parents=True)
+            (destination / "VERSION").write_text("0.3.11")
+
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")
+        monkeypatch.setattr(
+            "_init_handler.download_and_extract_tarball", fake_download
+        )
+
+        from _init_handler import InitHandler
+
+        InitHandler(None)._install_devkit(project, target, "0.3.11", force=False)
+
+        assert requested_urls == [
+            "https://github.com/vkaylee/leedevkit/archive/refs/tags/"
+            "v0.3.11.tar.gz"
+        ]
+
+    def test_extract_rejects_copying_target_onto_itself(self, tmp_path):
+        """A failed download must not delete a project's existing devkit."""
+        target = _make_devkit_source(tmp_path)
+        orchestrator = target / "scripts" / "_orchestrator.py"
+
+        from _init_handler import InitHandler
+
+        with pytest.raises(RuntimeError, match="target directory itself"):
+            InitHandler(None)._extract_from_source(target, target)
+
+        assert orchestrator.exists()
+
     def test_installs_devkit_into_leedevkit_dir(self, tmp_path, monkeypatch):
         """Init copies devkit artifacts from source into .leedevkit/."""
         project = _make_project(tmp_path / "project")

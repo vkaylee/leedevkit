@@ -117,8 +117,12 @@ class InitHandler(HandlerBase):
         # ── Step 1: Ensure .leedevkit/ exists with correct version ──
         leedevkit_dir = root / ".leedevkit"
         installed_version = self._read_installed_version(leedevkit_dir)
+        requested_version = str(devkit_version).lstrip("v")
+        version_matches = installed_version == requested_version
+        if devkit_version == "latest" and installed_version is not None:
+            version_matches = True
 
-        if force or not leedevkit_dir.exists() or installed_version != devkit_version:
+        if force or not leedevkit_dir.exists() or not version_matches:
             log_info(f"Installing devkit {devkit_version} into .leedevkit/ ...")
             self._install_devkit(root, leedevkit_dir, devkit_version, force=force)
         else:
@@ -347,9 +351,10 @@ class InitHandler(HandlerBase):
         # Strategy 2: GitHub release tarball
         ver = version.lstrip("v") if version else version
         if ver and version != "latest":
+            tag = version if version.startswith("v") else f"v{version}"
             url = (
                 f"https://github.com/vkaylee/leedevkit/archive/refs/tags/"
-                f"{version}.tar.gz"
+                f"{tag}.tar.gz"
             )
             log_info(f"Downloading {url} ...")
             try:
@@ -373,6 +378,15 @@ class InitHandler(HandlerBase):
     def _extract_from_source(self, source_root: Path, target_dir: Path) -> None:
         """Copy devkit artifacts from a source directory into target_dir."""
         import shutil as _shutil
+
+        source_root = source_root.resolve()
+        target_dir = target_dir.resolve()
+        if source_root == target_dir:
+            raise RuntimeError(
+                "Cannot install devkit from the target directory itself. "
+                "Set DEVKIT_LOCAL_PATH to a separate checkout or ensure the "
+                "requested release exists."
+            )
 
         target_dir.mkdir(parents=True, exist_ok=True)
         # Copy immutable artifacts

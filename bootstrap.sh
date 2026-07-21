@@ -124,7 +124,7 @@ if [ ! -f leedevkit.toml ]; then
     PROJECT_NAMESPACE="$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')"
     cat > leedevkit.toml << TOML
 [devkit]
-version = "$VERSION_TAG"
+version = "$VER"
 install = "per-project"
 source = "release"
 
@@ -141,6 +141,27 @@ rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
 TOML
     echo "   Created leedevkit.toml"
+else
+    python3 - "$VER" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path("leedevkit.toml")
+version = sys.argv[1]
+content = path.read_text()
+updated, count = re.subn(
+    r'(\[devkit\][^\[]*?\bversion\s*=\s*)"[^"]*"',
+    lambda match: f'{match.group(1)}"{version}"',
+    content,
+    count=1,
+    flags=re.DOTALL,
+)
+if count == 0:
+    raise SystemExit("❌ Existing leedevkit.toml has no [devkit] version entry")
+path.write_text(updated)
+PY
+    echo "   Updated leedevkit.toml: version = \"$VER\""
 fi
 
 # Create .gitignore entries if needed

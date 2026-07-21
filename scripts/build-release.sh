@@ -22,7 +22,8 @@ fi
 OUTPUT_DIR="${2:-/tmp}"
 REPO="https://github.com/vkaylee/leedevkit.git"
 VER="${VERSION_TAG#v}"
-TARBALL_NAME="leedevkit-${VER}.tar.gz"
+CANONICAL="leedevkit-${VER}"
+TARBALL_NAME="${CANONICAL}.tar.gz"
 WORKDIR="/tmp/leedevkit-build-$$"
 
 cleanup() {
@@ -38,26 +39,42 @@ echo "📦 Building $TARBALL_NAME ..."
 echo "   1/6 Cloning $VERSION_TAG ..."
 git clone --depth 1 --branch "$VERSION_TAG" "$REPO" "$WORKDIR/src" 2>&1 | tail -1
 
-# Step 2: Build raw tarball (no .git)
+# Step 2: Rename to canonical directory name, then build tarball
 echo "   2/6 Building raw tarball ..."
+mv "$WORKDIR/src" "$WORKDIR/$CANONICAL"
 tar -czf "$WORKDIR/raw.tar.gz" \
     --exclude='.git' --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='*.bak' --exclude='.leedevkit' \
-    -C "$WORKDIR" src
+    -C "$WORKDIR" "$CANONICAL"
 
 # Step 3: Extract to staging
 echo "   3/6 Extracting to staging ..."
 mkdir -p "$WORKDIR/stage"
 tar -xzf "$WORKDIR/raw.tar.gz" -C "$WORKDIR/stage/"
-STAGED=$(find "$WORKDIR/stage" -mindepth 1 -maxdepth 1 -type d | head -1)
+STAGED="$WORKDIR/stage/$CANONICAL"
+if [ ! -d "$STAGED" ]; then
+    echo "❌ Raw tarball missing canonical root: $CANONICAL"
+    exit 1
+fi
 
-# Step 4: Generate manifest
+# Step 4: Generate manifest from inside staging so a local .leedevkit/
+# cannot override DEVKIT_HOME through the config resolver.
 echo "   4/6 Generating manifest ..."
-DEVKIT_HOME="$STAGED" python3 "$STAGED/scripts/_devkit_integrity.py" checksum
+(
+    cd "$STAGED"
+    DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py checksum
+)
 
 # Step 5: Verify
 echo "   5/6 Verifying integrity ..."
-if ! DEVKIT_HOME="$STAGED" python3 "$STAGED/scripts/_devkit_integrity.py" verify; then
+if [ ! -f "$STAGED/devkit.manifest.json" ]; then
+    echo "❌ Manifest generation failed"
+    exit 1
+fi
+if ! (
+    cd "$STAGED"
+    DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py verify
+); then
     echo "❌ Integrity check failed"
     exit 1
 fi
@@ -68,7 +85,7 @@ rm -f "$OUTPUT_DIR/$TARBALL_NAME"
 tar -czf "$OUTPUT_DIR/$TARBALL_NAME" \
     --exclude='.git' --exclude='.venv' --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='*.bak' \
-    -C "$WORKDIR/stage" src
+    -C "$WORKDIR/stage" "$CANONICAL"
 
 echo ""
 echo "✅ $TARBALL_NAME ready at $OUTPUT_DIR/$TARBALL_NAME"

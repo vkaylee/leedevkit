@@ -122,6 +122,9 @@ def _assert_bootstrap(
     project = workspace / "project"
     project.mkdir()
     (project / ".git").mkdir()
+    (project / "leedevkit.toml").write_text(
+        '[devkit]\nversion = "0.0.1"\n\n[project]\nname = "acceptance"\n'
+    )
     bootstrap_env = {
         **env,
         "LEEDEVKIT_RELEASE_BASE_URL": mirror.as_uri(),
@@ -141,6 +144,9 @@ def _assert_bootstrap(
         raise RuntimeError("bootstrapped version command unexpectedly created .venv")
     if ".leedevkit/" not in (project / ".gitignore").read_text():
         raise RuntimeError("bootstrap did not add .leedevkit to .gitignore")
+    config = (project / "leedevkit.toml").read_text()
+    if f'version = "{version}"' not in config:
+        raise RuntimeError("bootstrap did not update the existing version pin")
 
     sentinel = installed / "SENTINEL"
     sentinel.write_text("preserve")
