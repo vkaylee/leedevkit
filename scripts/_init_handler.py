@@ -226,7 +226,7 @@ class InitHandler(HandlerBase):
         if wrapper.is_symlink():
             wrapper.unlink()
         elif wrapper.exists() and not wrapper.is_file():
-            log_warn(f"⚠️  ./leedevkit exists but is not a file — skipping wrapper")
+            log_warn("⚠️  ./leedevkit exists but is not a file — skipping wrapper")
             return
         wrapper.write_text(wrapper_content)
         wrapper.chmod(0o755)
@@ -297,15 +297,11 @@ class InitHandler(HandlerBase):
                     # Symlink is correct
                     return
                 # Symlink points to wrong target → remove and recreate
-                log_warn(
-                    f"⚠️  .agent/rules symlink points to wrong target, fixing..."
-                )
+                log_warn("⚠️  .agent/rules symlink points to wrong target, fixing...")
                 default_rules.unlink()
             except OSError:
                 # Broken symlink → remove and recreate
-                log_warn(
-                    f"⚠️  .agent/rules symlink is broken, fixing..."
-                )
+                log_warn("⚠️  .agent/rules symlink is broken, fixing...")
                 default_rules.unlink()
         elif default_rules.exists():
             # It's a real directory, not a symlink → don't touch it
@@ -352,10 +348,7 @@ class InitHandler(HandlerBase):
         ver = version.lstrip("v") if version else version
         if ver and version != "latest":
             tag = version if version.startswith("v") else f"v{version}"
-            url = (
-                f"https://github.com/vkaylee/leedevkit/archive/refs/tags/"
-                f"{tag}.tar.gz"
-            )
+            url = f"https://github.com/vkaylee/leedevkit/archive/refs/tags/{tag}.tar.gz"
             log_info(f"Downloading {url} ...")
             try:
                 download_and_extract_tarball(url, target_dir)

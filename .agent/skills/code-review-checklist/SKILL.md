@@ -33,11 +33,20 @@ allowed-tools: Read, Glob, Grep
 - [ ] DRY - no duplicate code
 - [ ] SOLID principles followed
 - [ ] Appropriate abstraction level
+- [ ] No verified dead code: unused imports/variables/private functions, unreachable branches, obsolete dependencies, or commented-out implementations
+- [ ] Replaced code and its related tests, configuration, documentation, and dependencies were removed together
+- [ ] Intentional transitional code has a reason, owner, removal condition, and review/removal date
+- [ ] Indirect runtime and external usage was checked before deletion; public APIs follow the deprecation policy
 
 ### Testing
 - [ ] Unit tests for new code
 - [ ] Edge cases tested
 - [ ] Tests readable and maintainable
+- [ ] Test Impact Matrix dimensions were considered and non-applicable dimensions have concrete reasons
+- [ ] Bug fixes include a regression test that fails without the fix, or a documented reproduction limitation
+- [ ] Applicable boundary, malformed-input, negative, authorization, dependency-failure, timeout, partial-state, compatibility, and resource-limit cases are covered
+- [ ] Assertions verify absence of unauthorized or partial side effects where relevant
+- [ ] No assertions were weakened and no tests were skipped, retried, or quarantined without a tracked, time-bound reason
 
 ### Documentation
 - [ ] Complex logic commented

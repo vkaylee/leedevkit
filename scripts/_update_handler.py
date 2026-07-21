@@ -25,9 +25,7 @@ def _devkit_root() -> Path:
 def _latest_release_version() -> str:
     """Return the latest release tag (e.g. 'v0.2.0') from GitHub Releases."""
     api = "https://api.github.com/repos/vkaylee/leedevkit/releases/latest"
-    req = urllib.request.Request(
-        api, headers={"Accept": "application/vnd.github+json"}
-    )
+    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json"})
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
@@ -103,7 +101,7 @@ def handle_update(target: str | None = None) -> None:
                     flags=re.DOTALL,
                 )
                 config_toml.write_text(content)
-                log_success(f"Updated leedevkit.toml: version = \"{new_ver}\"")
+                log_success(f'Updated leedevkit.toml: version = "{new_ver}"')
         except Exception as e:
             log_warn(f"Could not update leedevkit.toml: {e}")
 
@@ -115,7 +113,7 @@ def handle_update(target: str | None = None) -> None:
 
         # Create a minimal orchestrator instance for InitHandler
         orch = Orchestrator.__new__(Orchestrator)
-        orch._devkit_root = root
+        setattr(orch, "_devkit_root", root)
         init_handler = InitHandler(orch)
         init_handler.handle_post_update_sync()
         log_success("Post-update sync complete")

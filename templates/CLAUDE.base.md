@@ -4,37 +4,49 @@
 
 {{PROJECT_SOUL}}
 
-## 💎 Layer 0: CORE PRINCIPLES (The "Big Five")
+## 💎 Layer 0: CORE PRINCIPLES
 > Universal rules that CANNOT be overridden by any external skill or lazy-loaded rule.
 
-1. **Enterprise Premium Standard:** Every feature MUST be production-ready (Skeleton loaders, Empty States, i18n, Rate Limiting, UUID validation).
-2. **Security & Privacy:** NEVER log PII (emails, passwords, phones) in raw text. Mask them.
-3. **Structured Errors:** Use domain-specific error types. NEVER throw generic errors.
-4. **Boy Scout Rule:** If you see a typo, bad pattern, or visible bug nearby, FIX IT IMMEDIATELY.
-5. **Output Redirection (CRITICAL):** For ALL terminal commands, append `> logs/run_{slug}.log 2>&1 </dev/null`. Always prefix with `mkdir -p logs &&`.
-6. **Post-Implementation Test Gate:** After EVERY code or behavior change, inspect affected tests and explicitly report either tests added/updated or a behavior-based reason no test change is needed. Run the applicable `./leedevkit test <target>` before declaring completion.
+1. **Governance First:** Apply `.agent/rules/ai-agent-governance.md` for rule priority, applicability, scope, exceptions, verification, and Definition of Done.
+2. **Security & Privacy:** Never expose secrets or raw sensitive personal data. Apply the project's classification and masking rules.
+3. **Correctness & Compatibility:** Preserve data integrity and public contracts unless an approved change explicitly modifies them.
+4. **Scoped Quality:** Apply production controls according to component risk. KISS and YAGNI remain valid; do not over-engineer narrow changes.
+5. **Development and Testing:** Treat implementation and testing as one task. Before changing behavior, identify success, boundary, negative, regression, failure, state, security, and compatibility cases using `.agent/rules/development-workflow.md`.
+   **Post-Implementation Test Gate:** Report either tests added/updated with concrete scenarios or a behavior-based reason no test change is needed, then run the applicable `./leedevkit test <target>`.
+6. **Verification:** Discover and run the applicable project-configured checks. Do not claim full verification when a required check could not run.
+7. **Safe Execution:** Use project wrappers when present. Redirect output for noisy, interactive, containerized, or long-running commands rather than every command universally.
 
 ## 🥇 Layer 1: CRITICAL PROTOCOL
 **Before writing ANY code or proposing solutions:**
 1. **MANDATORY Lazy-Load:** Read related rulebooks using the `Read` tool.
-2. **MANDATORY Rule Compliance:** For COMPLEX tasks, create `{task-slug}.md` listing at least 3 Rule IDs.
+2. **Rule Compliance:** For complex tasks, identify the applicable rulebooks in the working plan. Do not create task files unless the workflow or user requests them.
 
 ## 📥 Layer 2: REQUEST CLASSIFIER
-Classify every request: QUESTION | SURVEY | SIMPLE CODE | COMPLEX CODE | DESIGN/UI.
-Detect domain and announce: `🤖 Applying knowledge of @[agent-name]...`
+Classify the request internally so the amount of discovery and verification matches its risk. Announce specialist context only when it materially helps the user follow the work.
 
 ## 🛑 Layer 3: SOCRATIC GATE
-For New Features / Bug Fixes: 🔴 STOP and ASK minimum 3 strategic questions.
+Ask only when missing information materially changes the result, requires new authority, or cannot be safely discovered from repository context. Routine fixes should proceed with explicit, low-risk assumptions.
 
 ## 📚 Layer 4: DOMAIN RULEBOOKS (Lazy Load)
 > 🔴 Before executing a task, read the relevant rules using the `Read` tool.
 
 - **Coding Standards:** `@[.agent/rules/coding-standards.md]`
+- **AI Governance:** `@[.agent/rules/ai-agent-governance.md]`
 - **Testing Standards:** `@[.agent/rules/testing-standards.md]`
+- **Development Workflow:** `@[.agent/rules/development-workflow.md]`
+- **Secure Development Lifecycle:** `@[.agent/rules/secure-development-lifecycle.md]`
+- **Vulnerability Management:** `@[.agent/rules/vulnerability-management.md]`
+- **Architecture Governance:** `@[.agent/rules/architecture-governance.md]`
+- **API and Contract Governance:** `@[.agent/rules/api-governance.md]`
+- **Reliability Engineering:** `@[.agent/rules/reliability-engineering.md]`
+- **Migration and Rollback:** `@[.agent/rules/migration-and-rollback.md]`
+- **Release Management:** `@[.agent/rules/release-management.md]`
 - **Database:** `@[.agent/rules/database-rules.md]`
 - **UI/UX Design:** `@[.agent/rules/design-rules.md]`
 - **Access Control:** `@[.agent/rules/access-control.md]`
 - **Observability:** `@[.agent/rules/observability-rules.md]`
+
+Load only the rulebooks applicable to the task. Security, migration, architecture, and release rules are risk-triggered and do not apply mechanically to unrelated changes.
 
 ## 🤖 Layer 5: AGENTS & SKILLS
 - **Frontend / React / UI:** `@[.agent/agents/frontend-specialist.md]`

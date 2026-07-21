@@ -49,9 +49,7 @@ def run_doctor(engine: str) -> None:
     try:
         dk = get_devkit_root()
         dk_version = (
-            (dk / "VERSION").read_text().strip()
-            if (dk / "VERSION").exists()
-            else "?"
+            (dk / "VERSION").read_text().strip() if (dk / "VERSION").exists() else "?"
         )
         log_success(f"✅ DevKit: {dk} (v{dk_version})")
     except (OSError, ValueError) as e:

@@ -360,7 +360,7 @@ def _make_devkit_source_with_rust_template(tmp_path: Path) -> Path:
     python3.chmod(0o755)
     # ensure-venv.sh creates the venv and outputs the Python path
     (scripts / "_ensure-venv.sh").write_text(
-        '#!/bin/bash\n'
+        "#!/bin/bash\n"
         'VENV="$(dirname "$(dirname "$0")")/.venv"\n'
         'mkdir -p "$VENV/bin"\n'
         'touch "$VENV/bin/python3"\n'

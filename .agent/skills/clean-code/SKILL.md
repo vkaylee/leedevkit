@@ -22,6 +22,14 @@ priority: CRITICAL
 | **YAGNI** | You Aren't Gonna Need It - don't build unused features |
 | **Boy Scout** | Leave code cleaner than you found it |
 
+### Dead Code
+
+- Delete verified unused imports, variables, private functions, unreachable branches, obsolete dependencies, and commented-out implementations.
+- Remove replaced code and its tests, configuration, documentation, and dependencies together.
+- Before deletion, check indirect runtime usage such as reflection, framework conventions, serialization, plugins, macros, CLI entry points, and external consumers.
+- Transitional code requires a reason, owner, removal condition, and review/removal date. Public APIs require deprecation before removal.
+- Do not add speculative code or keep code "for later"; use version control and tracked issues.
+
 ---
 
 ## Naming Rules
@@ -41,10 +49,10 @@ priority: CRITICAL
 
 | Rule | Description |
 |------|-------------|
-| **Small** | Max 20 lines, ideally 5-10 |
+| **Small** | Keep functions cohesive; 20 lines is a review signal, not a hard limit |
 | **One Thing** | Does one thing, does it well |
 | **One Level** | One level of abstraction per function |
-| **Few Args** | Max 3 arguments, prefer 0-2 |
+| **Few Args** | Prefer focused inputs; investigate long or repeatedly grouped parameter lists |
 | **No Side Effects** | Don't mutate inputs unexpectedly |
 
 ---
@@ -66,7 +74,9 @@ priority: CRITICAL
 |-----------|--------|
 | User asks for feature | Write it directly |
 | User reports bug | Fix it, don't explain |
-| No clear requirement | Ask, don't assume |
+| Behavior changes | Update tests and edge-case coverage in the same task |
+| Missing decision materially changes outcome | Ask for direction |
+| Repository context provides a safe answer | Proceed and state the assumption |
 
 ---
 
@@ -118,6 +128,7 @@ File to edit: UserService.ts
 | Inline small things | Create unnecessary files |
 | Name things clearly | Use abbreviations |
 | Keep functions small | Write 100+ line functions |
+| Remove verified dead code | Keep commented-out or speculative code |
 
 > **Remember: The user wants working code, not a programming lesson.**
 
@@ -132,7 +143,9 @@ File to edit: UserService.ts
 | ✅ **Goal met?** | Did I do exactly what user asked? |
 | ✅ **Files edited?** | Did I modify all necessary files? |
 | ✅ **Code works?** | Did I test/verify the change? |
+| ✅ **Edge cases covered?** | Did I verify boundaries, negative paths, failures, state transitions, and compatibility where applicable? |
 | ✅ **No errors?** | Lint and TypeScript pass? |
+| ✅ **No dead code?** | Any unused, unreachable, replaced, or expired transitional code left behind? |
 | ✅ **Nothing forgotten?** | Any edge cases missed? |
 
 > 🔴 **Rule:** If ANY check fails, fix it before completing.
@@ -192,10 +205,9 @@ File to edit: UserService.ts
 **Should I fix the X errors?**
 ```
 
-4. **Wait for user confirmation** before fixing
+4. **Fix in-scope failures** when the requested task already authorizes code changes; ask before semantic fixes that expand scope or require a product decision
 5. **After fixing** → Re-run script to confirm
 
 > 🔴 **VIOLATION:** Running script and ignoring output = FAILED task.
-> 🔴 **VIOLATION:** Auto-fixing without asking = Not allowed.
+> 🔴 **VIOLATION:** Applying semantic or out-of-scope auto-fixes without review is not allowed. Deterministic formatting of in-scope files is allowed.
 > 🔴 **Rule:** Always READ output → SUMMARIZE → ASK → then fix.
-

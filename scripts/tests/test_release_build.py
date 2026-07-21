@@ -108,9 +108,7 @@ class TestBuildRelease:
         with tarfile.open(artifact, "r:gz") as archive:
             roots = {Path(name).parts[0] for name in archive.getnames() if name}
             assert roots == {"leedevkit-0.3.15"}
-            manifest = archive.extractfile(
-                "leedevkit-0.3.15/devkit.manifest.json"
-            )
+            manifest = archive.extractfile("leedevkit-0.3.15/devkit.manifest.json")
             assert manifest is not None
             assert json.load(manifest)["version"] == "0.3.15"
 

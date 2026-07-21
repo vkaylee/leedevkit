@@ -74,7 +74,7 @@ def test_creates_venv_inside_devkit_and_installs_required_packages(tmp_path):
     assert python_path.is_file()
     assert not (tmp_path / ".venv").exists()
     commands = log_path.read_text()
-    assert "-m pip install --upgrade --quiet pip" in commands
+    assert "-m pip install --upgrade --quiet --timeout 120 pip" in commands
     assert "pytest-cov" in commands
     assert "playwright" in commands
 

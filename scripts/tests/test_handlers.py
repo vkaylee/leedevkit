@@ -743,15 +743,12 @@ class TestTestHandlerCoverageGaps:
         (log_dir / "old.log").write_text("Summary [1] 1 test run: 1 passed")
         monkeypatch.setattr("_test_handler.PROJECT_ROOT", tmp_path)
 
-        from _logging import log_success
-
         handler.print_test_summary("all")
         # No crash — old logs filtered successfully
 
     def test_print_test_summary_with_playwright_logs(self, tmp_path, monkeypatch):
         """print_test_summary parses playwright log output."""
         from _test_handler import TestHandler
-        import time
 
         orch = _mock_orchestrator()
         orch.start_time = 0  # Way in the past
@@ -767,7 +764,6 @@ class TestTestHandlerCoverageGaps:
     def test_print_test_summary_with_vitest_logs(self, tmp_path, monkeypatch):
         """print_test_summary parses vitest log output."""
         from _test_handler import TestHandler
-        import time
 
         orch = _mock_orchestrator()
         orch.start_time = 0
@@ -798,7 +794,6 @@ class TestTestHandlerCoverageGaps:
     def test_print_test_summary_corrupted_log(self, tmp_path, monkeypatch):
         """print_test_summary handles unreadable log files."""
         from _test_handler import TestHandler
-        import time
 
         orch = _mock_orchestrator()
         orch.start_time = 0

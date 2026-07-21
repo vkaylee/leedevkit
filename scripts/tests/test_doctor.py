@@ -35,9 +35,18 @@ class TestRunDoctor:
 
         stack = ExitStack()
         stack.enter_context(patch("_doctor.PROJECT_ROOT", tmp_path))
-        stack.enter_context(patch("_doctor.load_project_config", return_value=defaults["load_project_config"]))
-        stack.enter_context(patch("_doctor.get_devkit_root", return_value=defaults["get_devkit_root"]))
-        stack.enter_context(patch("_doctor.resolve_ai_rules", return_value=defaults["resolve_ai_rules"]))
+        stack.enter_context(
+            patch(
+                "_doctor.load_project_config",
+                return_value=defaults["load_project_config"],
+            )
+        )
+        stack.enter_context(
+            patch("_doctor.get_devkit_root", return_value=defaults["get_devkit_root"])
+        )
+        stack.enter_context(
+            patch("_doctor.resolve_ai_rules", return_value=defaults["resolve_ai_rules"])
+        )
         stack.enter_context(patch("_doctor.socket.socket", return_value=mock_sock))
         stack.enter_context(patch("subprocess.run"))
         return stack
@@ -71,14 +80,17 @@ class TestRunDoctor:
         """Broken/missing config shows warning."""
         from _doctor import run_doctor
 
-        dk = self._dk(tmp_path)
+        self._dk(tmp_path)
 
         with (
             patch("_doctor.PROJECT_ROOT", tmp_path),
             patch("_doctor.load_project_config", side_effect=OSError("no file")),
             patch("_doctor.get_devkit_root", side_effect=OSError("nope")),
             patch("_doctor.resolve_ai_rules", side_effect=OSError("nope")),
-            patch("_doctor.socket.socket", return_value=MagicMock(connect_ex=MagicMock(return_value=1))),
+            patch(
+                "_doctor.socket.socket",
+                return_value=MagicMock(connect_ex=MagicMock(return_value=1)),
+            ),
             patch("subprocess.run"),
         ):
             run_doctor("podman")
@@ -90,14 +102,20 @@ class TestRunDoctor:
         """DevKit resolution failure shows warning."""
         from _doctor import run_doctor
 
-        dk = self._dk(tmp_path)
+        self._dk(tmp_path)
 
         with (
             patch("_doctor.PROJECT_ROOT", tmp_path),
-            patch("_doctor.load_project_config", return_value={"project": {}, "targets": {}}),
+            patch(
+                "_doctor.load_project_config",
+                return_value={"project": {}, "targets": {}},
+            ),
             patch("_doctor.get_devkit_root", side_effect=OSError("no devkit")),
             patch("_doctor.resolve_ai_rules", return_value=[]),
-            patch("_doctor.socket.socket", return_value=MagicMock(connect_ex=MagicMock(return_value=1))),
+            patch(
+                "_doctor.socket.socket",
+                return_value=MagicMock(connect_ex=MagicMock(return_value=1)),
+            ),
             patch("subprocess.run"),
         ):
             run_doctor("podman")
@@ -112,7 +130,9 @@ class TestRunDoctor:
         dk = self._dk(tmp_path)
 
         with self._patches(tmp_path, dk):
-            with patch("_doctor.resolve_ai_rules", side_effect=ValueError("bad manifest")):
+            with patch(
+                "_doctor.resolve_ai_rules", side_effect=ValueError("bad manifest")
+            ):
                 run_doctor("podman")
 
         out = capsys.readouterr().err
@@ -201,7 +221,8 @@ class TestRunDoctor:
         dk = self._dk(tmp_path)
 
         with self._patches(
-            tmp_path, dk,
+            tmp_path,
+            dk,
             resolve_ai_rules=[tmp_path / "r1.md", tmp_path / "r2.md"],
         ):
             run_doctor("podman")
@@ -237,7 +258,10 @@ class TestRunDoctor:
 
         with (
             patch("_doctor.PROJECT_ROOT", tmp_path),
-            patch("_doctor.load_project_config", return_value={"project": {}, "targets": {}}),
+            patch(
+                "_doctor.load_project_config",
+                return_value={"project": {}, "targets": {}},
+            ),
             patch("_doctor.get_devkit_root", return_value=dk),
             patch("_doctor.resolve_ai_rules", return_value=[]),
             patch("_doctor.socket.socket", return_value=mock_sock),
@@ -286,11 +310,16 @@ class TestRunDoctor:
         mock_sock = MagicMock()
         mock_sock.connect_ex.return_value = 1
         fake_run = MagicMock()
-        fake_run.return_value.stdout = "leedevkit-dev-db\nleedevkit-dev-api\nother-container\n"
+        fake_run.return_value.stdout = (
+            "leedevkit-dev-db\nleedevkit-dev-api\nother-container\n"
+        )
 
         with (
             patch("_doctor.PROJECT_ROOT", tmp_path),
-            patch("_doctor.load_project_config", return_value={"project": {}, "targets": {}}),
+            patch(
+                "_doctor.load_project_config",
+                return_value={"project": {}, "targets": {}},
+            ),
             patch("_doctor.get_devkit_root", return_value=dk),
             patch("_doctor.resolve_ai_rules", return_value=[]),
             patch("_doctor.socket.socket", return_value=mock_sock),
@@ -312,7 +341,10 @@ class TestRunDoctor:
 
         with (
             patch("_doctor.PROJECT_ROOT", tmp_path),
-            patch("_doctor.load_project_config", return_value={"project": {}, "targets": {}}),
+            patch(
+                "_doctor.load_project_config",
+                return_value={"project": {}, "targets": {}},
+            ),
             patch("_doctor.get_devkit_root", return_value=dk),
             patch("_doctor.resolve_ai_rules", return_value=[]),
             patch("_doctor.socket.socket", return_value=mock_sock),
@@ -320,6 +352,6 @@ class TestRunDoctor:
         ):
             run_doctor("")
 
-        out = capsys.readouterr().err
+        capsys.readouterr()
         # subprocess.run should NOT be called for container check when engine is empty
         mock_run.assert_not_called()

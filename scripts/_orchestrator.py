@@ -8,7 +8,6 @@ import sys
 import time
 import typing
 import uuid
-from pathlib import Path
 from types import FrameType
 
 from _bootstrap import (

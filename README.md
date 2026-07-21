@@ -258,7 +258,7 @@ Three entry points — all symlink to the same template:
 | `GEMINI.md` | Gemini CLI |
 
 Template at `templates/CLAUDE.base.md` uses lazy-load pattern:
-- Layer 0: Core principles (Enterprise quality, security, structured errors)
+- Layer 0: AI governance, development–testing discipline, scoped quality, security, compatibility, and verification
 - Layer 4: Domain rulebooks (`.agent/rules/*.md`)
 - Layer 5: Specialist agents (`.agent/agents/*.md`)
 - Layer 6: Devkit commands

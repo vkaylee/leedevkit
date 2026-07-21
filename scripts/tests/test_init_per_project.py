@@ -52,7 +52,7 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     python3.chmod(0o755)
     # ensure-venv.sh creates the venv and outputs the Python path
     (scripts / "_ensure-venv.sh").write_text(
-        '#!/bin/bash\n'
+        "#!/bin/bash\n"
         'VENV="$(dirname "$(dirname "$0")")/.venv"\n'
         'mkdir -p "$VENV/bin"\n'
         'touch "$VENV/bin/python3"\n'
@@ -174,17 +174,14 @@ class TestHandleInitFromSource:
             (destination / "VERSION").write_text("0.3.11")
 
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", "")
-        monkeypatch.setattr(
-            "_init_handler.download_and_extract_tarball", fake_download
-        )
+        monkeypatch.setattr("_init_handler.download_and_extract_tarball", fake_download)
 
         from _init_handler import InitHandler
 
         InitHandler(None)._install_devkit(project, target, "0.3.11", force=False)
 
         assert requested_urls == [
-            "https://github.com/vkaylee/leedevkit/archive/refs/tags/"
-            "v0.3.11.tar.gz"
+            "https://github.com/vkaylee/leedevkit/archive/refs/tags/v0.3.11.tar.gz"
         ]
 
     def test_extract_rejects_copying_target_onto_itself(self, tmp_path):

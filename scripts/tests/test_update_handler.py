@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import tarfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -42,6 +40,7 @@ class TestDownloadAndExtract:
 
         def fake_urlretrieve(url, filename):
             import shutil
+
             shutil.copy(str(tarball_path), str(filename))
 
         monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
@@ -69,6 +68,7 @@ class TestDownloadAndExtract:
 
         def fake_urlretrieve(url, filename):
             import shutil
+
             shutil.copy(str(tarball_path), str(filename))
 
         monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
@@ -97,6 +97,7 @@ class TestDownloadAndExtract:
 
         def fake_urlretrieve(url, filename):
             import shutil
+
             shutil.copy(str(tarball_path), str(filename))
 
         monkeypatch.setattr("_download.urllib.request.urlretrieve", fake_urlretrieve)
@@ -153,7 +154,9 @@ class TestHandleUpdateRollback:
         backup.mkdir()
         (backup / "OLD").write_text("old-backup")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         handle_update(target="v0.2.0")
 
@@ -184,7 +187,9 @@ class TestUpdateVersionPin:
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.6")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         handle_update(target="v0.3.6")
 
@@ -208,7 +213,9 @@ class TestUpdateVersionPin:
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.6")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         # Should not raise
         handle_update(target="v0.3.6")
@@ -233,12 +240,14 @@ class TestUpdateVersionPin:
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.6")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         # Should not raise
         handle_update(target="v0.3.6")
         # Toml should remain unchanged
-        assert '[project]' in toml_file.read_text()
+        assert "[project]" in toml_file.read_text()
 
 
 class TestAutoSyncAfterUpdate:
@@ -267,7 +276,9 @@ class TestAutoSyncAfterUpdate:
             (target_dir / "scripts").mkdir()
             (target_dir / "scripts" / "_orchestrator.py").write_text("# stub")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         handle_update(target="v0.3.7")
 
@@ -293,13 +304,17 @@ class TestAutoSyncAfterUpdate:
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.7")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         # Mock sync to fail
         def failing_sync(*args, **kwargs):
             raise RuntimeError("sync failed")
 
-        monkeypatch.setattr("_init_handler.InitHandler.handle_post_update_sync", failing_sync)
+        monkeypatch.setattr(
+            "_init_handler.InitHandler.handle_post_update_sync", failing_sync
+        )
 
         # Should not raise
         handle_update(target="v0.3.7")

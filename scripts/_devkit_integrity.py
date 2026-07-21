@@ -201,6 +201,7 @@ def verify_devkit(devkit_root: Path | None = None) -> VerificationResult:
     if result.invalid_manifest:
         return result
 
+    assert isinstance(files, dict)
     expected = files
     actual_files = {
         str(f.relative_to(devkit_root)): f for f in _walk_files(devkit_root)

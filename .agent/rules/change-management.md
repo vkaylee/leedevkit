@@ -21,6 +21,8 @@
 - **Branch Lifecycle:** Feature branches MUST be deleted after merge. Stale branches (> 30 days without commits) SHOULD be pruned.
 
 ## 3. Deployment Approval Gates (MANDATORY)
+
+Release readiness, artifact integrity, rollout, and post-release verification MUST also follow `release-management.md`. Data and contract changes MUST follow `migration-and-rollback.md`.
 | Environment | Required Approvals | Pre-Deploy Checks | Rollback Plan |
 |-------------|-------------------|--------------------|---------------|
 | **Development** | 0 (auto-deploy on PR merge to `develop`) | Lint + Type check | Auto-revert on failure |
@@ -71,7 +73,7 @@
 - **Audit:** Feature flag changes (enable/disable/percentage change) MUST be audit-logged.
 
 ## 7. Rulebook and Standard Changes (AI Proposals)
-- AI agents and developers MUST NOT modify rulebooks or core standard files in `.agent/rules/` and `GEMINI.md` autonomously without direct, explicit user approval.
+- AI agents and developers MUST NOT modify rulebooks, generated AI context files, or core standard templates autonomously without direct user or designated maintainer approval.
 - If a technical debt resolution or refactoring reveals a gap or an outdated policy in the core rules:
   1. The AI agent MUST outline a recommended addition or modification in the final walkthrough report or pull request comments.
-  2. The changes to `.agent/rules/` or `GEMINI.md` may only be merged and applied after Kỹ sư trưởng (Lead Engineer) reviews and approves the proposal.
+  2. The changes may only be merged after review and approval by the designated maintainer or lead engineer.

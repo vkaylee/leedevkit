@@ -1,57 +1,44 @@
-# 🏗️ Project Structure & Commits
+# Project Structure and Commits
 
-## 1. Component Map
-| Component | Language | Path |
-|-----------|----------|------|
-| API Server | Rust (Axum) | `apiserver/` |
-| Agent (ZK Worker) | Rust | `agent-main/` |
-| Web Dashboard | React + TypeScript | `webdashboard/` |
-| Containers | Compose | `docker-compose*.yml` |
-| Tests | Rust + Playwright | `./leedevkit test <target>` |
+## 1. Source of Truth
 
-## 2. Commit Convention
-Use conventional commits for all changes: 
+Do not assume a fixed directory layout. Discover the current project structure from:
+
+1. Project configuration such as `leedevkit.toml`, workspace manifests, and package files
+2. Existing source directories and entry points
+3. Build, test, and CI configuration
+4. Project-specific rule overrides and architecture decision records
+
+Examples in shared rulebooks MUST NOT override the repository's actual structure.
+
+## 2. Structural Principles
+
+- Keep entry points thin and delegate behavior to cohesive modules.
+- Keep domain logic independent from transport, persistence, and framework details where practical.
+- Depend on stable abstractions at boundaries that require substitution or isolated testing.
+- Avoid circular dependencies and undocumented cross-layer access.
+- Colocate tests with the convention already used by the project.
+- Place temporary files outside the repository or in an ignored project-designated directory.
+
+Project-specific layer constraints belong in a project rule override, not in this universal rulebook.
+
+## 3. Commit Convention
+
+Use the repository's configured commit convention. When none is documented, use Conventional Commits:
+
 `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
 
-## 3. AI Logging & Workspace Memory
-- **Memory Retention:** Document major architectural shifts in `.ai/ADRs/` to retain long-term AI context.
-- **Clean Workspace:** Do NOT save `.txt` or temporary planning files in project root. Use `/tmp/` or prefix `ai_` (which is added to `.gitignore`).
+Commits SHOULD be cohesive and explain the observable reason for the change. Do not commit generated, temporary, secret, or unrelated files.
 
-## 4. Directory Map
-| Directory | Purpose |
-|-----------|---------|
-| `apiserver/src/main.rs` | Entry point, Tokio runtime bootstrap |
-| `apiserver/src/lib.rs` | Crate root, module declarations, crate-level lints |
-| `apiserver/src/routes/` | 18 domain route modules, each exports `pub fn router()` |
-| `apiserver/src/handlers/` | Request handlers with `#[utoipa::path]` + `#[tracing::instrument]` |
-| `apiserver/src/services/` | Business logic layer between handlers and repositories |
-| `apiserver/src/repositories/` | `#[async_trait]` traits + `diesel_*` implementations |
-| `apiserver/src/diesel_pool/` | `DieselPools`, `TenantPoolManager`, connection wrappers |
-| `apiserver/src/models/` | Domain models (private fields), DTOs, `PaginatedResponse<T>` |
-| `apiserver/src/models/diesel/` | Diesel entities: `XxxEntity` with `Queryable/Insertable` |
-| `apiserver/src/errors.rs` | `AppError` enum, `AppResult<T>`, `IntoResponse` impl |
-| `apiserver/src/mw/` | Middleware: `RateLimitLayer`, auth extractors, i18n |
-| `apiserver/src/utils/` | Helpers: `I18nKey`, i18n utilities |
-| `apiserver/migrations/tenant/` | Tenant migrations (`YYYYMMDDHHMMSS_description/up.sql`+`down.sql`) |
-| `apiserver/migrations/system/` | System-wide migrations |
-| `agent-main/` | Agent binary (ZK worker) |
-| `webdashboard/` | React + TypeScript SPA frontend |
-| `scripts/` | Hermetic wrappers: `_cargo.sh`, `_npm.sh`, `_diesel.sh` |
+## 4. Architecture Decisions
 
-## 5. Dependency Flow
-```
-Request → Middleware (RateLimitLayer → UserId → WorkspaceId → MemberContext)
-        → Router (18 domain modules)
-        → Handler (src/handlers/)
-        → Service (src/services/ — business logic)
-        → Repository trait (src/repositories/)
-        → Diesel implementation (src/repositories/diesel_*)
-        → DieselPools (api/worker/tenants_tx/tenants_sess)
-        → PostgreSQL
-```
+Record significant, durable architectural decisions using the repository's existing ADR convention. If no convention exists and documentation is requested, prefer `docs/adr/` with a dated decision record. Do not create architecture documentation for routine local changes.
 
-**Rules:**
-- Handler → Service ONLY (never call Repository directly from Handler)
-- Service → Repository trait ONLY (never depend on `diesel_*` impl directly)
-- Repository → DieselPools ONLY (never access pool from Service or Handler)
-- NEVER skip a layer
+## 5. Dependency Direction
+
+Before changing module boundaries:
+
+- Inspect existing imports and callers.
+- Preserve established dependency direction unless the task explicitly changes the architecture.
+- Update all affected consumers in the same change.
+- Add or update architecture checks when the repository already enforces layer boundaries.

@@ -13,6 +13,7 @@ import typing
 
 class Colors:
     """ANSI color codes for terminal output."""
+
     GREEN = "\033[0;32m"
     RED = "\033[0;31m"
     YELLOW = "\033[1;33m"
@@ -28,12 +29,16 @@ def log_info(msg: str) -> None:
 
 def log_success(msg: str) -> None:
     """Log a success message to stderr."""
-    print(f"{Colors.GREEN}{Colors.BOLD}✅ {msg}{Colors.NC}", file=sys.stderr, flush=True)
+    print(
+        f"{Colors.GREEN}{Colors.BOLD}✅ {msg}{Colors.NC}", file=sys.stderr, flush=True
+    )
 
 
 def log_warn(msg: str) -> None:
     """Log a warning message to stderr."""
-    print(f"{Colors.YELLOW}{Colors.BOLD}⚠️ {msg}{Colors.NC}", file=sys.stderr, flush=True)
+    print(
+        f"{Colors.YELLOW}{Colors.BOLD}⚠️ {msg}{Colors.NC}", file=sys.stderr, flush=True
+    )
 
 
 def log_error(msg: str, file: typing.TextIO = sys.stderr) -> None:
