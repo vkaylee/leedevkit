@@ -216,6 +216,14 @@ class InitHandler(HandlerBase):
             "# Delegates to .leedevkit/bin/leedevkit (per-project install)\n"
             f'exec "{wrapper_target}" "$@"\n'
         )
+        # If leedevkit is a symlink (e.g. in the devkit repo itself, where
+        # leedevkit → bin/leedevkit), remove it so we create a real file
+        # instead of following the symlink and overwriting the real entry point.
+        if wrapper.is_symlink():
+            wrapper.unlink()
+        elif wrapper.exists() and not wrapper.is_file():
+            log_warn(f"⚠️  ./leedevkit exists but is not a file — skipping wrapper")
+            return
         wrapper.write_text(wrapper_content)
         wrapper.chmod(0o755)
         log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
