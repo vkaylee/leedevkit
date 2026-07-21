@@ -67,7 +67,7 @@ with tarfile.open(archive_path, "r:gz") as archive:
         path = PurePosixPath(member.name)
         if path.is_absolute() or ".." in path.parts:
             raise SystemExit(f"Unsafe archive path: {member.name}")
-        if not (member.isfile() or member.isdir()):
+        if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
             raise SystemExit(f"Unsupported archive member: {member.name}")
     archive.extractall(destination, members=members)
 PY
