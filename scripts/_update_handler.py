@@ -107,8 +107,8 @@ def handle_update(target: str | None = None) -> None:
         except Exception as e:
             log_warn(f"Could not update leedevkit.toml: {e}")
 
-    # Auto-run init to apply new features (e.g., symlink creation)
-    log_info("Running post-update initialization...")
+    # Sync rules and create symlinks (lightweight, no network/subprocess)
+    log_info("Syncing rules and creating symlinks...")
     try:
         from _init_handler import InitHandler
         from _orchestrator import Orchestrator
@@ -117,8 +117,8 @@ def handle_update(target: str | None = None) -> None:
         orch = Orchestrator.__new__(Orchestrator)
         orch._devkit_root = root
         init_handler = InitHandler(orch)
-        init_handler.handle_init(force=False)
-        log_success("Post-update initialization complete")
+        init_handler.handle_post_update_sync()
+        log_success("Post-update sync complete")
     except Exception as e:
-        log_warn(f"Post-update init failed: {e}")
+        log_warn(f"Post-update sync failed: {e}")
         log_info("You may need to run './leedevkit init' manually")

@@ -241,11 +241,11 @@ class TestUpdateVersionPin:
         assert '[project]' in toml_file.read_text()
 
 
-class TestAutoInitAfterUpdate:
-    """Test automatic init after successful update."""
+class TestAutoSyncAfterUpdate:
+    """Test automatic sync after successful update."""
 
-    def test_init_called_after_update(self, tmp_path, monkeypatch, capsys):
-        """After successful update, init is automatically called."""
+    def test_sync_called_after_update(self, tmp_path, monkeypatch, capsys):
+        """After successful update, sync is automatically called."""
         from _update_handler import handle_update
 
         project_root = tmp_path / "project"
@@ -273,11 +273,11 @@ class TestAutoInitAfterUpdate:
 
         captured = capsys.readouterr()
         combined = captured.out + captured.err
-        assert "post-update initialization" in combined.lower()
-        assert "initialization complete" in combined.lower()
+        assert "syncing rules" in combined.lower()
+        assert "sync complete" in combined.lower()
 
-    def test_update_succeeds_even_if_init_fails(self, tmp_path, monkeypatch, capsys):
-        """Update succeeds even if post-update init fails."""
+    def test_update_succeeds_even_if_sync_fails(self, tmp_path, monkeypatch, capsys):
+        """Update succeeds even if post-update sync fails."""
         from _update_handler import handle_update
 
         project_root = tmp_path / "project"
@@ -295,16 +295,16 @@ class TestAutoInitAfterUpdate:
 
         monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
 
-        # Mock init to fail
-        def failing_init(*args, **kwargs):
-            raise RuntimeError("init failed")
+        # Mock sync to fail
+        def failing_sync(*args, **kwargs):
+            raise RuntimeError("sync failed")
 
-        monkeypatch.setattr("_init_handler.InitHandler.handle_init", failing_init)
+        monkeypatch.setattr("_init_handler.InitHandler.handle_post_update_sync", failing_sync)
 
         # Should not raise
         handle_update(target="v0.3.7")
 
         captured = capsys.readouterr()
         combined = captured.out + captured.err
-        assert "post-update init failed" in combined.lower()
+        assert "post-update sync failed" in combined.lower()
         assert "0.3.7" in (devkit_root / "VERSION").read_text()

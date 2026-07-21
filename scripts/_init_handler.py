@@ -28,6 +28,60 @@ class InitHandler(HandlerBase):
 
     # ── public API ──
 
+    def handle_post_update_sync(self) -> None:
+        """Lightweight sync after update: only sync rules and create symlinks.
+
+        Unlike handle_init(), this skips heavy operations like:
+        - Downloading devkit (already done by update)
+        - Setting up venv (already exists)
+        - Installing skills (handled separately)
+
+        This is safe to call after update and won't hang on network/subprocess.
+        """
+        from _devkit_config import get_devkit_root
+
+        root = Path.cwd()
+        config_toml = root / "leedevkit.toml"
+        cfg = _load_toml(config_toml) if config_toml.exists() else {}
+
+        try:
+            devkit = get_devkit_root()
+        except FileNotFoundError:
+            log_warn("DevKit not found, skipping post-update sync")
+            return
+
+        # Sync rules from devkit → project
+        ai_cfg = cfg.get("ai", {})
+        rules_rel = ai_cfg.get("rules_dir", ".agent/rules")
+        project_rules = root / rules_rel
+        devkit_rules = devkit / ".agent" / "rules"
+        if devkit_rules.exists():
+            project_rules.mkdir(parents=True, exist_ok=True)
+            copied = 0
+            for rule_file in sorted(devkit_rules.glob("*.md")):
+                target = project_rules / rule_file.name
+                if not target.exists():
+                    target.write_text(rule_file.read_text())
+                    copied += 1
+            if copied:
+                log_success(f"Synced {copied} new rulebook(s) to {rules_rel}/")
+
+        # Create .agent/rules symlink if rules_dir is custom
+        default_rules_rel = ".agent/rules"
+        if rules_rel != default_rules_rel and project_rules.exists():
+            default_rules = root / default_rules_rel
+            self._ensure_rules_symlink(default_rules, project_rules, rules_rel)
+
+        # Sync overrides.yaml if missing
+        override_manifest = ai_cfg.get("override_manifest", ".agent/overrides.yaml")
+        override_path = root / override_manifest
+        if not override_path.exists():
+            devkit_override = devkit / ".agent" / "overrides.yaml"
+            if devkit_override.exists():
+                override_path.parent.mkdir(parents=True, exist_ok=True)
+                override_path.write_text(devkit_override.read_text())
+                log_success(f"Created {override_manifest}")
+
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install.
 
