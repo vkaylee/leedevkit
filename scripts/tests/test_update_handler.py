@@ -159,3 +159,83 @@ class TestHandleUpdateRollback:
 
         # Successful update
         assert (root / "VERSION").read_text() == "0.2.0"
+
+
+class TestUpdateVersionPin:
+    """Test version pinning in leedevkit.toml after update."""
+
+    def test_updates_version_in_toml(self, tmp_path, monkeypatch):
+        """After successful update, version in leedevkit.toml is updated."""
+        from _update_handler import handle_update
+
+        # Setup project structure
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        toml_file = project_root / "leedevkit.toml"
+        toml_file.write_text('[devkit]\nversion = "0.1.0"\n')
+
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.6")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        handle_update(target="v0.3.6")
+
+        # Version in toml should be updated
+        assert 'version = "0.3.6"' in toml_file.read_text()
+
+    def test_no_crash_if_toml_missing(self, tmp_path, monkeypatch):
+        """Update succeeds even if leedevkit.toml doesn't exist."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.6")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        # Should not raise
+        handle_update(target="v0.3.6")
+        assert (devkit_root / "VERSION").read_text() == "0.3.6"
+
+    def test_no_crash_if_no_devkit_section(self, tmp_path, monkeypatch):
+        """Update succeeds even if leedevkit.toml has no [devkit] section."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        toml_file = project_root / "leedevkit.toml"
+        toml_file.write_text('[project]\nname = "test"\n')
+
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.6")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        # Should not raise
+        handle_update(target="v0.3.6")
+        # Toml should remain unchanged
+        assert '[project]' in toml_file.read_text()

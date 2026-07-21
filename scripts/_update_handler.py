@@ -86,3 +86,23 @@ def handle_update(target: str | None = None) -> None:
     new_ver = (root / "VERSION").read_text().strip()
     log_success(f"Updated leedevkit {current} → {new_ver}")
     log_info(f"Previous version kept at {backup.name}/ (safe to remove).")
+
+    # Update version pin in leedevkit.toml (project root)
+    project_root = root.parent  # .leedevkit/ is inside project root
+    config_toml = project_root / "leedevkit.toml"
+    if config_toml.exists():
+        try:
+            content = config_toml.read_text()
+            if "version =" in content and "[devkit]" in content:
+                import re
+
+                content = re.sub(
+                    r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
+                    f'\\1"{new_ver}"',
+                    content,
+                    flags=re.DOTALL,
+                )
+                config_toml.write_text(content)
+                log_success(f"Updated leedevkit.toml: version = \"{new_ver}\"")
+        except Exception as e:
+            log_warn(f"Could not update leedevkit.toml: {e}")
