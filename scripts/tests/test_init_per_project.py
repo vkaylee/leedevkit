@@ -184,6 +184,24 @@ class TestHandleInitFromSource:
             "https://github.com/vkaylee/leedevkit/archive/refs/tags/v0.3.11.tar.gz"
         ]
 
+    def test_reinstall_preserves_installed_skills(self, tmp_path, monkeypatch):
+        """Replacing .leedevkit must not delete project-owned skill repos."""
+        project = _make_project(tmp_path / "project")
+        source = _make_devkit_source(tmp_path / "source", version="0.3.15")
+        target = _make_devkit_source(project / ".leedevkit", version="0.3.14")
+        installed_skill = target / "skills.d" / "my-skill"
+        installed_skill.mkdir(parents=True)
+        (installed_skill / "SKILL.md").write_text("keep me\n")
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+
+        from _init_handler import InitHandler
+
+        InitHandler(None)._install_devkit(project, target, "0.3.15", force=True)
+
+        assert (target / "VERSION").read_text() == "0.3.15"
+        assert (installed_skill / "SKILL.md").read_text() == "keep me\n"
+        assert not list(project.glob(".leedevkit-skills-*"))
+
     def test_extract_rejects_copying_target_onto_itself(self, tmp_path):
         """A failed download must not delete a project's existing devkit."""
         target = _make_devkit_source(tmp_path)

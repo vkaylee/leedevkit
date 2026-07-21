@@ -327,6 +327,41 @@ class InitHandler(HandlerBase):
     ) -> None:
         """Download and install devkit into target_dir (.leedevkit/).
 
+        ``skills.d`` contains project-owned repositories, so preserve it while
+        replacing the otherwise disposable devkit installation.
+        """
+        import shutil as _shutil
+        import tempfile
+
+        skills_dir = target_dir / "skills.d"
+        backup_root: Path | None = None
+        backup_skills: Path | None = None
+        if skills_dir.exists() or skills_dir.is_symlink():
+            backup_root = Path(
+                tempfile.mkdtemp(prefix=".leedevkit-skills-", dir=project_root)
+            )
+            backup_skills = backup_root / "skills.d"
+            _shutil.move(str(skills_dir), str(backup_skills))
+
+        try:
+            self._install_devkit_contents(target_dir, version, force=force)
+        finally:
+            if backup_skills is not None and backup_skills.exists():
+                target_dir.mkdir(parents=True, exist_ok=True)
+                restored_skills = target_dir / "skills.d"
+                if restored_skills.is_symlink() or restored_skills.is_file():
+                    restored_skills.unlink()
+                elif restored_skills.exists():
+                    _shutil.rmtree(restored_skills)
+                _shutil.move(str(backup_skills), str(restored_skills))
+            if backup_root is not None:
+                _shutil.rmtree(backup_root, ignore_errors=True)
+
+    def _install_devkit_contents(
+        self, target_dir: Path, version: str, force: bool = False
+    ) -> None:
+        """Replace the devkit's managed files using the requested source.
+
         Strategy (in order):
           1. Local path override (DEVKIT_LOCAL_PATH env) — for development
           2. GitHub release tarball — for production
