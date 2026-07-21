@@ -106,3 +106,19 @@ def handle_update(target: str | None = None) -> None:
                 log_success(f"Updated leedevkit.toml: version = \"{new_ver}\"")
         except Exception as e:
             log_warn(f"Could not update leedevkit.toml: {e}")
+
+    # Auto-run init to apply new features (e.g., symlink creation)
+    log_info("Running post-update initialization...")
+    try:
+        from _init_handler import InitHandler
+        from _orchestrator import Orchestrator
+
+        # Create a minimal orchestrator instance for InitHandler
+        orch = Orchestrator.__new__(Orchestrator)
+        orch._devkit_root = root
+        init_handler = InitHandler(orch)
+        init_handler.handle_init(force=False)
+        log_success("Post-update initialization complete")
+    except Exception as e:
+        log_warn(f"Post-update init failed: {e}")
+        log_info("You may need to run './leedevkit init' manually")

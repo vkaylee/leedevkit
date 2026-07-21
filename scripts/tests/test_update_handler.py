@@ -239,3 +239,72 @@ class TestUpdateVersionPin:
         handle_update(target="v0.3.6")
         # Toml should remain unchanged
         assert '[project]' in toml_file.read_text()
+
+
+class TestAutoInitAfterUpdate:
+    """Test automatic init after successful update."""
+
+    def test_init_called_after_update(self, tmp_path, monkeypatch, capsys):
+        """After successful update, init is automatically called."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        toml_file = project_root / "leedevkit.toml"
+        toml_file.write_text('[devkit]\nversion = "0.1.0"\n')
+
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+        (devkit_root / "scripts").mkdir()
+        (devkit_root / "scripts" / "_orchestrator.py").write_text("# stub")
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.7")
+            (target_dir / "scripts").mkdir()
+            (target_dir / "scripts" / "_orchestrator.py").write_text("# stub")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        handle_update(target="v0.3.7")
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "post-update initialization" in combined.lower()
+        assert "initialization complete" in combined.lower()
+
+    def test_update_succeeds_even_if_init_fails(self, tmp_path, monkeypatch, capsys):
+        """Update succeeds even if post-update init fails."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.3.7")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        # Mock init to fail
+        def failing_init(*args, **kwargs):
+            raise RuntimeError("init failed")
+
+        monkeypatch.setattr("_init_handler.InitHandler.handle_init", failing_init)
+
+        # Should not raise
+        handle_update(target="v0.3.7")
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "post-update init failed" in combined.lower()
+        assert "0.3.7" in (devkit_root / "VERSION").read_text()
