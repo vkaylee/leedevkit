@@ -167,6 +167,19 @@ class TestPrintSuccessFailure:
         captured = capsys.readouterr()
         assert "FAILED" in captured.out
 
+    def test_print_failure_includes_complete_log(self, capsys, tmp_path):
+        from _test_utils import _print_failure
+
+        lines = [f"error line {index}" for index in range(1, 36)]
+        log = tmp_path / "long_fail.log"
+        log.write_text("\n".join(lines) + "\n")
+
+        _print_failure("mytask", log, 1)
+
+        captured = capsys.readouterr()
+        assert "error line 1" in captured.out
+        assert "error line 35" in captured.out
+
     def test_print_failure_no_log(self, capsys):
         from _test_utils import _print_failure
         from pathlib import Path

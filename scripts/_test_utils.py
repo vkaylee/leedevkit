@@ -246,14 +246,13 @@ def _print_success(name: str, log_file: Path) -> None:
 
 
 def _print_failure(name: str, log_file: Path, exit_code: int) -> None:
-    """Print failure message with log tail."""
+    """Print the complete failure log, preserving every diagnostic line."""
     import sys as _sys
 
     _sys.stdout.write(f"\n  [{name}] FAILED (exit={exit_code})\n")
     _sys.stdout.flush()
     if log_file.exists():
         lines = log_file.read_text(errors="replace").splitlines()
-        tail = lines[-30:] if len(lines) > 30 else lines
-        for line in tail:
+        for line in lines:
             _sys.stdout.write(f"  [{name}] {line}\n")
         _sys.stdout.flush()
