@@ -117,9 +117,14 @@ class TestFindProjectRoot:
 
 class TestFindDevkitRoot:
     def test_from_env_var(self, tmp_path, monkeypatch):
+        import _devkit_config
+
+        monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DEVKIT_HOME", str(tmp_path))
+        _devkit_config._DEVKIT_ROOT = None
         root = _find_devkit_root()
         assert root == tmp_path
+        _devkit_config._DEVKIT_ROOT = None
 
 
 class TestResolveAiRules:
@@ -184,6 +189,7 @@ class TestFindDevkitRootFallbacks:
         (dk / "VERSION").write_text("9.9.9")
         (dk / ".agent").mkdir()
         (dk / ".agent" / "skills.d").mkdir()
+        monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DEVKIT_HOME", str(dk))
         import _devkit_config
 
