@@ -249,8 +249,12 @@ class TestHandler(HandlerBase):
                     log_warn(
                         f"\n💡 Tip: To focus on integration/E2E tests only, run:\n   leedevkit test {target} --e2e-only\n"
                     )
-            if phase_name != "Linting":
-                sys.exit(1)
+            # Every phase is a hard gate, including Linting. Previously the
+            # Linting phase was exempted (`if phase_name != "Linting"`), so
+            # `leedevkit test api --lint-only` could exit 0 while clippy was
+            # failing unwrap_used/expect_used = deny — a false green that hid
+            # violations of the project's own linter config.
+            sys.exit(1)
 
     def handle_test_infra(self) -> None:
         """Run all test files with coverage enforcement."""
@@ -305,7 +309,25 @@ class TestHandler(HandlerBase):
         self.handle_test_infra()
 
     def print_test_summary(self, target: str) -> None:
-        """Parse test log files and print a summary of passed/total tests."""
+        """Parse test log files and print a summary of passed/total tests.
+
+        Defense-in-depth: if any phase recorded a failure in self._results
+        (e.g. clippy lint failing), print FAILED instead of the green
+        "all passed" line. The old logic only counted test-log patterns, so a
+        failing lint phase could still print a green summary.
+        """
+        failed_phases = [
+            phase
+            for phase, result in self._results.items()
+            if result.get("status") == "fail"
+        ]
+        if failed_phases:
+            log_error(
+                f"❌ Phase(s) FAILED: {', '.join(failed_phases)}. "
+                "Not all checks passed — see per-phase logs above."
+            )
+            return
+
         total_tests = 0
         passed_tests = 0
 

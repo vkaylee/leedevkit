@@ -146,6 +146,17 @@ class TestRunFunctionsWithPattern:
         assert any("cargo clippy" in c for c in cmd_strs)
         assert any("bun run lint" in c for c in cmd_strs)
 
+        # fmt and clippy must be INDEPENDENT tasks: a fmt failure must not
+        # short-circuit clippy (no `&&` joining them), otherwise unwrap_used/
+        # expect_used = deny go unenforced on unformatted trees.
+        fmt_cmds = [c for c in cmd_strs if "cargo fmt" in c]
+        clippy_cmds = [c for c in cmd_strs if "cargo clippy" in c]
+        assert fmt_cmds, "expected a cargo fmt task"
+        assert clippy_cmds, "expected a cargo clippy task"
+        assert not any(
+            "cargo fmt" in c and "cargo clippy" in c for c in cmd_strs
+        ), "fmt and clippy must not share one short-circuited command"
+
         # Verify api-sync uses bash -c "cmd1 && cmd2" to prevent syntax errors
         api_sync_cmd = next(c for c in cmd_strs if "openapi-typescript" in c)
         assert api_sync_cmd.startswith("bash -c")
@@ -159,6 +170,14 @@ class TestRunFunctionsWithPattern:
         cmd_strs = [" ".join(cmd) for _, _, cmd in tasks]
         assert any("--package apiserver" in c for c in cmd_strs)
         assert not any("bun run lint" in c for c in cmd_strs)
+        # clippy must run independently of fmt for the api target as well
+        clippy_cmds = [c for c in cmd_strs if "cargo clippy" in c]
+        fmt_cmds = [c for c in cmd_strs if "cargo fmt" in c]
+        assert clippy_cmds
+        assert fmt_cmds
+        assert not any(
+            "cargo fmt" in c and "cargo clippy" in c for c in cmd_strs
+        ), "fmt and clippy must not share one short-circuited command"
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_web(self, mock_run: MagicMock) -> None:

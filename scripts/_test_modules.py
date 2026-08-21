@@ -171,18 +171,36 @@ def leedevkit_run_lint(
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         fmt_flag = "" if fix else "-- --check"
-        backend_cmd = build_compose_exec(
+        # fmt and clippy run as INDEPENDENT tasks (no `&&` short-circuit).
+        # Previously `cargo fmt --check && cargo clippy` meant a formatting
+        # failure masked clippy entirely, so unwrap_used/expect_used = deny
+        # went unenforced whenever the tree was unformatted. Each task now
+        # fails the phase on its own, so both gates always run.
+        fmt_cmd = build_compose_exec(
             rust_svc,
-            f"cargo fmt --all {fmt_flag} && cargo clippy {pkg_flag} -- -D warnings",
+            f"cargo fmt --all {fmt_flag}",
             workdir="/workspace",
             mode="api" if mode == "all" else mode,
         )
-        task_name = (
+        fmt_task = (
+            f"rust-backend-fmt-{component_filter}"
+            if component_filter
+            else "rust-backend-fmt"
+        )
+        tasks.append((fmt_task, rust_svc, fmt_cmd))
+
+        clippy_cmd = build_compose_exec(
+            rust_svc,
+            f"cargo clippy {pkg_flag} -- -D warnings",
+            workdir="/workspace",
+            mode=mode,
+        )
+        clippy_task = (
             f"rust-backend-clippy-{component_filter}"
             if component_filter
             else "rust-backend-clippy"
         )
-        tasks.append((task_name, rust_svc, backend_cmd))
+        tasks.append((clippy_task, rust_svc, clippy_cmd))
 
         # Add custom Python linters (run on host as apiserver container lacks Python)
         import sys

@@ -626,6 +626,95 @@ class TestTestHandler:
         # Should not raise when no log dir exists
         handler.print_test_summary("test-target")
 
+    def test_print_test_summary_reports_failed_phase(self):
+        """A phase recorded as failed must NOT print the green all-passed line."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        orch.results = {"Linting": {"status": "fail", "duration_s": 1.0}}
+        handler = TestHandler(orch)
+        with (
+            patch("_test_handler.log_error") as mock_err,
+            patch("_test_handler.log_success") as mock_ok,
+        ):
+            handler.print_test_summary("api")
+        mock_err.assert_called_once()
+        # The green "All selected tests passed successfully!" line must not fire
+        assert not any(
+            "passed successfully" in str(c) for c in mock_ok.call_args_list
+        )
+
+    def test_print_test_summary_all_pass_still_green(self):
+        """All-passed phases still print the green summary."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        orch.results = {
+            "Unit Tests": {"status": "pass", "duration_s": 1.0},
+            "Linting": {"status": "pass", "duration_s": 1.0},
+        }
+        handler = TestHandler(orch)
+        with patch("_test_handler.log_error") as mock_err:
+            handler.print_test_summary("api")
+        mock_err.assert_not_called()
+
+    def test_run_phase_linting_failure_exits_nonzero(self):
+        """A failed Linting phase must sys.exit(1), not silently continue."""
+        import pytest as _pytest
+
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = MagicMock()
+        args.lint_only = True
+        args.unit_only = False
+        args.e2e_only = False
+        args.skip_lint = False
+        args.coverage = False
+        args.timeout = None
+        args.pattern = ""
+        args.fix = False
+        args.json_output = False
+        args.component = ""
+        args.target = "api"
+        with (
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_lint", return_value=False),
+            _pytest.raises(SystemExit) as exc_info,
+        ):
+            handler.run_phase("Linting", "api", args)
+        assert exc_info.value.code == 1
+
+    def test_run_phase_linting_success_no_exit(self):
+        """A passing Linting phase must not exit."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = MagicMock()
+        args.lint_only = True
+        args.unit_only = False
+        args.e2e_only = False
+        args.skip_lint = False
+        args.coverage = False
+        args.timeout = None
+        args.pattern = ""
+        args.fix = False
+        args.json_output = False
+        args.component = ""
+        args.target = "api"
+        with (
+            patch("_test_handler._lifecycle_up"),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_lint", return_value=True),
+        ):
+            # Should return without raising SystemExit
+            handler.run_phase("Linting", "api", args)
+        assert "Linting" in orch.results
+        assert orch.results["Linting"]["status"] == "pass"
+
     def test_run_phase_dry_run(self):
         from _test_handler import TestHandler
 
@@ -739,6 +828,7 @@ class TestTestHandler:
         with (
             patch("_test_handler._lifecycle_up"),
             patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_lint", return_value=True),
             patch("_test_handler.leedevkit_run_coverage", return_value=True),
         ):
             handler.handle_test(args)
