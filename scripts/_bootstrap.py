@@ -63,7 +63,8 @@ PROFILES: dict[str, list[str]] = {
     "api": ["--profile", "api"],
     "integration": ["--profile", "api"],
     "web": ["--profile", "web"],
-    "all": ["--profile", "api", "--profile", "web"],
+    "go": ["--profile", "go"],
+    "all": ["--profile", "api", "--profile", "web", "--profile", "go"],
 }
 
 
@@ -99,11 +100,17 @@ LIFECYCLE_PROFILES: dict[str, list[str]] = {
         "infra-pooler",
     ],
     "web": ["--profile", "web"],
+    "go": ["--profile", "go"],
+    "lint-go": ["--profile", "go"],
+    "unit-go": ["--profile", "go"],
+    "int-go": ["--profile", "go"],
     "all": [
         "--profile",
         "api",
         "--profile",
         "web",
+        "--profile",
+        "go",
         "--profile",
         "infra-db",
         "--profile",
@@ -127,48 +134,65 @@ def resolve_lifecycle_profiles(mode: str) -> list[str]:
     return LIFECYCLE_PROFILES.get(mode, ["--profile", mode])
 
 
-def _find_container_compose() -> Path | None:
-    """Find a language-specific compose file under container/<lang>/.
-
-    Auto-discovers subdirectories — adding container/go/ or container/python/
-    in the future requires no code changes here.
-    """
+def _find_container_compose(mode: str = "all") -> Path | None:
+    """Find built-in compose file for one language, never guess mixed projects."""
     container_dir = DEVKIT_ROOT / "container"
     if not container_dir.exists():
         return None
-    for lang_dir in sorted(container_dir.iterdir()):
-        if not lang_dir.is_dir() or lang_dir.name == "__pycache__":
-            continue
-        candidate = lang_dir / "docker-compose.test.yml"
+
+    if mode in ("go", "lint-go", "unit-go", "int-go"):
+        languages = ["go"]
+    elif mode in ("api", "integration", "int-api"):
+        languages = ["rust"]
+    elif mode == "all":
+        has_go = (PROJECT_ROOT / "go.mod").exists()
+        has_rust = (PROJECT_ROOT / "Cargo.toml").exists()
+        languages = ["go"] if has_go and not has_rust else ["rust"] if has_rust and not has_go else []
+    else:
+        languages = []
+
+    for language in languages:
+        candidate = container_dir / language / "docker-compose.test.yml"
         if candidate.exists():
             return candidate
     return None
 
 
-def bootstrap_env(mode: str = "all") -> dict[str, str]:
-    """Build the full environment dict for the given mode.
+def _inject_go_version_env() -> None:
+    """Set GO_VERSION from project config unless environment overrides it."""
+    if "GO_VERSION" in os.environ:
+        return
+    config_toml = PROJECT_ROOT / "leedevkit.toml"
+    if not config_toml.exists():
+        return
+    try:
+        from _devkit_config import _load_toml
 
-    Returns a dict suitable for os.environ.copy().update().
-    """
+        cfg = _load_toml(config_toml)
+        for service in cfg.get("services", {}).values():
+            if isinstance(service, dict) and service.get("lang") == "go" and "go_version" in service:
+                os.environ["GO_VERSION"] = str(service["go_version"])
+                return
+    except (OSError, ValueError, KeyError):
+        return
+
+
+def bootstrap_env(mode: str = "all") -> dict[str, str]:
+    """Build the full environment dict for the given mode."""
+    if mode == "go" or (PROJECT_ROOT / "go.mod").exists():
+        _inject_go_version_env()
     engine = detect_engine()
     compose_cmd = detect_compose_cmd()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
-
     profiles = resolve_profiles(mode)
 
-    # Resolve compose file: project override first, then devkit default
     compose_file = PROJECT_ROOT / ".compose" / "docker-compose.test.yml"
     if not compose_file.exists():
-        container_compose = _find_container_compose()
+        container_compose = _find_container_compose(mode)
         if container_compose is not None:
             compose_file = container_compose
 
-    compose_base = [
-        "-p",
-        project_name,
-        "-f",
-        str(compose_file),
-    ]
+    compose_base = ["-p", project_name, "-f", str(compose_file)]
     compose_full = compose_cmd + compose_base + profiles
     compose_str = " ".join(compose_full)
 

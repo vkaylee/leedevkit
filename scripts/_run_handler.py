@@ -59,8 +59,12 @@ class RunHandler(HandlerBase):
         executes it safely.
         """
         self._orch.needs_cleanup = True
-        inject_rust_version_env()
         tool = args.tool
+        if tool != "go":
+            inject_rust_version_env()
+        elif not self.is_service_running(self._tool_map.get("go", "go")):
+            _lifecycle_up("go")
+
         tool_args = args.args
 
         if getattr(args, "pooler", False):
@@ -124,14 +128,14 @@ class RunHandler(HandlerBase):
                     compose_cmd.extend(
                         ["--profile", "infra-pooler"]
                     )  # pragma: no cover
+        elif tool == "go":
+            compose_cmd.extend(["--profile", "go"])
         else:
             compose_cmd.extend(["--profile", "frontend"])
 
+        compose_mode = {"cargo": "api", "npm": "web", "go": "go"}.get(tool, "all")
         compose_cmd.extend(
-            [
-                "-f",
-                str(PROJECT_ROOT / ".compose" / "docker-compose.test.yml"),
-            ]
+            ["-f", self._compose_file_for_mode(compose_mode)]
         )
 
         if tool == "npm":
@@ -156,6 +160,9 @@ class RunHandler(HandlerBase):
             else:
                 compose_cmd.extend(["run", "-T", "--rm"])
             self._handle_run_cargo(compose_cmd, tool_args, service)
+        elif tool == "go":
+            compose_cmd.extend(["run", "-T", "--rm", "--no-deps", "--entrypoint", "go", service])
+            compose_cmd.extend(tool_args)
         else:  # diesel
             compose_cmd.extend(
                 ["run", "-T", "--rm", "--entrypoint", tool, service]
@@ -164,6 +171,13 @@ class RunHandler(HandlerBase):
                 compose_cmd.extend(tool_args)  # pragma: no cover
 
         self._execute_safe(compose_cmd)
+
+    def _compose_file_for_mode(self, mode: str) -> str:
+        """Resolve compose file using shared bootstrap language selection."""
+        from _bootstrap import bootstrap_env
+
+        base = bootstrap_env(mode)["DOCKER_COMPOSE_BASE"].split()
+        return base[base.index("-f") + 1]
 
     def _handle_run_npm(
         self,

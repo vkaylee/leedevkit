@@ -53,6 +53,78 @@ def _resolve_rust_service(component_filter: str = "") -> str:
     return "apiserver"
 
 
+def _has_go_service() -> bool:
+    """Return whether project config or manifest declares Go."""
+    try:
+        from _bootstrap import PROJECT_ROOT
+        from _devkit_config import _load_toml
+
+        if (PROJECT_ROOT / "go.mod").exists():
+            return True
+        config_toml = PROJECT_ROOT / "leedevkit.toml"
+        if config_toml.exists():
+            services = _load_toml(config_toml).get("services", {})
+            return any(
+                isinstance(svc, dict) and svc.get("lang") == "go"
+                for svc in services.values()
+            )
+    except Exception:
+        pass
+    return False
+
+
+def _has_configured_language(*languages: str) -> bool:
+    """Return whether manifest or project config declares one language."""
+    try:
+        from _bootstrap import PROJECT_ROOT
+        from _devkit_config import _load_toml
+
+        markers = {"go": "go.mod", "rust": "Cargo.toml"}
+        if any((PROJECT_ROOT / markers[lang]).exists() for lang in languages if lang in markers):
+            return True
+        config_toml = PROJECT_ROOT / "leedevkit.toml"
+        if config_toml.exists():
+            services = _load_toml(config_toml).get("services", {})
+            return any(
+                isinstance(service, dict) and service.get("lang") in languages
+                for service in services.values()
+            )
+    except Exception:
+        pass
+    return False
+
+
+def _has_rust_service() -> bool:
+    return _has_configured_language("rust")
+
+
+def _has_web_service() -> bool:
+    return _has_configured_language("typescript", "javascript") or _has_configured_language("web")
+
+
+def _resolve_go_service(component_filter: str = "") -> str:
+    """Return configured Go service, falling back to the built-in `go`."""
+    try:
+        from _bootstrap import PROJECT_ROOT
+        from _devkit_config import _load_toml
+
+        config_toml = PROJECT_ROOT / "leedevkit.toml"
+        if config_toml.exists():
+            services = _load_toml(config_toml).get("services", {})
+            go_services = [
+                name
+                for name, svc in services.items()
+                if isinstance(svc, dict) and svc.get("lang") == "go"
+            ]
+            if component_filter and component_filter in go_services:
+                return component_filter if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists() else "go"
+            if go_services:
+                return go_services[0] if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists() else "go"
+    except Exception:
+        pass
+    return "go"
+
+
 def _resolve_pkg_flag(component_filter: str) -> str:
     """Resolve --package flag for cargo commands.
 
@@ -89,13 +161,13 @@ def leedevkit_run_lint(
     # Runs first so AI agents get immediate results without waiting for Docker.
     import shutil as _shutil
 
-    if mode in ("all", "api", "integration") and _shutil.which("cargo"):
+    if (mode in ("api", "integration") or (mode == "all" and _has_rust_service())) and _shutil.which("cargo"):
         fmt_cmd = ["cargo", "fmt", "--all"]  # pragma: no cover - host-dependent
         if not fix:  # pragma: no cover - host-dependent
             fmt_cmd.extend(["--", "--check"])
         tasks.append(("rust-backend-fmt-check", "host", fmt_cmd))  # pragma: no cover
 
-    if mode in ("all", "api", "integration"):
+    if mode in ("api", "integration") or (mode == "all" and _has_rust_service()):
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         fmt_flag = "" if fix else "-- --check"
@@ -103,7 +175,7 @@ def leedevkit_run_lint(
             rust_svc,
             f"cargo fmt --all {fmt_flag} && cargo clippy {pkg_flag} -- -D warnings",
             workdir="/workspace",
-            mode=mode,
+            mode="api" if mode == "all" else mode,
         )
         task_name = (
             f"rust-backend-clippy-{component_filter}"
@@ -128,39 +200,57 @@ def leedevkit_run_lint(
             ("rust-backend-tenant-isolation-linter", rust_svc, tenant_isolation_cmd)
         )
 
-    if mode in ("all", "web"):
+    if mode in ("all", "web") and _has_web_service():
         lint_cmd = build_compose_exec(
             "webdashboard",
             "bun run lint:fix" if fix else "bun run lint",
-            mode=mode,
+            mode="web",
         )
         tasks.append(("webdashboard-lint", "webdashboard", lint_cmd))
 
         typecheck_cmd = build_compose_exec(
-            "webdashboard", "bun run type-check", mode=mode
+            "webdashboard", "bun run type-check", mode="web"
         )
         tasks.append(("webdashboard-typecheck", "webdashboard", typecheck_cmd))
 
-        i18n_cmd = build_compose_exec("webdashboard", "bun run check-i18n", mode=mode)
+        i18n_cmd = build_compose_exec("webdashboard", "bun run check-i18n", mode="web")
         tasks.append(("webdashboard-i18n", "webdashboard", i18n_cmd))
 
-    if mode == "all":
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        go_svc = _resolve_go_service(component_filter)
+        format_cmd = "gofmt -w ." if fix else "test -z \"$(gofmt -l .)\""
+        tasks.append(
+            (
+                "go-format",
+                go_svc,
+                build_compose_exec(go_svc, format_cmd, workdir="/workspace", mode="go"),
+            )
+        )
+        tasks.append(
+            (
+                "go-vet",
+                go_svc,
+                build_compose_exec(go_svc, "go vet ./...", workdir="/workspace", mode="go"),
+            )
+        )
+
+    if mode == "all" and _has_rust_service() and _has_web_service():
+        rust_svc = _resolve_rust_service(component_filter)
         sync_cmd = build_compose_exec(
             rust_svc,
             "cargo run -- gen-openapi > /workspace/shared/openapi.json",
-            mode=mode,
+            mode="api",
         )
         sync_cmd2 = build_compose_exec(
             "webdashboard",
             "npx openapi-typescript /workspace/shared/openapi.json -o ./src/types/api-generated.ts",
-            mode=mode,
+            mode="web",
         )
         import shlex
 
         cmd1_str = " ".join(shlex.quote(arg) for arg in sync_cmd)
         cmd2_str = " ".join(shlex.quote(arg) for arg in sync_cmd2)
-        combined = ["bash", "-c", f"{cmd1_str} && {cmd2_str}"]
-        tasks.append(("api-sync", "webdashboard", combined))
+        tasks.append(("api-sync", "webdashboard", ["bash", "-c", f"{cmd1_str} && {cmd2_str}"]))
 
     return run_parallel_ordered("Linting", component_filter, tasks)
 
@@ -177,23 +267,34 @@ def leedevkit_run_unit(
 
     shard_flag = f"--shard={shard_n}/{shard_m}" if shard_n and shard_m else ""
 
-    if mode in ("all", "api", "integration"):
+    if mode in ("api", "integration") or (mode == "all" and _has_rust_service()):
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         db_url = "postgres://test_user:test_password@localhost:5432/test_database?sslmode=disable"
         backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {_safe_pattern(test_pattern)} {shard_flag} --no-tests=pass"
         backend_cmd = build_compose_exec(
-            rust_svc, backend, workdir="/workspace", mode=mode
+            rust_svc, backend, workdir="/workspace", mode="api" if mode == "all" else mode
         )
         task_name = (
             f"rust-backend-{component_filter}" if component_filter else "rust-backend"
         )
         tasks.append((task_name, rust_svc, backend_cmd))
 
-    if mode in ("all", "web"):
+    if mode in ("web",) or (mode == "all" and _has_web_service()):
         web = f"bun run test -- {_safe_pattern(test_pattern)} {shard_flag} --passWithNoTests"
-        web_cmd = build_compose_exec("webdashboard", web, mode=mode)
+        web_cmd = build_compose_exec("webdashboard", web, mode="web")
         tasks.append(("webdashboard", "webdashboard", web_cmd))
+
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        go_svc = _resolve_go_service(component_filter)
+        run_flag = f" -run {_safe_pattern(test_pattern)}" if test_pattern else ""
+        tasks.append(
+            (
+                "go-unit",
+                go_svc,
+                build_compose_exec(go_svc, f"go test ./...{run_flag}", workdir="/workspace", mode="go"),
+            )
+        )
 
     return run_parallel_ordered("Unit Tests", component_filter, tasks)
 
@@ -207,7 +308,7 @@ def leedevkit_run_integration(
     no_tests_flag = "pass"
     workdir = "/workspace"
 
-    if mode in ("all", "api", "integration") and "web" not in component_filter:
+    if (mode in ("api", "integration") or (mode == "all" and _has_rust_service())) and "web" not in component_filter:
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         # API server startup is handled by the lifecycle/container health check
@@ -223,7 +324,7 @@ def leedevkit_run_integration(
             f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' {_safe_pattern(test_pattern)} "
             f"--no-tests={no_tests_flag}"
         )
-        backend_cmd = build_compose_exec(rust_svc, backend, workdir=workdir, mode=mode)
+        backend_cmd = build_compose_exec(rust_svc, backend, workdir=workdir, mode="api" if mode == "all" else mode)
         task_name = (
             f"rust-backend-int-{component_filter}"
             if component_filter
@@ -231,24 +332,24 @@ def leedevkit_run_integration(
         )
         tasks.append((task_name, rust_svc, backend_cmd))
 
-    if mode in ("all", "web"):
+    if mode == "web" or (mode == "all" and _has_web_service()):
         pw_args = f"-g {_safe_pattern(test_pattern)}" if test_pattern else ""
         pw = f"bunx playwright test {pw_args} --workers 2"
-        pw_cmd = build_compose_exec("webdashboard", pw, mode=mode)
+        pw_cmd = build_compose_exec("webdashboard", pw, mode="web")
         tasks.append(("playwright-e2e", "webdashboard", pw_cmd))
 
     return run_parallel_ordered("Integration & E2E", component_filter, tasks)
 
 
 def leedevkit_run_coverage(
-    component_filter: str = "", mode: str = "all", unit_only: bool = False
+    component_filter: str = "", mode: str = "all", unit_only: bool = False, test_pattern: str = ""
 ) -> bool:
     """Run test coverage (cargo llvm-cov, vitest coverage)."""
     tasks: list[tuple[str, str, list[str]]] = []
 
     coverage_env = "RUSTC_WRAPPER='' DATABASE_URL='postgres://test_user:test_password@db_system:5432/leedevkit_test_template'"
 
-    if mode in ("all", "api", "integration"):
+    if mode in ("api", "integration") or (mode == "all" and _has_rust_service()):
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         test_flags = "--lib" if unit_only else "--lib --test integration"
@@ -280,16 +381,31 @@ def leedevkit_run_coverage(
             (
                 task_name,
                 rust_svc,
-                build_compose_exec(rust_svc, apiserver_cov, mode=mode),
+                build_compose_exec(rust_svc, apiserver_cov, mode="api" if mode == "all" else mode),
             )
         )
 
-    if mode in ("all", "web"):
+    if mode == "web" or (mode == "all" and _has_web_service()):
         tasks.append(
             (
                 "webdashboard-coverage",
                 "webdashboard",
-                build_compose_exec("webdashboard", "bun run test:coverage", mode=mode),
+                build_compose_exec("webdashboard", "bun run test:coverage", mode="web"),
+            )
+        )
+
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        go_svc = _resolve_go_service(component_filter)
+        coverage = (
+            "mkdir -p /workspace/.test_logs && "
+            f"go test -coverprofile=/workspace/.test_logs/coverage-go.out ./...{f' -run {_safe_pattern(test_pattern)}' if test_pattern else ''} && "
+            "go tool cover -func=/workspace/.test_logs/coverage-go.out"
+        )
+        tasks.append(
+            (
+                "go-coverage",
+                go_svc,
+                build_compose_exec(go_svc, coverage, workdir="/workspace", mode="go"),
             )
         )
 

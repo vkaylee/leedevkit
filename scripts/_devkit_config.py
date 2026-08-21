@@ -262,7 +262,7 @@ def resolve_targets() -> list[str]:
             return list(targets.keys())
     except Exception:
         pass
-    return ["all", "api", "web", "apiserver", "agent-main", "webdashboard", "infra"]
+    return ["all", "api", "web", "go", "apiserver", "agent-main", "webdashboard", "infra"]
 
 
 # ── Mode map & Rust version injection (extracted from Orchestrator) ────────
@@ -290,6 +290,8 @@ def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
                         mode_map[name] = "api"
                     elif lang in ("typescript", "javascript"):
                         mode_map[name] = "web"
+                    elif lang == "go":
+                        mode_map[name] = "go"
     except (OSError, ValueError, KeyError):
         pass
     # Backward-compat fallbacks
@@ -298,6 +300,7 @@ def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
     mode_map.setdefault("webdashboard", "web")
     mode_map.setdefault("api", "api")
     mode_map.setdefault("web", "web")
+    mode_map.setdefault("go", "go")
     return mode_map
 
 

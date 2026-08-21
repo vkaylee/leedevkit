@@ -105,6 +105,8 @@ class InitHandler(HandlerBase):
             source_root = Path(__file__).resolve().parent.parent
             if (root / "Cargo.toml").exists():
                 template = source_root / "templates" / "leedevkit.rust.toml"
+            elif (root / "go.mod").exists():
+                template = source_root / "templates" / "leedevkit.go.toml"
             else:
                 template = source_root / "templates" / "leedevkit.default.toml"
             if template.exists():

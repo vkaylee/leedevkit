@@ -96,6 +96,12 @@ def lifecycle_up(mode: str = "all") -> bool:
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
         containers_to_check.append(f"{project_name}_bun_init_1")
         timeout = 120
+    elif mode in ("go", "unit-go", "lint-go", "int-go"):
+        containers_to_check.append(f"{project_name}_go_1")
+        timeout = 60
+    elif mode == "all" and (PROJECT_ROOT / "go.mod").exists() and not (PROJECT_ROOT / "Cargo.toml").exists():
+        containers_to_check.append(f"{project_name}_go_1")
+        timeout = 60
     elif mode == "infra-pooler":
         containers_to_check.append(f"{project_name}_pgbouncer_tx_1")  # pragma: no cover
         timeout = 60  # pragma: no cover

@@ -174,6 +174,22 @@ skills = [
 ]
 ```
 
+## Go-Only Project
+
+For Go modules, `leedevkit init` detects `go.mod` and scaffolds Go config automatically.
+
+```bash
+cd my-go-project && git init
+touch go.mod
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
+./leedevkit test go                 # gofmt + go vet + go test
+./leedevkit test go --coverage      # Go coverage report
+./leedevkit run go test ./...       # Run Go command in container
+```
+
+Generated config uses built-in `container/go/` image. Override toolchain with `GO_VERSION=1.24` or `[services.go] go_version = "1.24"`.
+Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase does not duplicate `go test ./...`.
+
 ## Rust-Only Project
 
 For Rust libraries, CLI tools, or any crate that doesn't need a web frontend or database.
@@ -196,7 +212,7 @@ my-rust-crate/
 ├── leedevkit.toml              ← auto-generated (rust template)
 ├── leedevkit                   ← wrapper script
 ├── .leedevkit/
-│   │   └── rust/               ← language-specific Dockerfile + compose (zero setup)
+│   │   └── container/rust/     ← language-specific Dockerfile + compose (zero setup)
 ├── .agent/rules/               ← AI context (copied from devkit)
 └── .compose/                   ← (optional) create to override the default image
 ```

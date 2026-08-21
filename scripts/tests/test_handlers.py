@@ -439,6 +439,135 @@ class TestRunHandler:
             handler = RunHandler(orch)
             assert handler.is_service_running("apiserver") is True
 
+    def test_handle_run_go_uses_go_profile_and_entrypoint(self):
+        """run go must use --profile go, --entrypoint go, and the go service."""
+        from _run_handler import RunHandler
+
+        orch = _mock_orchestrator()
+        orch.tool_map = {
+            "npm": "webdashboard",
+            "cargo": "apiserver",
+            "diesel": "apiserver",
+            "go": "go",
+        }
+        handler = RunHandler(orch)
+        args = MagicMock()
+        args.tool = "go"
+        args.args = ["version"]
+        args.pooler = False
+        # Report service NOT running; mock lifecycle_up so no real compose runs.
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(stdout="", returncode=0),
+        ):
+            with patch("_run_handler._lifecycle_up"):
+                handler.handle_run(args)
+
+        orch.execute_safe.assert_called_once()
+        cmd = orch.execute_safe.call_args[0][0]
+        assert "--profile" in cmd
+        assert cmd[cmd.index("--profile") + 1] == "go"
+        assert "--entrypoint" in cmd
+        assert cmd[cmd.index("--entrypoint") + 1] == "go"
+        assert "go" in cmd  # service name
+        assert "version" in cmd  # sanitized tool args pass through
+
+    def test_handle_run_go_starts_service_when_not_running(self):
+        """run go starts the go service when it is not already running."""
+        from _run_handler import RunHandler
+
+        orch = _mock_orchestrator()
+        orch.tool_map = {
+            "npm": "webdashboard",
+            "cargo": "apiserver",
+            "diesel": "apiserver",
+            "go": "go",
+        }
+        handler = RunHandler(orch)
+        args = MagicMock()
+        args.tool = "go"
+        args.args = ["test", "./..."]
+        args.pooler = False
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(stdout="", returncode=0),
+        ):
+            with patch("_run_handler._lifecycle_up") as mock_up:
+                handler.handle_run(args)
+
+        mock_up.assert_called_once_with("go")
+        orch.execute_safe.assert_called_once()
+
+    def test_handle_run_go_skips_rust_env_injection(self):
+        """run go must not call inject_rust_version_env."""
+        from _run_handler import RunHandler
+
+        orch = _mock_orchestrator()
+        orch.tool_map = {
+            "npm": "webdashboard",
+            "cargo": "apiserver",
+            "diesel": "apiserver",
+            "go": "go",
+        }
+        handler = RunHandler(orch)
+        args = MagicMock()
+        args.tool = "go"
+        args.args = ["version"]
+        args.pooler = False
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(stdout="", returncode=0),
+        ):
+            with patch("_run_handler._lifecycle_up"):
+                with patch("_run_handler.inject_rust_version_env") as mock_inject:
+                    handler.handle_run(args)
+        mock_inject.assert_not_called()
+
+    def test_handle_run_cargo_uses_api_compose_mode(self):
+        """cargo selects the api compose file, not the all/default one."""
+        from _run_handler import RunHandler
+
+        orch = _mock_orchestrator()
+        handler = RunHandler(orch)
+        args = MagicMock()
+        args.tool = "cargo"
+        args.args = ["fmt"]
+        args.pooler = False
+        with patch("pathlib.Path.cwd", return_value=MagicMock()):
+            with patch("_run_handler.inject_rust_version_env"):
+                with patch.object(
+                    RunHandler, "_compose_file_for_mode", return_value="/tmp/x.yml"
+                ) as mock_file:
+                    handler.handle_run(args)
+        mock_file.assert_called_once_with("api")
+
+    def test_handle_run_go_uses_go_compose_mode(self):
+        """go selects the go compose file."""
+        from _run_handler import RunHandler
+
+        orch = _mock_orchestrator()
+        orch.tool_map = {
+            "npm": "webdashboard",
+            "cargo": "apiserver",
+            "diesel": "apiserver",
+            "go": "go",
+        }
+        handler = RunHandler(orch)
+        args = MagicMock()
+        args.tool = "go"
+        args.args = ["version"]
+        args.pooler = False
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(stdout="", returncode=0),
+        ):
+            with patch("_run_handler._lifecycle_up"):
+                with patch.object(
+                    RunHandler, "_compose_file_for_mode", return_value="/tmp/x.yml"
+                ) as mock_file:
+                    handler.handle_run(args)
+        mock_file.assert_called_once_with("go")
+
 
 # ── TestHandler ──────────────────────────────────────────────────────────────
 

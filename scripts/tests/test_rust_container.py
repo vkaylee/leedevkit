@@ -25,6 +25,7 @@ def _make_project_with_rust_service(tmp_path: Path, service_name: str = "rust") 
     proj = tmp_path / "project"
     proj.mkdir(parents=True)
     (proj / ".git").mkdir()
+    (proj / "Cargo.toml").write_text("[package]\nname = 'x'\n")
     _write_toml(
         proj / "leedevkit.toml",
         f"""[devkit]
@@ -611,9 +612,10 @@ rust_version = "1.84"
 
 class TestFindContainerCompose:
     def test_finds_rust_subdirectory(self, tmp_path, monkeypatch):
-        """Finds docker-compose.test.yml under container/rust/."""
+        """Finds docker-compose.test.yml under container/rust/ for api mode."""
         proj = tmp_path / "project"
         proj.mkdir()
+        (proj / "Cargo.toml").write_text("[package]\nname = 'x'\n")
         leedevkit = proj / ".leedevkit"
 
         # Create container/rust/docker-compose.test.yml
@@ -626,7 +628,7 @@ class TestFindContainerCompose:
         _setup_bootstrap_paths(monkeypatch, proj, leedevkit)
         from _bootstrap import _find_container_compose
 
-        result = _find_container_compose()
+        result = _find_container_compose("api")
         assert result is not None
         assert result.name == "docker-compose.test.yml"
         assert "container/rust" in str(result)
@@ -696,13 +698,13 @@ class TestFindContainerCompose:
 
         assert _find_container_compose() is None
 
-    def test_picks_first_alphabetically(self, tmp_path, monkeypatch):
-        """When multiple language dirs exist, picks first sorted alphabetically."""
+    def test_all_mode_mixed_returns_none(self, tmp_path, monkeypatch):
+        """Multiple language dirs but no manifest: mode 'all' must not guess."""
         proj = tmp_path / "project"
         proj.mkdir()
         leedevkit = proj / ".leedevkit"
 
-        # Create both rust/ and go/ — rust comes before go alphabetically
+        # Create both rust/ and go/
         for lang in ["rust", "go"]:
             lang_dir = leedevkit / "container" / lang
             lang_dir.mkdir(parents=True)
@@ -713,10 +715,49 @@ class TestFindContainerCompose:
         _setup_bootstrap_paths(monkeypatch, proj, leedevkit)
         from _bootstrap import _find_container_compose
 
-        result = _find_container_compose()
+        # Without a matching go.mod or Cargo.toml, 'all' returns None instead of
+        # arbitrarily picking go/ (which would break mixed projects).
+        assert _find_container_compose("all") is None
+
+    def test_go_mode_picks_go(self, tmp_path, monkeypatch):
+        """mode 'go' picks container/go/ even when rust/ exists too."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        leedevkit = proj / ".leedevkit"
+
+        for lang in ["rust", "go"]:
+            lang_dir = leedevkit / "container" / lang
+            lang_dir.mkdir(parents=True)
+            (lang_dir / "docker-compose.test.yml").write_text(
+                f"services:\n  {lang}:\n    build: .\n"
+            )
+
+        _setup_bootstrap_paths(monkeypatch, proj, leedevkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("go")
         assert result is not None
-        # "go" < "rust" alphabetically, so go/ should be picked first
         assert "container/go" in str(result)
+
+    def test_api_mode_picks_rust(self, tmp_path, monkeypatch):
+        """mode 'api' picks container/rust/ even when go/ exists too."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        leedevkit = proj / ".leedevkit"
+
+        for lang in ["rust", "go"]:
+            lang_dir = leedevkit / "container" / lang
+            lang_dir.mkdir(parents=True)
+            (lang_dir / "docker-compose.test.yml").write_text(
+                f"services:\n  {lang}:\n    build: .\n"
+            )
+
+        _setup_bootstrap_paths(monkeypatch, proj, leedevkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("api")
+        assert result is not None
+        assert "container/rust" in str(result)
 
     def test_integration_bootstrap_env_uses_container_rust(self, tmp_path, monkeypatch):
         """bootstrap_env() returns compose path under container/rust/ when no project override."""

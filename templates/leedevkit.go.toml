@@ -1,0 +1,28 @@
+# LeeDevKit Go project profile
+
+[devkit]
+version = "latest"
+install = "per-project"
+source = "release"
+
+[project]
+name = "MyGoProject"
+namespace = "mygoproject"
+languages = ["go"]
+
+[services.go]
+lang = "go"
+go = true
+# go_version = "1.24"
+
+[targets]
+go = ["go"]
+all = ["go"]
+
+[ai]
+extra_rules = []
+rules_dir = ".agent/rules"
+override_manifest = ".agent/overrides.yaml"
+
+[addons]
+skills = []

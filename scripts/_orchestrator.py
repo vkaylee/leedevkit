@@ -26,6 +26,7 @@ from _logging import log_error, log_info, log_warn
 from _run_handler import RunHandler
 from _test_handler import TestHandler
 from _test_modules import (
+    _resolve_go_service,
     _resolve_rust_service,
 )
 
@@ -41,7 +42,10 @@ class Orchestrator:
             "npm": "webdashboard",
             "cargo": rust_svc,
             "diesel": rust_svc,
+            "go": _resolve_go_service(),
         }
+
+        # Go projects do not need Rust environment injection.
         self.parser = CliParser(self.tool_map).build()
         self.dry_run = False
         self.env_vars: dict[str, str] = {

@@ -70,7 +70,8 @@ class TestHandler(HandlerBase):
         args.component = component_filter
 
         self._orch.active_mode = mode
-        inject_rust_version_env()
+        if mode != "go":
+            inject_rust_version_env()
         log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
 
         if getattr(args, "timeout", None):
@@ -160,6 +161,10 @@ class TestHandler(HandlerBase):
             ("Unit Tests", "web"): "unit-web",
             ("Integration Tests", "web"): "e2e-web",
             ("Coverage", "web"): "web",
+            ("Linting", "go"): "lint-go",
+            ("Unit Tests", "go"): "unit-go",
+            ("Integration Tests", "go"): "int-go",
+            ("Coverage", "go"): "go",
         }
         granular_mode = granular_map.get((phase_name, mode))
 
@@ -198,6 +203,7 @@ class TestHandler(HandlerBase):
                 getattr(args, "component", "") or "",
                 mode,
                 getattr(args, "unit_only", False),
+                getattr(args, "pattern", "") or "",
             ),
             "Database Setup": self._orch.handle_db_setup_phase,
             "Prebuild": self._orch.handle_prebuild_phase,

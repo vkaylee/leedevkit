@@ -219,3 +219,166 @@ class TestProjectRootFallback:
         root = _find_project_root()
         # Falls back to the scripts directory's parent
         assert root is not None
+
+
+# ── Go support: mode-aware compose selection and version injection ───────────
+
+
+def _write_container_compose(devkit_root: Path, language: str) -> Path:
+    """Create a built-in compose file under container/<language>/."""
+    lang_dir = devkit_root / "container" / language
+    lang_dir.mkdir(parents=True, exist_ok=True)
+    compose = lang_dir / "docker-compose.test.yml"
+    compose.write_text(f"services:\n  {language}:\n    image: {language}:latest\n")
+    return compose
+
+
+class TestFindContainerComposeModeAware:
+    """_find_container_compose must select by mode, never alphabetically."""
+
+    def test_go_mode_picks_go(self, tmp_path, monkeypatch) -> None:
+        """mode='go' selects container/go/ even when container/rust/ exists."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        devkit = proj / ".leedevkit"
+        _write_container_compose(devkit, "go")
+        _write_container_compose(devkit, "rust")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("go")
+        assert result is not None
+        assert "container/go" in str(result)
+
+    def test_api_mode_picks_rust(self, tmp_path, monkeypatch) -> None:
+        """mode='api' selects container/rust/ even when go/ sorts first."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        devkit = proj / ".leedevkit"
+        _write_container_compose(devkit, "go")
+        _write_container_compose(devkit, "rust")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("api")
+        assert result is not None
+        assert "container/rust" in str(result)
+
+    def test_all_mode_go_only(self, tmp_path, monkeypatch) -> None:
+        """mode='all' with only go.mod picks Go compose (no arbitrary fallback)."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "go.mod").write_text("module example\n")
+        devkit = proj / ".leedevkit"
+        _write_container_compose(devkit, "go")
+        _write_container_compose(devkit, "rust")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("all")
+        assert result is not None
+        assert "container/go" in str(result)
+
+    def test_all_mode_rust_only(self, tmp_path, monkeypatch) -> None:
+        """mode='all' with only Cargo.toml picks Rust compose."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "Cargo.toml").write_text("[package]\nname = 'x'\n")
+        devkit = proj / ".leedevkit"
+        _write_container_compose(devkit, "go")
+        _write_container_compose(devkit, "rust")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        result = _find_container_compose("all")
+        assert result is not None
+        assert "container/rust" in str(result)
+
+    def test_all_mode_mixed_returns_none(self, tmp_path, monkeypatch) -> None:
+        """mode='all' with both go.mod and Cargo.toml must not guess a language."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "go.mod").write_text("module example\n")
+        (proj / "Cargo.toml").write_text("[package]\nname = 'x'\n")
+        devkit = proj / ".leedevkit"
+        _write_container_compose(devkit, "go")
+        _write_container_compose(devkit, "rust")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        assert _find_container_compose("all") is None
+
+
+class TestGoVersionInjection:
+    """GO_VERSION must load through the shared _load_toml loader."""
+
+    def test_go_version_read_from_config(self, tmp_path, monkeypatch) -> None:
+        """[services.go] go_version sets GO_VERSION env var."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "leedevkit.toml").write_text(
+            '[services.go]\nlang = "go"\ngo = true\ngo_version = "1.23"\n'
+        )
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.delenv("GO_VERSION", raising=False)
+        from _bootstrap import _inject_go_version_env
+
+        _inject_go_version_env()
+        assert os.environ.get("GO_VERSION") == "1.23"
+
+    def test_go_version_env_takes_priority(self, tmp_path, monkeypatch) -> None:
+        """Explicit GO_VERSION env var wins over config."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "leedevkit.toml").write_text(
+            '[services.go]\nlang = "go"\ngo = true\ngo_version = "1.23"\n'
+        )
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setenv("GO_VERSION", "1.22")
+        from _bootstrap import _inject_go_version_env
+
+        _inject_go_version_env()
+        assert os.environ.get("GO_VERSION") == "1.22"
+
+    def test_go_version_does_not_override_rust(self, tmp_path, monkeypatch) -> None:
+        """Go version injection must not touch RUST_VERSION."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "leedevkit.toml").write_text(
+            '[services.rust]\nlang = "rust"\ncargo = true\nrust_version = "1.84"\n'
+        )
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.delenv("GO_VERSION", raising=False)
+        from _bootstrap import _inject_go_version_env
+
+        _inject_go_version_env()
+        assert os.environ.get("GO_VERSION") is None

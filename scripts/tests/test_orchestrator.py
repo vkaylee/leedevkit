@@ -435,6 +435,7 @@ class TestModeMap:
             "all": "all",
             "api": "api",
             "web": "web",
+            "go": "go",
             "apiserver": "api",
             "agent-main": "api",
             "webdashboard": "web",
@@ -442,6 +443,46 @@ class TestModeMap:
         assert mode_map["all"] == "all"
         assert mode_map["apiserver"] == "api"
         assert mode_map["webdashboard"] == "web"
+        assert mode_map["go"] == "go"
+
+    def test_build_mode_map_go_service(self, tmp_path, monkeypatch):
+        """build_mode_map maps [services.x] lang=go → 'go'."""
+        from _devkit_config import build_mode_map
+
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "leedevkit.toml").write_text(
+            '[services.backend]\nlang = "go"\ngo = true\n'
+        )
+        mode_map = build_mode_map(project_root=proj)
+        assert mode_map["backend"] == "go"
+        assert mode_map["go"] == "go"
+
+    def test_build_mode_map_mixed(self, tmp_path, monkeypatch):
+        """build_mode_map distinguishes rust / typescript / go services."""
+        from _devkit_config import build_mode_map
+
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "leedevkit.toml").write_text(
+            '[services.apiserver]\nlang = "rust"\ncargo = true\n\n'
+            "[services.webdashboard]\nlang = \"typescript\"\n\n"
+            '[services.backend]\nlang = "go"\ngo = true\n'
+        )
+        mode_map = build_mode_map(project_root=proj)
+        assert mode_map["apiserver"] == "api"
+        assert mode_map["webdashboard"] == "web"
+        assert mode_map["backend"] == "go"
+
+
+class TestOrchestratorToolMapGo:
+    def test_tool_map_contains_go(self, tmp_path, monkeypatch):
+        """Orchestrator tool_map exposes a 'go' entry."""
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            assert "go" in orch.tool_map
 
 
 class TestIsServiceRunning:

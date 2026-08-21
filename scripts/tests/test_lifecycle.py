@@ -92,6 +92,32 @@ class TestLifecycleUp:
             all_call_str = str(mock_run.call_args_list)
             assert "down" not in all_call_str
 
+    def test_go_mode_checks_go_container(self) -> None:
+        """mode 'go' health-check waits on the <project>_go_1 container."""
+        with (
+            patch("_lifecycle._run"),
+            patch("_lifecycle._container_healthy", return_value=True) as mock_health,
+            patch("_lifecycle.time.sleep"),
+        ):
+            result = lifecycle_up("go")
+            assert result is True
+            checked = [call[0][0] for call in mock_health.call_args_list]
+            assert any("_go_1" in name for name in checked)
+
+    def test_go_granular_modes_check_go_container(self) -> None:
+        """lint-go/unit-go/int-go all health-check the go container."""
+        for mode in ("lint-go", "unit-go", "int-go"):
+            with (
+                patch("_lifecycle._run"),
+                patch(
+                    "_lifecycle._container_healthy", return_value=True
+                ) as mock_health,
+                patch("_lifecycle.time.sleep"),
+            ):
+                lifecycle_up(mode)
+                checked = [call[0][0] for call in mock_health.call_args_list]
+                assert any("_go_1" in name for name in checked), mode
+
     def test_stops_containers(self) -> None:
         with patch("_lifecycle._run") as mock_run:
             mock_run.return_value = MagicMock(stdout="", returncode=0)
