@@ -134,6 +134,16 @@ def resolve_lifecycle_profiles(mode: str) -> list[str]:
     return LIFECYCLE_PROFILES.get(mode, ["--profile", mode])
 
 
+def resolve_lifecycle_dependencies(mode: str) -> list[str]:
+    """Return configured Compose service dependencies for lifecycle mode."""
+    from _devkit_config import (
+        load_project_config,
+        resolve_lifecycle_dependencies as resolve,
+    )
+
+    return resolve(load_project_config()).get(mode, [])
+
+
 def _find_container_compose(mode: str = "all") -> Path | None:
     """Find built-in compose file for one language, never guess mixed projects."""
     container_dir = DEVKIT_ROOT / "container"
@@ -147,7 +157,13 @@ def _find_container_compose(mode: str = "all") -> Path | None:
     elif mode == "all":
         has_go = (PROJECT_ROOT / "go.mod").exists()
         has_rust = (PROJECT_ROOT / "Cargo.toml").exists()
-        languages = ["go"] if has_go and not has_rust else ["rust"] if has_rust and not has_go else []
+        languages = (
+            ["go"]
+            if has_go and not has_rust
+            else ["rust"]
+            if has_rust and not has_go
+            else []
+        )
     else:
         languages = []
 
@@ -170,7 +186,11 @@ def _inject_go_version_env() -> None:
 
         cfg = _load_toml(config_toml)
         for service in cfg.get("services", {}).values():
-            if isinstance(service, dict) and service.get("lang") == "go" and "go_version" in service:
+            if (
+                isinstance(service, dict)
+                and service.get("lang") == "go"
+                and "go_version" in service
+            ):
                 os.environ["GO_VERSION"] = str(service["go_version"])
                 return
     except (OSError, ValueError, KeyError):

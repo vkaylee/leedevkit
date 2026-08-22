@@ -183,6 +183,40 @@ def _read_version(project_root: Path) -> str:
     return "latest"
 
 
+def resolve_lifecycle_dependencies(
+    config: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    """Return validated Compose service dependencies by lifecycle mode."""
+    if config is None:
+        config = load_project_config()
+    test_config = config.get("test", {})
+    if not isinstance(test_config, dict):
+        raise ValueError("[test] must be a table")
+
+    dependencies = test_config.get("dependencies", {})
+    if dependencies is None:
+        return {}
+    if not isinstance(dependencies, dict):
+        raise ValueError("[test.dependencies] must be a table")
+
+    result: dict[str, list[str]] = {}
+    for mode, services in dependencies.items():
+        if not isinstance(mode, str) or not mode.strip():
+            raise ValueError("[test.dependencies] mode keys must be non-empty strings")
+        if not isinstance(services, list) or not services:
+            raise ValueError(
+                f'[test.dependencies."{mode}"] must be a non-empty list of service names'
+            )
+        if any(
+            not isinstance(service, str) or not service.strip() for service in services
+        ):
+            raise ValueError(
+                f'[test.dependencies."{mode}"] must contain only non-empty strings'
+            )
+        result[mode] = services
+    return result
+
+
 # ── AI Rule resolver ───────────────────────────────────────────────────────
 
 
@@ -262,7 +296,16 @@ def resolve_targets() -> list[str]:
             return list(targets.keys())
     except Exception:
         pass
-    return ["all", "api", "web", "go", "apiserver", "agent-main", "webdashboard", "infra"]
+    return [
+        "all",
+        "api",
+        "web",
+        "go",
+        "apiserver",
+        "agent-main",
+        "webdashboard",
+        "infra",
+    ]
 
 
 # ── Mode map & Rust version injection (extracted from Orchestrator) ────────

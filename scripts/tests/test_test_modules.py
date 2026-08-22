@@ -153,9 +153,9 @@ class TestRunFunctionsWithPattern:
         clippy_cmds = [c for c in cmd_strs if "cargo clippy" in c]
         assert fmt_cmds, "expected a cargo fmt task"
         assert clippy_cmds, "expected a cargo clippy task"
-        assert not any(
-            "cargo fmt" in c and "cargo clippy" in c for c in cmd_strs
-        ), "fmt and clippy must not share one short-circuited command"
+        assert not any("cargo fmt" in c and "cargo clippy" in c for c in cmd_strs), (
+            "fmt and clippy must not share one short-circuited command"
+        )
 
         # Verify api-sync uses bash -c "cmd1 && cmd2" to prevent syntax errors
         api_sync_cmd = next(c for c in cmd_strs if "openapi-typescript" in c)
@@ -175,9 +175,9 @@ class TestRunFunctionsWithPattern:
         fmt_cmds = [c for c in cmd_strs if "cargo fmt" in c]
         assert clippy_cmds
         assert fmt_cmds
-        assert not any(
-            "cargo fmt" in c and "cargo clippy" in c for c in cmd_strs
-        ), "fmt and clippy must not share one short-circuited command"
+        assert not any("cargo fmt" in c and "cargo clippy" in c for c in cmd_strs), (
+            "fmt and clippy must not share one short-circuited command"
+        )
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_web(self, mock_run: MagicMock) -> None:
@@ -242,9 +242,7 @@ class TestGoServiceDetection:
 
         proj = tmp_path / "project"
         proj.mkdir()
-        (proj / "leedevkit.toml").write_text(
-            '[services.go]\nlang = "go"\ngo = true\n'
-        )
+        (proj / "leedevkit.toml").write_text('[services.go]\nlang = "go"\ngo = true\n')
         monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
         assert _has_go_service() is True
 

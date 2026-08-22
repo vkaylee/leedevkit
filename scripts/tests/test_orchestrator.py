@@ -466,7 +466,7 @@ class TestModeMap:
         proj.mkdir()
         (proj / "leedevkit.toml").write_text(
             '[services.apiserver]\nlang = "rust"\ncargo = true\n\n'
-            "[services.webdashboard]\nlang = \"typescript\"\n\n"
+            '[services.webdashboard]\nlang = "typescript"\n\n'
             '[services.backend]\nlang = "go"\ngo = true\n'
         )
         mode_map = build_mode_map(project_root=proj)

@@ -80,7 +80,11 @@ def _has_configured_language(*languages: str) -> bool:
         from _devkit_config import _load_toml
 
         markers = {"go": "go.mod", "rust": "Cargo.toml"}
-        if any((PROJECT_ROOT / markers[lang]).exists() for lang in languages if lang in markers):
+        if any(
+            (PROJECT_ROOT / markers[lang]).exists()
+            for lang in languages
+            if lang in markers
+        ):
             return True
         config_toml = PROJECT_ROOT / "leedevkit.toml"
         if config_toml.exists():
@@ -99,7 +103,9 @@ def _has_rust_service() -> bool:
 
 
 def _has_web_service() -> bool:
-    return _has_configured_language("typescript", "javascript") or _has_configured_language("web")
+    return _has_configured_language(
+        "typescript", "javascript"
+    ) or _has_configured_language("web")
 
 
 def _resolve_go_service(component_filter: str = "") -> str:
@@ -117,9 +123,17 @@ def _resolve_go_service(component_filter: str = "") -> str:
                 if isinstance(svc, dict) and svc.get("lang") == "go"
             ]
             if component_filter and component_filter in go_services:
-                return component_filter if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists() else "go"
+                return (
+                    component_filter
+                    if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists()
+                    else "go"
+                )
             if go_services:
-                return go_services[0] if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists() else "go"
+                return (
+                    go_services[0]
+                    if (PROJECT_ROOT / ".compose" / "docker-compose.test.yml").exists()
+                    else "go"
+                )
     except Exception:
         pass
     return "go"
@@ -161,7 +175,9 @@ def leedevkit_run_lint(
     # Runs first so AI agents get immediate results without waiting for Docker.
     import shutil as _shutil
 
-    if (mode in ("api", "integration") or (mode == "all" and _has_rust_service())) and _shutil.which("cargo"):
+    if (
+        mode in ("api", "integration") or (mode == "all" and _has_rust_service())
+    ) and _shutil.which("cargo"):
         fmt_cmd = ["cargo", "fmt", "--all"]  # pragma: no cover - host-dependent
         if not fix:  # pragma: no cover - host-dependent
             fmt_cmd.extend(["--", "--check"])
@@ -236,7 +252,7 @@ def leedevkit_run_lint(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
-        format_cmd = "gofmt -w ." if fix else "test -z \"$(gofmt -l .)\""
+        format_cmd = "gofmt -w ." if fix else 'test -z "$(gofmt -l .)"'
         tasks.append(
             (
                 "go-format",
@@ -248,7 +264,9 @@ def leedevkit_run_lint(
             (
                 "go-vet",
                 go_svc,
-                build_compose_exec(go_svc, "go vet ./...", workdir="/workspace", mode="go"),
+                build_compose_exec(
+                    go_svc, "go vet ./...", workdir="/workspace", mode="go"
+                ),
             )
         )
 
@@ -268,7 +286,9 @@ def leedevkit_run_lint(
 
         cmd1_str = " ".join(shlex.quote(arg) for arg in sync_cmd)
         cmd2_str = " ".join(shlex.quote(arg) for arg in sync_cmd2)
-        tasks.append(("api-sync", "webdashboard", ["bash", "-c", f"{cmd1_str} && {cmd2_str}"]))
+        tasks.append(
+            ("api-sync", "webdashboard", ["bash", "-c", f"{cmd1_str} && {cmd2_str}"])
+        )
 
     return run_parallel_ordered("Linting", component_filter, tasks)
 
@@ -291,7 +311,10 @@ def leedevkit_run_unit(
         db_url = "postgres://test_user:test_password@localhost:5432/test_database?sslmode=disable"
         backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {_safe_pattern(test_pattern)} {shard_flag} --no-tests=pass"
         backend_cmd = build_compose_exec(
-            rust_svc, backend, workdir="/workspace", mode="api" if mode == "all" else mode
+            rust_svc,
+            backend,
+            workdir="/workspace",
+            mode="api" if mode == "all" else mode,
         )
         task_name = (
             f"rust-backend-{component_filter}" if component_filter else "rust-backend"
@@ -310,7 +333,9 @@ def leedevkit_run_unit(
             (
                 "go-unit",
                 go_svc,
-                build_compose_exec(go_svc, f"go test ./...{run_flag}", workdir="/workspace", mode="go"),
+                build_compose_exec(
+                    go_svc, f"go test ./...{run_flag}", workdir="/workspace", mode="go"
+                ),
             )
         )
 
@@ -326,7 +351,9 @@ def leedevkit_run_integration(
     no_tests_flag = "pass"
     workdir = "/workspace"
 
-    if (mode in ("api", "integration") or (mode == "all" and _has_rust_service())) and "web" not in component_filter:
+    if (
+        mode in ("api", "integration") or (mode == "all" and _has_rust_service())
+    ) and "web" not in component_filter:
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         # API server startup is handled by the lifecycle/container health check
@@ -342,7 +369,9 @@ def leedevkit_run_integration(
             f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' {_safe_pattern(test_pattern)} "
             f"--no-tests={no_tests_flag}"
         )
-        backend_cmd = build_compose_exec(rust_svc, backend, workdir=workdir, mode="api" if mode == "all" else mode)
+        backend_cmd = build_compose_exec(
+            rust_svc, backend, workdir=workdir, mode="api" if mode == "all" else mode
+        )
         task_name = (
             f"rust-backend-int-{component_filter}"
             if component_filter
@@ -360,7 +389,10 @@ def leedevkit_run_integration(
 
 
 def leedevkit_run_coverage(
-    component_filter: str = "", mode: str = "all", unit_only: bool = False, test_pattern: str = ""
+    component_filter: str = "",
+    mode: str = "all",
+    unit_only: bool = False,
+    test_pattern: str = "",
 ) -> bool:
     """Run test coverage (cargo llvm-cov, vitest coverage)."""
     tasks: list[tuple[str, str, list[str]]] = []
@@ -399,7 +431,9 @@ def leedevkit_run_coverage(
             (
                 task_name,
                 rust_svc,
-                build_compose_exec(rust_svc, apiserver_cov, mode="api" if mode == "all" else mode),
+                build_compose_exec(
+                    rust_svc, apiserver_cov, mode="api" if mode == "all" else mode
+                ),
             )
         )
 

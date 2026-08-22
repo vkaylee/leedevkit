@@ -19,6 +19,7 @@ from _bootstrap import (
     SCRIPTS_DIR,
     bootstrap_env,
     detect_engine,
+    resolve_lifecycle_dependencies,
     resolve_lifecycle_profiles,
 )
 
@@ -70,6 +71,32 @@ def _container_healthy(container_name: str) -> bool:
     return result.stdout.strip() == "healthy"
 
 
+def _compose_service_names(
+    compose_base: list[str], profiles: list[str]
+) -> set[str] | None:
+    """Read all Compose service names when Compose metadata is available."""
+    result = _run(
+        compose_base + profiles + ["--profile", "*", "config", "--services"],
+        capture=True,
+    )
+    if result.returncode != 0 or not isinstance(result.stdout, str):
+        return None
+    services = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return services or None
+
+
+def _compose_service_container(
+    compose_base: list[str], profiles: list[str], service: str, project_name: str
+) -> str:
+    """Resolve Compose service to engine inspect target, with legacy fallback."""
+    result = _run(compose_base + profiles + ["ps", "-q", service], capture=True)
+    if isinstance(result.stdout, str):
+        container_id = result.stdout.strip().splitlines()
+        if container_id:
+            return container_id[0]
+    return f"{project_name}_{service}_1"
+
+
 def lifecycle_up(mode: str = "all") -> bool:
     """Bring up test infrastructure containers for the given mode.
 
@@ -77,48 +104,106 @@ def lifecycle_up(mode: str = "all") -> bool:
     Idempotent — safe for concurrent agents sharing the same project.
     """
     profiles = resolve_lifecycle_profiles(mode)
+    dependencies = list(dict.fromkeys(resolve_lifecycle_dependencies(mode)))
     env = bootstrap_env(mode)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()
+    project_name = env.get(
+        "COMPOSE_PROJECT_NAME", os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
+    )
+
+    if dependencies:
+        available_services = _compose_service_names(compose_base, profiles)
+        if available_services is not None:
+            unknown = [
+                service for service in dependencies if service not in available_services
+            ]
+            if unknown:
+                raise ValueError(
+                    "Unknown lifecycle dependency service(s) "
+                    f"{', '.join(unknown)} for mode {mode!r} in {env['DOCKER_COMPOSE_BASE']}"
+                )
 
     # Bring services up (idempotent — no pre-cleanup needed)
     # CRITICAL: We must use silent=True (which sets stdout/stderr to DEVNULL)
     # to prevent podman system service and conmon daemons from inheriting the PTY!
     # Inheriting the PTY causes the terminal to hang indefinitely after the script exits.
     up_cmd = ["up", "-d"]
-    if mode.startswith("lint-") or mode.startswith("unit-"):
+    if not dependencies and (mode.startswith("lint-") or mode.startswith("unit-")):
         up_cmd.append("--no-deps")
     _run(compose_base + profiles + up_cmd, silent=True, capture=False)
+    if dependencies:
+        _run(
+            compose_base + profiles + ["up", "-d", *dependencies],
+            silent=True,
+            capture=False,
+        )
 
-    # Health check
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-
-    containers_to_check = []
+    health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
-        containers_to_check.append(f"{project_name}_bun_init_1")
+        health_services.append(
+            ("main service", f"{project_name}_bun_init_1", "bun_init")
+        )
         timeout = 120
     elif mode in ("go", "unit-go", "lint-go", "int-go"):
-        containers_to_check.append(f"{project_name}_go_1")
+        health_services.append(("main service", f"{project_name}_go_1", "go"))
         timeout = 60
-    elif mode == "all" and (PROJECT_ROOT / "go.mod").exists() and not (PROJECT_ROOT / "Cargo.toml").exists():
-        containers_to_check.append(f"{project_name}_go_1")
+    elif (
+        mode == "all"
+        and (PROJECT_ROOT / "go.mod").exists()
+        and not (PROJECT_ROOT / "Cargo.toml").exists()
+    ):
+        health_services.append(("main service", f"{project_name}_go_1", "go"))
         timeout = 60
     elif mode == "infra-pooler":
-        containers_to_check.append(f"{project_name}_pgbouncer_tx_1")  # pragma: no cover
+        health_services.append(
+            ("main service", f"{project_name}_pgbouncer_tx_1", "pgbouncer_tx")
+        )  # pragma: no cover
         timeout = 60  # pragma: no cover
     elif mode == "infra-db":  # pragma: no cover
-        containers_to_check.append(f"{project_name}_db_init_1")  # pragma: no cover
+        health_services.append(
+            ("main service", f"{project_name}_db_init_1", "db_init")
+        )  # pragma: no cover
         timeout = 60  # pragma: no cover
     elif mode == "infra-redis":  # pragma: no cover
-        containers_to_check.append(f"{project_name}_redis_1")  # pragma: no cover
+        health_services.append(
+            ("main service", f"{project_name}_redis_1", "redis")
+        )  # pragma: no cover
         timeout = 30  # pragma: no cover
     else:
-        containers_to_check.append(f"{project_name}_apiserver_1")
+        health_services.append(
+            ("main service", f"{project_name}_apiserver_1", "apiserver")
+        )
         if mode in ("api", "int-api", "integration", "all"):
-            containers_to_check.append(f"{project_name}_db_system_1")
-            containers_to_check.append(f"{project_name}_redis_1")
+            health_services.append(
+                ("main service", f"{project_name}_db_system_1", "db_system")
+            )
+            health_services.append(("main service", f"{project_name}_redis_1", "redis"))
         timeout = 60
 
-    for container in containers_to_check:
+    containers_to_check: list[tuple[str, str]] = []
+    for label, fallback, service in health_services:
+        container = (
+            _compose_service_container(compose_base, profiles, service, project_name)
+            if dependencies
+            else fallback
+        )
+        containers_to_check.append((label, container))
+
+    for service in dependencies:
+        containers_to_check.append(
+            (
+                f"dependency service {service!r}",
+                _compose_service_container(
+                    compose_base, profiles, service, project_name
+                ),
+            )
+        )
+
+    checked: set[str] = set()
+    for label, container in containers_to_check:
+        if container in checked:
+            continue
+        checked.add(container)
         healthy = False
         for _ in range(timeout):
             if _container_healthy(container):
@@ -127,11 +212,19 @@ def lifecycle_up(mode: str = "all") -> bool:
             time.sleep(1)  # pragma: no cover
 
         if not healthy:
-            # Diagnostic
-            _run(
+            diagnostic = _run(
                 [_get_engine(), "ps", "-a", "--filter", f"name={project_name}"],
-                capture=False,
+                capture=True,
             )  # pragma: no cover
+            details = (
+                diagnostic.stdout.strip() if isinstance(diagnostic.stdout, str) else ""
+            )
+            print(
+                f"Healthcheck timeout: mode={mode!r}, {label}, "
+                f"container={container!r}, project={project_name!r}"
+            )
+            if details:
+                print(details)
             return False  # pragma: no cover
 
     return True

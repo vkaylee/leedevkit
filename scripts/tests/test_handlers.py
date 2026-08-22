@@ -640,9 +640,7 @@ class TestTestHandler:
             handler.print_test_summary("api")
         mock_err.assert_called_once()
         # The green "All selected tests passed successfully!" line must not fire
-        assert not any(
-            "passed successfully" in str(c) for c in mock_ok.call_args_list
-        )
+        assert not any("passed successfully" in str(c) for c in mock_ok.call_args_list)
 
     def test_print_test_summary_all_pass_still_green(self):
         """All-passed phases still print the green summary."""

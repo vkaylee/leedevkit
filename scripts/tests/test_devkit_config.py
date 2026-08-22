@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -13,7 +15,9 @@ from _devkit_config import (
     _load_toml,
     _parse_toml_minimal,
     deep_merge,
+    load_project_config,
     resolve_ai_rules,
+    resolve_lifecycle_dependencies,
 )
 
 
@@ -235,3 +239,41 @@ class TestDeepMergeMore:
         result = deep_merge(base, override)
         assert result["a"]["b"]["c"]["d"] == 1
         assert result["a"]["b"]["c"]["e"] == 2
+
+
+class TestLifecycleDependencies:
+    def test_loads_dependencies_from_project_config(self, tmp_path, monkeypatch):
+        (tmp_path / "leedevkit.toml").write_text(
+            '[test.dependencies]\n"int-go" = ["postgres"]\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        config = load_project_config()
+        assert resolve_lifecycle_dependencies(config) == {"int-go": ["postgres"]}
+
+    def test_missing_dependencies_preserves_empty_mapping(self):
+        assert resolve_lifecycle_dependencies({}) == {}
+
+    @pytest.mark.parametrize(
+        "dependencies, message",
+        [
+            ({"int-go": "postgres"}, "non-empty list"),
+            ({"int-go": []}, "non-empty list"),
+            ({"int-go": ["postgres", ""]}, "only non-empty strings"),
+            ({"int-go": ["postgres", 1]}, "only non-empty strings"),
+            ({1: ["postgres"]}, "mode keys"),
+        ],
+    )
+    def test_rejects_malformed_dependencies(self, dependencies, message):
+        with pytest.raises(ValueError, match=message):
+            resolve_lifecycle_dependencies({"test": {"dependencies": dependencies}})
+
+    def test_rejects_non_table_test_config(self):
+        with pytest.raises(ValueError, match=r"\[test\]"):
+            resolve_lifecycle_dependencies({"test": []})
+
+    def test_malformed_toml_fails_clearly(self, tmp_path):
+        malformed = tmp_path / "malformed.toml"
+        malformed.write_text('[test.dependencies\n"int-go" = ["postgres"]\n')
+        with pytest.raises(Exception) as error:
+            _load_toml(malformed)
+        assert str(error.value)

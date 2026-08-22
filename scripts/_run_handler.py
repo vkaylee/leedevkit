@@ -134,9 +134,7 @@ class RunHandler(HandlerBase):
             compose_cmd.extend(["--profile", "frontend"])
 
         compose_mode = {"cargo": "api", "npm": "web", "go": "go"}.get(tool, "all")
-        compose_cmd.extend(
-            ["-f", self._compose_file_for_mode(compose_mode)]
-        )
+        compose_cmd.extend(["-f", self._compose_file_for_mode(compose_mode)])
 
         if tool == "npm":
             first = tool_args[0] if tool_args else ""
@@ -161,7 +159,9 @@ class RunHandler(HandlerBase):
                 compose_cmd.extend(["run", "-T", "--rm"])
             self._handle_run_cargo(compose_cmd, tool_args, service)
         elif tool == "go":
-            compose_cmd.extend(["run", "-T", "--rm", "--no-deps", "--entrypoint", "go", service])
+            compose_cmd.extend(
+                ["run", "-T", "--rm", "--no-deps", "--entrypoint", "go", service]
+            )
             compose_cmd.extend(tool_args)
         else:  # diesel
             compose_cmd.extend(

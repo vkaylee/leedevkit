@@ -1,14 +1,18 @@
 """Tests for _lifecycle.py — lifecycle_up, lifecycle_down, health checks."""
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT / "scripts"))
 
+import _lifecycle  # noqa: E402
 from _lifecycle import (  # noqa: E402
     _container_healthy,
     lifecycle_down,
@@ -344,3 +348,210 @@ class TestStaleSweep:
         mock_run.side_effect = Exception("Test error")
         # Should catch and ignore
         sweep_stale_environments()
+
+
+class TestLifecycleDependencies:
+    @staticmethod
+    def _compose_result(stdout="", returncode=0):
+        return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+    def test_int_go_starts_and_checks_dependency(self):
+        def run(cmd, **kwargs):
+            if "config" in cmd:
+                return self._compose_result("go\npostgres\n")
+            if "ps" in cmd and "-q" in cmd:
+                return self._compose_result("postgres-container-id\n")
+            return self._compose_result()
+
+        with (
+            patch("_lifecycle._run", side_effect=run) as mock_run,
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch("_lifecycle._container_healthy", return_value=True) as mock_health,
+            patch("_lifecycle.time.sleep"),
+            patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "run-int-go"}),
+        ):
+            assert lifecycle_up("int-go") is True
+
+        up_cmds = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert up_cmds[0][-2:] == ["up", "-d"]
+        assert up_cmds[1][-1] == "postgres"
+        assert "--no-deps" not in up_cmds[0]
+        assert "--network" not in up_cmds[1]
+        assert "depends_on" not in up_cmds[1]
+        assert "postgres-container-id" in [
+            call.args[0] for call in mock_health.call_args_list
+        ]
+
+    def test_unit_go_does_not_start_or_check_configured_int_go_dependency(self):
+        def dependencies(mode):
+            return ["postgres"] if mode == "int-go" else []
+
+        with (
+            patch("_lifecycle._run") as mock_run,
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", side_effect=dependencies
+            ),
+            patch("_lifecycle._container_healthy", return_value=True) as mock_health,
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("unit-go") is True
+
+        up_cmd = mock_run.call_args_list[0].args[0]
+        assert "--no-deps" in up_cmd
+        assert "postgres" not in up_cmd
+        assert all(
+            "postgres" not in call.args[0] for call in mock_health.call_args_list
+        )
+
+    def test_multiple_dependencies_are_started_and_checked(self):
+        def run(cmd, **kwargs):
+            if "config" in cmd:
+                return self._compose_result("go\npostgres\nredis\n")
+            if "ps" in cmd and "-q" in cmd:
+                return self._compose_result(f"{cmd[-1]}-id\n")
+            return self._compose_result()
+
+        with (
+            patch("_lifecycle._run", side_effect=run) as mock_run,
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies",
+                return_value=["postgres", "redis", "postgres"],
+            ),
+            patch("_lifecycle._container_healthy", return_value=True) as mock_health,
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("int-go") is True
+
+        up_cmds = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert up_cmds[0][-2:] == ["up", "-d"]
+        assert up_cmds[1][-2:] == ["postgres", "redis"]
+        checked = [call.args[0] for call in mock_health.call_args_list]
+        assert "postgres-id" in checked
+        assert "redis-id" in checked
+
+    def test_unknown_dependency_fails_when_compose_metadata_available(self):
+        with (
+            patch(
+                "_lifecycle._run",
+                return_value=self._compose_result("go\nredis\n"),
+            ),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+        ):
+            with pytest.raises(ValueError, match="postgres.*int-go"):
+                lifecycle_up("int-go")
+
+    def test_timeout_identifies_dependency_service(self, capsys):
+        def run(cmd, **kwargs):
+            if "config" in cmd:
+                return self._compose_result("go\npostgres\n")
+            if "ps" in cmd and "-q" in cmd:
+                return self._compose_result(f"{cmd[-1]}-container-id\n")
+            if cmd[1:3] == ["ps", "-a"]:
+                return self._compose_result("postgres-container-id\n")
+            return self._compose_result()
+
+        with (
+            patch("_lifecycle._run", side_effect=run),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch("_lifecycle._container_healthy", side_effect=[True] + [False] * 60),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("int-go") is False
+
+        output = capsys.readouterr().out
+        assert "dependency service 'postgres'" in output
+        assert "postgres-container-id" in output
+
+    @pytest.mark.parametrize("compose_tool", ["docker compose", "podman-compose"])
+    def test_compose_tool_paths_preserve_base_command(self, compose_tool):
+        with (
+            patch(
+                "_lifecycle.bootstrap_env",
+                return_value={
+                    "DOCKER_COMPOSE_BASE": f"{compose_tool} -p run -f compose.yml"
+                },
+            ),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle.resolve_lifecycle_dependencies", return_value=[]),
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go") is True
+
+        assert (
+            mock_run.call_args_list[0].args[0][: len(compose_tool.split())]
+            == compose_tool.split()
+        )
+
+    def test_real_compose_dependency_lifecycle(self, tmp_path, monkeypatch):
+        if os.environ.get("LEEDEVKIT_RUN_COMPOSE_INTEGRATION") != "1":
+            pytest.skip(
+                "set LEEDEVKIT_RUN_COMPOSE_INTEGRATION=1 to run Compose integration"
+            )
+
+        from _bootstrap import detect_compose_cmd
+
+        compose_cmd = detect_compose_cmd()
+        if any(shutil.which(part) is None for part in compose_cmd):
+            pytest.skip("Docker Compose or Podman Compose is unavailable")
+
+        compose_file = tmp_path / "compose.yml"
+        compose_file.write_text(
+            """services:
+  go:
+    image: busybox:1.36
+    command: [\"sh\", \"-c\", \"sleep 60\"]
+    healthcheck:
+      test: [\"CMD-SHELL\", \"true\"]
+      interval: 1s
+      timeout: 1s
+      retries: 10
+  dep:
+    image: busybox:1.36
+    command: [\"sh\", \"-c\", \"sleep 60\"]
+    healthcheck:
+      test: [\"CMD-SHELL\", \"true\"]
+      interval: 1s
+      timeout: 1s
+      retries: 10
+"""
+        )
+        project = f"leedevkit-lifecycle-{os.getpid()}"
+        base = [
+            *compose_cmd,
+            "-p",
+            project,
+            "-f",
+            str(compose_file),
+        ]
+        env = {
+            "COMPOSE_PROJECT_NAME": project,
+            "PODMAN_COMPOSE_PROJECT_NAME": project,
+            "DOCKER_COMPOSE_BASE": " ".join(base),
+        }
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", project)
+        monkeypatch.setattr(_lifecycle, "bootstrap_env", lambda mode="all": env)
+        monkeypatch.setattr(_lifecycle, "resolve_lifecycle_profiles", lambda mode: [])
+        monkeypatch.setattr(
+            _lifecycle, "resolve_lifecycle_dependencies", lambda mode: ["dep"]
+        )
+        try:
+            assert lifecycle_up("go") is True
+        finally:
+            subprocess.run(
+                base + ["down", "--volumes", "--remove-orphans"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
