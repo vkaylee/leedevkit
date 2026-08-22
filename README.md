@@ -156,6 +156,12 @@ api = ["apiserver", "agent-main"]
 web = ["webdashboard"]
 all = ["apiserver", "agent-main", "webdashboard"]
 
+# Optional Compose services to start and health-check for each lifecycle mode.
+# Values are Compose service names from the project's Compose file.
+[test.dependencies]
+# "int-go" = ["postgres"]
+# "int-api" = ["postgres", "redis"]
+
 # For Python-only projects:
 # [targets]
 # infra = ["infra"]
@@ -189,6 +195,22 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 
 Generated config uses built-in `container/go/` image. Override toolchain with `GO_VERSION=1.24` or `[services.go] go_version = "1.24"`.
 Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase does not duplicate `go test ./...`.
+
+### Lifecycle dependencies
+
+Configure services that must start and pass healthchecks for a lifecycle mode:
+
+```toml
+[test.dependencies]
+"int-go" = ["postgres"]
+```
+
+The key is LeeDevKit lifecycle mode. Values are service names in the project's
+Compose file. LeeDevKit starts the mode's primary service and listed dependencies
+in the same isolated Compose project, then waits for their healthchecks. Missing
+configuration preserves existing behavior. Unit and lint modes do not start these
+services unless configured for that exact mode. For a chain, list each required
+service explicitly, for example `"int-go" = ["A", "B", "C", "D"]`.
 
 ## Rust-Only Project
 

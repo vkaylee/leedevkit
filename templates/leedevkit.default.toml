@@ -41,6 +41,14 @@ api = ["apiserver", "agent-main"]
 web = ["webdashboard"]
 all = ["apiserver", "agent-main", "webdashboard"]
 
+# ── Lifecycle dependencies ─────────────────────────────────────────────────
+# Compose services to start and health-check for each lifecycle mode.
+# Values must match service names in the project's Compose file.
+
+[test.dependencies]
+# "int-go" = ["postgres"]
+# "int-api" = ["postgres", "redis"]
+
 # ── Test phases ────────────────────────────────────────────────────────────
 # Custom test phases specific to this project.
 # `cargo test`, `bun test` are auto-detected from service.lang.
