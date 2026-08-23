@@ -118,7 +118,7 @@ my-project/
 │   ├── scripts/              # orchestrator, bootstrap, etc.
 │   ├── templates/            # default config templates
 │   ├── bin/leedevkit         # CLI entry point
-│   ├── .agent/               # base rules, skills catalog
+│   ├── .agent/               # base rules, agents, built-in skills catalog
 │   ├── .venv/                # project-local Python env
 │   ├── skills.d/             # cloned community skills (like node_modules)
 │   ├── VERSION
@@ -127,6 +127,9 @@ my-project/
 │   ├── rules/                # rulebooks (copied from devkit + project custom)
 │   ├── overrides.yaml        # which devkit rules to replace/extend/add
 │   └── agents/, workflows/   # project-specific (optional)
+├── .claude/                  # Claude Code discovery paths
+│   ├── agents/                # symlinks to .leedevkit/.agent/agents/
+│   └── skills/               # symlinks to .leedevkit/.agent/skills/
 └── leedevkit → .leedevkit/bin/leedevkit   # CLI wrapper (gitignored)
 ```
 
@@ -306,7 +309,10 @@ Template at `templates/CLAUDE.base.md` uses lazy-load pattern:
 Two kinds of skills:
 
 ### Built-in (38 skills)
-Shipped with devkit, always available via `.agent/skills → devkit` symlink. No install needed.
+Shipped with devkit inside `.leedevkit/.agent/skills/`. During `init` and `update`,
+LeeDevKit bridges built-in skills and specialist agents into `.claude/skills/` and
+`.claude/agents/` as relative symlinks. User-owned files in `.claude/` are never
+overwritten or removed. Workflows (`.agent/workflows/*.md`) remain LeeDevKit-specific.
 
 ```
 api-patterns  app-builder  architecture  bash-linux  clean-code

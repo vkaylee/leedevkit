@@ -287,6 +287,32 @@ class TestAutoSyncAfterUpdate:
         assert "syncing rules" in combined.lower()
         assert "sync complete" in combined.lower()
 
+    def test_sync_bridges_agents_and_skills(self, tmp_path, monkeypatch):
+        """Post-update sync exposes devkit resources in Claude paths."""
+        from _init_handler import InitHandler
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        devkit_root = project_root / ".leedevkit"
+        agents = devkit_root / ".agent" / "agents"
+        skills = devkit_root / ".agent" / "skills" / "api-patterns"
+        agents.mkdir(parents=True)
+        skills.mkdir(parents=True)
+        (agents / "backend.md").write_text("# Backend\n")
+        (skills / "SKILL.md").write_text("# API\n")
+        (project_root / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+
+        monkeypatch.chdir(project_root)
+        monkeypatch.setattr("_devkit_config.get_devkit_root", lambda: devkit_root)
+        InitHandler(None).handle_post_update_sync()
+
+        assert (
+            project_root / ".claude" / "agents" / "backend.md"
+        ).read_text() == "# Backend\n"
+        assert (
+            project_root / ".claude" / "skills" / "api-patterns" / "SKILL.md"
+        ).read_text() == "# API\n"
+
     def test_update_succeeds_even_if_sync_fails(self, tmp_path, monkeypatch, capsys):
         """Update succeeds even if post-update sync fails."""
         from _update_handler import handle_update

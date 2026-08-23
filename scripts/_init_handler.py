@@ -18,6 +18,100 @@ from _handler_base import HandlerBase
 from _logging import log_info, log_success, log_warn
 
 
+def _link_target(source: Path, link: Path) -> str:
+    """Return a stable link target for a project-local or external devkit."""
+    source = source.resolve()
+    project_root = link.parents[2] if len(link.parents) > 2 else link.parent
+    if source == project_root or project_root in source.parents:
+        return os.path.relpath(source, link.parent)
+    return str(source)
+
+
+def _is_managed(link: Path, devkit: Path) -> bool:
+    """Check whether a symlink resolves into the devkit root."""
+    if not link.is_symlink():
+        return False
+    try:
+        target = (link.parent / os.readlink(link)).resolve()
+        devkit = devkit.resolve()
+        return target == devkit or devkit in target.parents
+    except OSError:
+        return False
+
+
+def _bridge(source: Path, link: Path, devkit: Path) -> bool:
+    """Create or repair one managed bridge without touching user resources."""
+    expected = source.resolve()
+    if link.is_symlink():
+        try:
+            if link.resolve() == expected:
+                return False
+        except OSError:
+            pass
+        if not _is_managed(link, devkit):
+            return False
+        link.unlink()
+    elif link.exists():
+        return False
+
+    link.parent.mkdir(parents=True, exist_ok=True)
+    target = _link_target(source, link)
+    try:
+        link.symlink_to(target, target_is_directory=source.is_dir())
+    except (NotImplementedError, OSError):
+        # ponytail: filesystems without symlink support use a non-managed copy;
+        # add metadata only if copy-based ownership must later be synchronized.
+        import shutil
+
+        if source.is_dir():
+            shutil.copytree(source, link)
+        else:
+            shutil.copy2(source, link)
+    return True
+
+
+def _prune_stale(dest_dir: Path, keep: set[str], devkit: Path) -> None:
+    """Remove stale managed bridges while preserving user-owned entries."""
+    if not dest_dir.exists():
+        return
+    for item in dest_dir.iterdir():
+        if item.name not in keep and _is_managed(item, devkit):
+            item.unlink()
+
+
+def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
+    """Bridge devkit agents and built-in skills into Claude Code paths."""
+    agent_source = devkit / ".agent" / "agents"
+    skill_source = devkit / ".agent" / "skills"
+    agent_dest = root / ".claude" / "agents"
+    skill_dest = root / ".claude" / "skills"
+    agents = 0
+    skills = 0
+
+    if agent_source.is_dir():
+        sources = sorted(agent_source.glob("*.md"))
+        for source in sources:
+            if _bridge(source, agent_dest / source.name, devkit):
+                agents += 1
+        _prune_stale(agent_dest, {source.name for source in sources}, devkit)
+
+    if skill_source.is_dir():
+        sources = sorted(
+            item
+            for item in skill_source.iterdir()
+            if item.is_dir()
+            and not item.name.startswith(".")
+            and item.name != "_shared"
+            and (item / "SKILL.md").is_file()
+        )
+        for source in sources:
+            if _bridge(source, skill_dest / source.name, devkit):
+                skills += 1
+        _prune_stale(skill_dest, {source.name for source in sources}, devkit)
+
+    return agents, skills
+
+
 class InitHandler(HandlerBase):
     """Project initialization logic extracted from the Orchestrator god class.
 
@@ -81,6 +175,12 @@ class InitHandler(HandlerBase):
                 override_path.parent.mkdir(parents=True, exist_ok=True)
                 override_path.write_text(devkit_override.read_text())
                 log_success(f"Created {override_manifest}")
+
+        agents, skills = sync_claude_resources(root, devkit)
+        if agents or skills:
+            log_success(
+                f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
+            )
 
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install.
@@ -212,6 +312,13 @@ class InitHandler(HandlerBase):
                 override_path.parent.mkdir(parents=True, exist_ok=True)
                 override_path.write_text(devkit_override.read_text())
                 log_success(f"Created {override_manifest}")
+
+        # ── Step 3c: Bridge agents and skills into .claude/ discovery paths ──
+        agents, skills = sync_claude_resources(root, devkit)
+        if agents or skills:
+            log_success(
+                f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
+            )
 
         # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
         wrapper = root / "leedevkit"

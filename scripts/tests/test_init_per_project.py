@@ -72,7 +72,132 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     (agent / "skills-catalog.toml").write_text(
         '[skills]\nfoo = { name = "foo", url = "https://example.com/foo.git" }\n'
     )
+    agents = agent / "agents"
+    agents.mkdir()
+    (agents / "backend-specialist.md").write_text("# Backend Specialist\n")
+    skills = agent / "skills" / "api-patterns"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text("# API Patterns\n")
+    (skills / "rest.md").write_text("# REST\n")
     return src
+
+
+class TestClaudeResourceBridge:
+    def test_bridges_agents_and_skill_directories(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        source = _make_devkit_source(tmp_path)
+        import shutil
+
+        shutil.copytree(source, devkit)
+        assert sync_claude_resources(root, devkit) == (1, 1)
+
+        agent = root / ".claude" / "agents" / "backend-specialist.md"
+        skill = root / ".claude" / "skills" / "api-patterns"
+        assert agent.is_symlink()
+        assert agent.read_text() == "# Backend Specialist\n"
+        assert skill.is_symlink()
+        assert (skill / "SKILL.md").read_text() == "# API Patterns\n"
+        assert (skill / "rest.md").read_text() == "# REST\n"
+
+    def test_is_idempotent_and_reflects_source_changes(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        source = _make_devkit_source(tmp_path)
+        import shutil
+
+        shutil.copytree(source, devkit)
+        sync_claude_resources(root, devkit)
+        agent = root / ".claude" / "agents" / "backend-specialist.md"
+        target = agent.readlink()
+        assert sync_claude_resources(root, devkit) == (0, 0)
+        assert agent.readlink() == target
+        (devkit / ".agent" / "agents" / "backend-specialist.md").write_text("updated\n")
+        assert sync_claude_resources(root, devkit) == (0, 0)
+        assert agent.read_text() == "updated\n"
+
+    def test_preserves_user_entries_and_prunes_only_managed_stale_links(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        source = _make_devkit_source(tmp_path)
+        import shutil
+
+        shutil.copytree(source, devkit)
+        user_agent = root / ".claude" / "agents" / "mine.md"
+        user_agent.parent.mkdir(parents=True)
+        user_agent.write_text("mine\n")
+        user_skill = root / ".claude" / "skills" / "mine"
+        user_skill.mkdir(parents=True)
+        (user_skill / "SKILL.md").write_text("mine\n")
+        sync_claude_resources(root, devkit)
+        managed_agent = root / ".claude" / "agents" / "old.md"
+        managed_agent.symlink_to(devkit / ".agent" / "agents" / "backend-specialist.md")
+        managed_skill = root / ".claude" / "skills" / "old"
+        managed_skill.symlink_to(devkit / ".agent" / "skills" / "api-patterns")
+        (devkit / ".agent" / "agents" / "backend-specialist.md").unlink()
+        shutil.rmtree(devkit / ".agent" / "skills" / "api-patterns")
+
+        sync_claude_resources(root, devkit)
+        assert user_agent.read_text() == "mine\n"
+        assert user_skill.is_dir()
+        assert not managed_agent.exists() and not managed_agent.is_symlink()
+        assert not managed_skill.exists() and not managed_skill.is_symlink()
+
+    def test_refuses_conflicts_and_repairs_managed_broken_links(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        source = _make_devkit_source(tmp_path)
+        import shutil
+
+        shutil.copytree(source, devkit)
+        agent = root / ".claude" / "agents" / "backend-specialist.md"
+        agent.parent.mkdir(parents=True)
+        agent.write_text("user\n")
+        skill = root / ".claude" / "skills" / "api-patterns"
+        skill.mkdir(parents=True)
+        (skill / "custom.txt").write_text("keep\n")
+        sync_claude_resources(root, devkit)
+        assert agent.read_text() == "user\n"
+        assert (skill / "custom.txt").read_text() == "keep\n"
+
+        agent.unlink()
+        agent.symlink_to(devkit / ".agent" / "agents" / "missing.md")
+        sync_claude_resources(root, devkit)
+        assert agent.read_text() == "# Backend Specialist\n"
+
+    def test_missing_sources_and_external_broken_links_are_safe(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        (devkit / ".agent").mkdir(parents=True)
+        broken = root / ".claude" / "agents" / "mine.md"
+        broken.parent.mkdir(parents=True)
+        broken.symlink_to(tmp_path / "outside.md")
+        assert sync_claude_resources(root, devkit) == (0, 0)
+        assert broken.is_symlink()
+
+    def test_custom_rules_dir_does_not_change_bridge_location(self, tmp_path):
+        from _init_handler import sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        source = _make_devkit_source(tmp_path)
+        import shutil
+
+        shutil.copytree(source, devkit)
+        (root / "leedevkit.toml").write_text('[ai]\nrules_dir = ".custom/rules"\n')
+        sync_claude_resources(root, devkit)
+        assert (root / ".claude" / "agents" / "backend-specialist.md").exists()
+        assert (root / ".claude" / "skills" / "api-patterns" / "SKILL.md").exists()
 
 
 # ---------------------------------------------------------------------------
