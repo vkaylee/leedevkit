@@ -1,11 +1,9 @@
 # ✨ PROJECT NAME — Enterprise Context OS
 
-> 🔴 **MANDATORY:** Read this document in its entirety before taking any action.
-
 {{PROJECT_SOUL}}
 
 ## 💎 Layer 0: CORE PRINCIPLES
-> Universal rules that CANNOT be overridden by any external skill or lazy-loaded rule.
+Universal rules that cannot be overridden by any external skill or lazy-loaded rule.
 
 1. **Governance First:** Apply `.agent/rules/ai-agent-governance.md` for rule priority, applicability, scope, exceptions, verification, and Definition of Done.
 2. **Security & Privacy:** Never expose secrets or raw sensitive personal data. Apply the project's classification and masking rules.
@@ -16,53 +14,50 @@
 6. **Verification:** Discover and run the applicable project-configured checks. Do not claim full verification when a required check could not run.
 7. **Safe Execution:** Use project wrappers when present. Redirect output for noisy, interactive, containerized, or long-running commands rather than every command universally.
 
-## 🥇 Layer 1: CRITICAL PROTOCOL
-**Before writing ANY code or proposing solutions:**
-1. **MANDATORY Lazy-Load:** Read related rulebooks using the `Read` tool.
-2. **Rule Compliance:** For complex tasks, identify the applicable rulebooks in the working plan. Do not create task files unless the workflow or user requests them.
-
-## 📥 Layer 2: REQUEST CLASSIFIER
+## 🥇 Layer 1: REQUEST CLASSIFIER
 Classify the request internally so the amount of discovery and verification matches its risk. Announce specialist context only when it materially helps the user follow the work.
 
-## 🛑 Layer 3: SOCRATIC GATE
+## 🛑 Layer 2: SOCRATIC GATE
 Ask only when missing information materially changes the result, requires new authority, or cannot be safely discovered from repository context. Routine fixes should proceed with explicit, low-risk assumptions.
 
-## 📚 Layer 4: DOMAIN RULEBOOKS (Lazy Load)
-> 🔴 Before executing a task, read the relevant rules using the `Read` tool.
+## 📚 Layer 3: DOMAIN RULEBOOKS (Lazy Load)
+Load only the rulebooks applicable to the task using the `Read` tool.
 
-- **Coding Standards:** Read `.agent/rules/coding-standards.md`.
-- **AI Governance:** Read `.agent/rules/ai-agent-governance.md`.
-- **Testing Standards:** Read `.agent/rules/testing-standards.md`.
-- **Development Workflow:** Read `.agent/rules/development-workflow.md`.
-- **Secure Development Lifecycle:** Read `.agent/rules/secure-development-lifecycle.md`.
-- **Vulnerability Management:** Read `.agent/rules/vulnerability-management.md`.
-- **Architecture Governance:** Read `.agent/rules/architecture-governance.md`.
-- **API and Contract Governance:** Read `.agent/rules/api-governance.md`.
-- **Reliability Engineering:** Read `.agent/rules/reliability-engineering.md`.
-- **Migration and Rollback:** Read `.agent/rules/migration-and-rollback.md`.
-- **Release Management:** Read `.agent/rules/release-management.md`.
-- **Database:** Read `.agent/rules/database-rules.md`.
-- **UI/UX Design:** Read `.agent/rules/design-rules.md`.
-- **Access Control:** Read `.agent/rules/access-control.md`.
-- **Observability:** Read `.agent/rules/observability-rules.md`.
+- **Coding Standards:** `.agent/rules/coding-standards.md`
+- **AI Governance:** `.agent/rules/ai-agent-governance.md`
+- **Testing Standards:** `.agent/rules/testing-standards.md`
+- **Development Workflow:** `.agent/rules/development-workflow.md`
+- **Secure Development Lifecycle:** `.agent/rules/secure-development-lifecycle.md`
+- **Vulnerability Management:** `.agent/rules/vulnerability-management.md`
+- **Architecture Governance:** `.agent/rules/architecture-governance.md`
+- **API and Contract Governance:** `.agent/rules/api-governance.md`
+- **Reliability Engineering:** `.agent/rules/reliability-engineering.md`
+- **Migration and Rollback:** `.agent/rules/migration-and-rollback.md`
+- **Release Management:** `.agent/rules/release-management.md`
+- **Database:** `.agent/rules/database-rules.md`
+- **UI/UX Design:** `.agent/rules/design-rules.md`
+- **Access Control:** `.agent/rules/access-control.md`
+- **Observability:** `.agent/rules/observability-rules.md`
 
-Load only the rulebooks applicable to the task. Security, migration, architecture, and release rules are risk-triggered and do not apply mechanically to unrelated changes.
+Security, migration, architecture, and release rules are risk-triggered and do not apply mechanically to unrelated changes.
 
-## 🤖 Layer 5: AGENTS & SKILLS
-- **General Orchestration:** Read `.agent/agents/orchestrator.md`.
-- **Frontend / React / UI:** Read `.agent/agents/frontend-specialist.md`.
-- **Backend / API / Server:** Read `.agent/agents/backend-specialist.md`.
-- **API Contract Design:** Read `.agent/agents/api-designer.md`.
-- **Database / Schema:** Read `.agent/agents/database-architect.md`.
-- **DevOps / Infra:** Read `.agent/agents/devops-engineer.md`.
-- **Security / Audit:** Read `.agent/agents/security-auditor.md`.
-- **Testing & QA:** Read `.agent/agents/test-engineer.md`.
-- **Debugging:** Read `.agent/agents/debugger.md`.
-- **Performance:** Read `.agent/agents/performance-optimizer.md`.
-- **Mobile Development:** Read `.agent/agents/mobile-developer.md`.
-- **Game Development:** Read `.agent/agents/game-developer.md`.
+## 🤖 Layer 4: AGENTS & SKILLS (Lazy Load)
+Read only the agents or skills relevant to the current task.
 
-## 🔧 LAYER 6: DEVKIT COMMANDS
+- **General Orchestration:** `.agent/agents/orchestrator.md`
+- **Frontend / React / UI:** `.agent/agents/frontend-specialist.md`
+- **Backend / API / Server:** `.agent/agents/backend-specialist.md`
+- **API Contract Design:** `.agent/agents/api-designer.md`
+- **Database / Schema:** `.agent/agents/database-architect.md`
+- **DevOps / Infra:** `.agent/agents/devops-engineer.md`
+- **Security / Audit:** `.agent/agents/security-auditor.md`
+- **Testing & QA:** `.agent/agents/test-engineer.md`
+- **Debugging:** `.agent/agents/debugger.md`
+- **Performance:** `.agent/agents/performance-optimizer.md`
+- **Mobile Development:** `.agent/agents/mobile-developer.md`
+- **Game Development:** `.agent/agents/game-developer.md`
+
+## 🔧 LAYER 5: DEVKIT COMMANDS
 | Command | Purpose |
 |---|---|
 | `leedevkit test infra --lint-only` | Quick lint/type check |

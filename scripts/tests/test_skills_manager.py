@@ -292,6 +292,8 @@ class TestSkillsManagerInternals:
         mgr = SkillsManager()
         with patch.object(mgr, "_sync_claude_resources") as mock_sync:
             with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stderr = ""
                 mgr._install_by_name("cool-skill")
             mock_run.assert_called_once()
             mock_sync.assert_called_once()
@@ -306,6 +308,8 @@ class TestSkillsManagerInternals:
 
         mgr = SkillsManager()
         with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stderr = ""
             mgr._add_from_url("https://github.com/x/newskill.git")
         mock_run.assert_called_once()
 
@@ -662,3 +666,68 @@ class TestSkillsManagerCoverageGaps:
         mgr._list()
         assert any("Skills" in m for m in logged)
         assert any("No community skills" in m for m in logged)
+
+    def test_catalog_clone_failure_cleans_partial_target(self, monkeypatch, tmp_path):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        (tmp_path / ".agent").mkdir()
+        (tmp_path / ".agent" / "skills-catalog.toml").write_text(
+            '[skills.failed]\nname = "Failed"\nurl = "https://example.test/failed.git"\n'
+        )
+        target = tmp_path / "skills.d" / "failed"
+
+        def failed_clone(*_args, **_kwargs):
+            target.mkdir(parents=True)
+            return type("Result", (), {"returncode": 1, "stderr": "nope"})()
+
+        monkeypatch.setattr("subprocess.run", failed_clone)
+        mgr = SkillsManager()
+        monkeypatch.setattr(mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: (_ for _ in ()).throw(AssertionError()))
+        mgr._install_by_name("failed")
+        assert not target.exists()
+
+    def test_toml_clone_failure_cleans_partial_target(self, monkeypatch, tmp_path):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        monkeypatch.setattr(
+            _devkit_config,
+            "load_project_config",
+            lambda: {"addons": {"skills": ["https://example.test/failed.git"]}},
+        )
+        target = tmp_path / "skills.d" / "failed"
+
+        def failed_clone(*_args, **_kwargs):
+            target.mkdir(parents=True)
+            return type("Result", (), {"returncode": 1, "stderr": "nope"})()
+
+        monkeypatch.setattr("subprocess.run", failed_clone)
+        mgr = SkillsManager()
+        monkeypatch.setattr(mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: (_ for _ in ()).throw(AssertionError()))
+        mgr._install_from_toml()
+        assert not target.exists()
+
+    def test_update_failure_preserves_repo(self, monkeypatch, tmp_path):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        repo = tmp_path / "skills.d" / "existing"
+        (repo / ".git").mkdir(parents=True)
+        monkeypatch.setattr(
+            "subprocess.run",
+            lambda *_args, **_kwargs: type("Result", (), {"returncode": 1, "stderr": "nope", "stdout": ""})(),
+        )
+        mgr = SkillsManager()
+        monkeypatch.setattr(mgr, "_write_lock", lambda: None)
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
+        mgr._update_and_lock()
+        assert repo.exists()

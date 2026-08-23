@@ -14,7 +14,7 @@ allowed-tools: Read, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `scripts/lighthouse_audit.py` | Lighthouse performance audit | `python scripts/lighthouse_audit.py https://example.com` |
+| `.agent/skills/performance-profiling/scripts/lighthouse_audit.py` | Lighthouse performance audit | `python .agent/skills/performance-profiling/scripts/lighthouse_audit.py https://example.com` |
 
 ---
 

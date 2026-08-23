@@ -14,9 +14,9 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `scripts/playwright_runner.py` | Basic browser test | `python scripts/playwright_runner.py https://example.com` |
-| | With screenshot | `python scripts/playwright_runner.py <url> --screenshot` |
-| | Accessibility check | `python scripts/playwright_runner.py <url> --a11y` |
+| `.agent/skills/webapp-testing/scripts/playwright_runner.py` | Basic browser test | `python .agent/skills/webapp-testing/scripts/playwright_runner.py https://example.com` |
+| | With screenshot | `python .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --screenshot` |
+| | Accessibility check | `python .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --a11y` |
 
 **Runtime setup:** LeeDevKit installs the Python `playwright` package in its managed venv. On the first standalone browser-test run, the runner downloads Chromium automatically only if it is missing. If that download fails, run:
 

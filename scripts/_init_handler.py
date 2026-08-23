@@ -89,7 +89,7 @@ def discover_skill_sources(*source_dirs: Path) -> dict[str, Path]:
             if package.is_dir() and not package.name.startswith("."):
                 root_skill = package / "SKILL.md"
                 if root_skill.is_file():
-                    sources.setdefault(package.name, package)
+                    _register_skill_source(sources, package.name, package)
 
                 plugin_skills = package / ".claude" / "skills"
                 if plugin_skills.is_dir():
@@ -99,8 +99,17 @@ def discover_skill_sources(*source_dirs: Path) -> dict[str, Path]:
                             and not skill.name.startswith(".")
                             and (skill / "SKILL.md").is_file()
                         ):
-                            sources.setdefault(skill.name, skill)
+                            _register_skill_source(sources, skill.name, skill)
     return sources
+
+
+def _register_skill_source(sources: dict[str, Path], name: str, path: Path) -> None:
+    """Record a skill ID, warning when a later source collides with an earlier one."""
+    if name in sources:
+        log_warn(f"Skill ID '{name}' is defined in multiple locations: "
+                 f"{sources[name]} and {path}. Using the first one.")
+    else:
+        sources[name] = path
 
 
 def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:

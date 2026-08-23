@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 AGENTS = ROOT / ".agent" / "agents"
 SKILLS = ROOT / ".agent" / "skills"
 SCAN_ROOTS = (ROOT / ".agent", ROOT / "templates", ROOT / "scripts")
-VALID_TOOLS = {"Read", "Write", "Edit", "Bash", "Agent", "Workflow", "Grep", "Glob"}
+VALID_TOOLS = {"Read", "Write", "Edit", "Bash", "Grep", "Glob"}
 REQUIRED_AGENT_FIELDS = {"name", "description", "tools", "model"}
 REQUIRED_SKILL_FIELDS = {"name", "description"}
 
@@ -141,6 +141,24 @@ def test_no_legacy_framework_references() -> None:
     assert not violations
 
 
+def test_markdown_python_and_bash_paths_exist() -> None:
+    command = re.compile(r"\b(?:python3?|bash)\s+([^\s`]+\.(?:py|sh))")
+    # Paths under these prefixes are installed at runtime, not shipped in the repo.
+    runtime_prefixes = (".leedevkit/", "skills.d/")
+    missing: list[str] = []
+    for root in SCAN_ROOTS:
+        for path in root.rglob("*.md"):
+            for token in command.findall(path.read_text()):
+                if token.startswith(("http://", "https://", "<")):
+                    continue
+                if token.startswith(runtime_prefixes):
+                    continue
+                candidate = (ROOT / token).resolve()
+                if not candidate.is_file():
+                    missing.append(f"{path.relative_to(ROOT)}: {token}")
+    assert not missing, "Missing executable paths:\n" + "\n".join(sorted(missing))
+
+
 def test_claude_resource_bridge_includes_community_skills(tmp_path: Path) -> None:
     import sys
 
@@ -159,3 +177,24 @@ def test_claude_resource_bridge_includes_community_skills(tmp_path: Path) -> Non
     assert (tmp_path / "project" / ".claude" / "agents" / "general-purpose.md").is_symlink()
     assert (tmp_path / "project" / ".claude" / "skills" / "builtin").is_symlink()
     assert (tmp_path / "project" / ".claude" / "skills" / "community").is_symlink()
+
+
+def test_discover_skill_sources_warns_on_duplicate_id(tmp_path: Path, capsys) -> None:
+    import sys
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from _init_handler import discover_skill_sources
+
+    source_dir = tmp_path / "skills"
+    (source_dir / "alpha").mkdir(parents=True)
+    (source_dir / "alpha" / "SKILL.md").write_text("---\nname: alpha\ndescription: t\n---\n")
+    # Plugin under alpha reuses the same skill ID "alpha".
+    (source_dir / "alpha" / ".claude" / "skills" / "alpha").mkdir(parents=True)
+    (source_dir / "alpha" / ".claude" / "skills" / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: t\n---\n"
+    )
+
+    result = discover_skill_sources(source_dir)
+    assert set(result) == {"alpha"}
+    captured = capsys.readouterr()
+    assert "alpha" in captured.err or "alpha" in captured.out

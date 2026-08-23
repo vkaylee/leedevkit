@@ -1,7 +1,7 @@
 ---
 name: intelligent-routing
 description: Select the smallest suitable Claude Code agent or agent set from task intent, domain, and complexity.
-allowed-tools: Read, Grep, Glob, Agent, Workflow
+allowed-tools: Read, Grep, Glob
 ---
 
 # Intelligent Agent Routing
@@ -35,14 +35,7 @@ Route work by risk and scope. Do not invoke agents for simple questions or one-l
 
 ## Invocation
 
-Use the Claude Code tools directly:
-
-```text
-Agent({subagent_type: "security-auditor", prompt: "Review the authentication flow for vulnerabilities."})
-Skill({skill: "api-patterns"})
-```
-
-Use `Workflow` when the task needs deterministic fan-out, verification, synthesis, or repeated stages. Use `Agent` for one specialist or a short dependency-aware chain.
+When the repository is configured for specialist agents, invoke the matched agent with concrete paths and constraints. Otherwise implement directly and apply the relevant `.agent/rules/` files.
 
 ## Routing Protocol
 

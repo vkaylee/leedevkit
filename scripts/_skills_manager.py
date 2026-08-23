@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -125,11 +126,20 @@ class SkillsManager:
             return
 
         log_info(f"Installing {skill['name']} from catalog...")
-        subprocess.run(
+        res = subprocess.run(
             ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
             check=False,
             stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
         )
+        if res.returncode != 0:
+            if target.exists():
+                shutil.rmtree(str(target), ignore_errors=True)
+            err_msg = res.stderr.strip() or "git clone failed"
+            log_error(f"Failed to install {skill['name']}: {err_msg}")
+            return
+
         log_success(f"Installed {skill['name']} @ {version}")
         self._write_lock()
         self._sync_claude_resources()
@@ -146,6 +156,7 @@ class SkillsManager:
 
         lock = self._read_lock()
         installed = 0
+        failed: list[str] = []
         for entry in entries:
             if isinstance(entry, str):
                 url, version = entry, "main"
@@ -156,16 +167,20 @@ class SkillsManager:
             target = self._skills_d / name
             if target.exists():
                 if name in lock:
-                    subprocess.run(
+                    checkout_res = subprocess.run(
                         ["git", "-C", str(target), "checkout", "--detach", lock[name]],
                         check=False,
                         stdin=subprocess.DEVNULL,
+                        capture_output=True,
                     )
-                    log_success(f"  {name} @ {lock[name][:8]} (locked)")
+                    if checkout_res.returncode == 0:
+                        log_success(f"  {name} @ {lock[name][:8]} (locked)")
+                    else:
+                        log_warn(f"  Failed to checkout locked version for {name}")
                 continue
 
             log_info(f"Installing {name} @ {version}...")
-            subprocess.run(
+            clone_res = subprocess.run(
                 [
                     "git",
                     "clone",
@@ -178,9 +193,19 @@ class SkillsManager:
                 ],
                 check=False,
                 stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
             )
+            if clone_res.returncode != 0:
+                if target.exists():
+                    shutil.rmtree(str(target), ignore_errors=True)
+                err_msg = clone_res.stderr.strip() or "clone failed"
+                log_error(f"Failed to clone {name}: {err_msg}")
+                failed.append(name)
+                continue
+
             if name in lock:
-                subprocess.run(
+                fetch_res = subprocess.run(
                     [
                         "git",
                         "-C",
@@ -193,17 +218,24 @@ class SkillsManager:
                     ],
                     check=False,
                     stdin=subprocess.DEVNULL,
+                    capture_output=True,
                 )
-                subprocess.run(
+                checkout_res = subprocess.run(
                     ["git", "-C", str(target), "checkout", "--detach", lock[name]],
                     check=False,
                     stdin=subprocess.DEVNULL,
+                    capture_output=True,
                 )
+                if fetch_res.returncode != 0 or checkout_res.returncode != 0:
+                    log_warn(f"Failed to checkout locked SHA for {name}")
             installed += 1
 
+        if failed:
+            log_warn(f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}")
         log_success(f"Installed {installed} new skill repo(s)")
-        self._write_lock()
-        self._sync_claude_resources()
+        if installed > 0:
+            self._write_lock()
+            self._sync_claude_resources()
 
     def _add_from_url(self, url: str, version: str = "main") -> None:
         if not url:
@@ -214,7 +246,7 @@ class SkillsManager:
             if url in catalog:
                 log_error(
                     f"'{url}' is in the skills catalog. "
-                    "Use: leedevkit skills install {url}"
+                    f"Use: leedevkit skills install {url}"
                 )
             else:
                 log_error(
@@ -229,11 +261,20 @@ class SkillsManager:
             log_warn(f"{name} already exists. Use 'skills update' to refresh.")
             return
 
-        subprocess.run(
+        res = subprocess.run(
             ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
             check=False,
             stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
         )
+        if res.returncode != 0:
+            if target.exists():
+                shutil.rmtree(str(target), ignore_errors=True)
+            err_msg = res.stderr.strip() or "git clone failed"
+            log_error(f"Failed to add skill from {url}: {err_msg}")
+            return
+
         log_success(f"Installed {name} @ {version}")
         self._write_lock()
         self._sync_claude_resources()
@@ -241,14 +282,22 @@ class SkillsManager:
     def _update_and_lock(self) -> None:
         """Pull latest for all installed skills, update lock file."""
         updated = 0
-        for repo in self._skills_d.iterdir():
-            if (repo / ".git").exists():
-                subprocess.run(
+        failed: list[str] = []
+        for repo in sorted(self._skills_d.iterdir()):
+            if repo.is_dir() and (repo / ".git").exists():
+                res = subprocess.run(
                     ["git", "-C", str(repo), "pull", "--ff-only"],
                     check=False,
                     stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
                 )
-                updated += 1
+                if res.returncode == 0:
+                    updated += 1
+                else:
+                    failed.append(repo.name)
+        if failed:
+            log_warn(f"Failed to update {len(failed)} skill repo(s): {', '.join(failed)}")
         log_success(f"Updated {updated} skill repo(s)")
         self._write_lock()
         self._sync_claude_resources()
@@ -261,7 +310,6 @@ class SkillsManager:
         if not target.exists():
             log_warn(f"{name} not found in skills.d/")
             return
-        import shutil
 
         shutil.rmtree(str(target))
         log_success(f"Removed {name}")
@@ -306,7 +354,7 @@ class SkillsManager:
     def _write_lock(self) -> None:
         lock: dict[str, str] = {}
         for repo in sorted(self._skills_d.iterdir()):
-            if (repo / ".git").exists():
+            if repo.is_dir() and (repo / ".git").exists():
                 r = subprocess.run(
                     ["git", "-C", str(repo), "rev-parse", "HEAD"],
                     capture_output=True,
