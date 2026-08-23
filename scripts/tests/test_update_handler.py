@@ -117,6 +117,9 @@ class TestHandleUpdateRollback:
         root = tmp_path / "devkit"
         root.mkdir()
         (root / "VERSION").write_text("0.1.0")
+        skill = root / "skills.d" / "my-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("keep me\n")
 
         monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
 
@@ -130,6 +133,7 @@ class TestHandleUpdateRollback:
 
         # Original tree intact, no backup left behind
         assert (root / "VERSION").read_text() == "0.1.0"
+        assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
         assert not (tmp_path / "devkit.bak").exists()
 
     def test_rollback_cleans_up_after_move_failure(self, tmp_path, monkeypatch):
@@ -252,6 +256,74 @@ class TestUpdateVersionPin:
 
 class TestAutoSyncAfterUpdate:
     """Test automatic sync after successful update."""
+
+    def test_update_preserves_installed_skills_and_bridge(
+        self, tmp_path, monkeypatch
+    ):
+        """Installed community skills survive update and post-update sync."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        (project_root / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n'
+        )
+        root = project_root / ".leedevkit"
+        skill = root / "skills.d" / "my-skill"
+        skill.mkdir(parents=True)
+        (root / "VERSION").write_text("0.1.0")
+        (skill / "SKILL.md").write_text("keep me\n")
+
+        monkeypatch.chdir(project_root)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+
+        def fake_download(url, target_dir):
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.2.0")
+            builtin = target_dir / ".agent" / "skills" / "builtin"
+            builtin.mkdir(parents=True)
+            (builtin / "SKILL.md").write_text("builtin\n")
+
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
+        monkeypatch.setattr("_devkit_config.get_devkit_root", lambda: root)
+
+        handle_update(target="v0.2.0")
+
+        assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+        assert (project_root / ".claude" / "skills" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+
+    def test_update_preserves_skills_directory_symlink(self, tmp_path, monkeypatch):
+        """An external skills.d target remains linked after update."""
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        root = project_root / ".leedevkit"
+        root.mkdir()
+        (root / "VERSION").write_text("0.1.0")
+        external_skills = tmp_path / "skills"
+        external_skills.mkdir()
+        (external_skills / "my-skill").mkdir()
+        (external_skills / "my-skill" / "SKILL.md").write_text("external\n")
+        (root / "skills.d").symlink_to(external_skills, target_is_directory=True)
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball",
+            lambda _url, target_dir: (
+                target_dir.mkdir(parents=True),
+                (target_dir / "VERSION").write_text("0.2.0"),
+            ),
+        )
+        monkeypatch.setattr("_init_handler.InitHandler.handle_post_update_sync", lambda self: None)
+
+        handle_update(target="v0.2.0")
+
+        assert (root / "skills.d").is_symlink()
+        assert (root / "skills.d").resolve() == external_skills.resolve()
+        assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "external\n"
 
     def test_sync_called_after_update(self, tmp_path, monkeypatch, capsys):
         """After successful update, sync is automatically called."""

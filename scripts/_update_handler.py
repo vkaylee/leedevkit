@@ -72,6 +72,16 @@ def handle_update(target: str | None = None) -> None:
         if root.exists():
             shutil.rmtree(root)
         shutil.move(str(tmp_extract), str(root))
+
+        # skills.d contains project-owned repositories; keep them across updates.
+        backup_skills = backup / "skills.d"
+        if backup_skills.exists() or backup_skills.is_symlink():
+            restored_skills = root / "skills.d"
+            if restored_skills.is_symlink() or restored_skills.is_file():
+                restored_skills.unlink()
+            elif restored_skills.exists():
+                shutil.rmtree(restored_skills)
+            shutil.move(str(backup_skills), str(restored_skills))
     except Exception:
         # Roll back on any failure — broad catch is intentional here
         # to guarantee rollback regardless of the error type.
