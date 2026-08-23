@@ -199,6 +199,24 @@ class TestClaudeResourceBridge:
         assert (root / ".claude" / "agents" / "backend-specialist.md").exists()
         assert (root / ".claude" / "skills" / "api-patterns" / "SKILL.md").exists()
 
+    def test_bridges_nested_claude_plugin_skills(self, tmp_path):
+        from _init_handler import discover_skill_sources, sync_claude_resources
+
+        root = tmp_path / "project"
+        devkit = root / ".leedevkit"
+        skill = devkit / "skills.d" / "community-plugin" / ".claude" / "skills" / "community-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: community-skill\ndescription: test\n---\nUse it.\n")
+        (skill / "references").mkdir()
+        (skill / "references" / "guide.md").write_text("guide\n")
+
+        assert discover_skill_sources(devkit / "skills.d") == {"community-skill": skill}
+        assert sync_claude_resources(root, devkit) == (0, 1)
+        bridged = root / ".claude" / "skills" / "community-skill"
+        assert bridged.is_symlink()
+        assert (bridged / "SKILL.md").read_text().endswith("Use it.\n")
+        assert (bridged / "references" / "guide.md").read_text() == "guide\n"
+
 
 # ---------------------------------------------------------------------------
 # Tests: devkit root resolution priority

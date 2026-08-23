@@ -63,22 +63,16 @@ class SkillsManager:
     # -- Actions ------------------------------------------------------------
 
     def _list(self) -> None:
-        # Built-in skills (shipped with devkit)
-        builtin_dir = self._devkit / ".agent" / "skills"
-        builtins: set[str] = set()
-        if builtin_dir.exists():
-            for d in builtin_dir.iterdir():
-                if d.is_dir() and not d.name.startswith("."):
-                    builtins.add(d.name)
+        from _init_handler import discover_skill_sources
 
-        # Installed community skills
-        installed: set[str] = set()
-        if self._skills_d.exists():
-            for repo in self._skills_d.iterdir():
-                if repo.is_dir() and not repo.name.startswith("."):
-                    installed.add(repo.name)
-
+        # Read the same Claude discovery surface that sessions load.
+        runtime_dir = PROJECT_ROOT / ".claude" / "skills"
+        runtime = discover_skill_sources(runtime_dir)
+        builtins = set(discover_skill_sources(self._devkit / ".agent" / "skills"))
+        installed = set(runtime) - builtins
+        community = discover_skill_sources(self._skills_d)
         catalog = self._load_catalog()
+        catalog_runtime: set[str] = set()
 
         log_info("Skills")
         log_info("")
@@ -92,14 +86,21 @@ class SkillsManager:
         if catalog:
             log_info("Community catalog (leedevkit skills install <name>):")
             for key, skill in sorted(catalog.items()):
-                status = "● installed" if key in installed else "○ available"
-                log_info(f"  {status}  {key}")
+                package = self._skills_d / key
+                skill_ids = sorted(
+                    name
+                    for name, source in community.items()
+                    if source == package or package in source.parents
+                )
+                catalog_runtime.update(skill_ids)
+                status = "● installed" if skill_ids else "○ available"
+                suffix = f" ({', '.join(skill_ids)})" if skill_ids else ""
+                log_info(f"  {status}  {key}{suffix}")
                 log_info(f"          {skill.get('description', '')}")
             log_info("")
 
-        for name in sorted(installed):
-            if name not in catalog:
-                log_info(f"  ● {name} [external — not in catalog]")
+        for name in sorted(installed - catalog_runtime):
+            log_info(f"  ● {name} [external — not in catalog]")
 
         if not installed and not catalog:
             log_info("No community skills. Add one:")

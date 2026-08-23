@@ -304,12 +304,10 @@ class TestLockFile:
 
     def test_read_lock_valid(self, tmp_path, monkeypatch):
         from _skills_manager import SkillsManager
-        import tomli_w
 
         lock_path = tmp_path / "leedevkit.lock"
         lock_path.parent.mkdir(exist_ok=True)
-        with open(lock_path, "wb") as f:
-            tomli_w.dump({"my-skill": "abc123def"}, f)
+        lock_path.write_text('my-skill = "abc123def"\n')
         monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
         data = SkillsManager._read_lock()
         assert "my-skill" in data

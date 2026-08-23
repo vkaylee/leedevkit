@@ -26,12 +26,10 @@ class TestSkillsManagerLock:
         assert SkillsManager._read_lock() == {}
 
     def test_read_lock_valid_toml(self, monkeypatch, tmp_path):
-        import tomli_w
         from _skills_manager import SkillsManager
 
         lock_path = tmp_path / "leedevkit.lock"
-        with open(lock_path, "wb") as f:
-            tomli_w.dump({"my-skill": "abc123def"}, f)
+        lock_path.write_text('my-skill = "abc123def"\n')
         monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
         data = SkillsManager._read_lock()
         assert "my-skill" in data
@@ -81,21 +79,12 @@ class TestSkillsManagerCatalog:
         # Create a minimal catalog file
         catalog_dir = tmp_path / ".agent"
         catalog_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(catalog_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump(
-                {
-                    "skills": {
-                        "ui-ux-pro-max": {
-                            "name": "UI/UX Pro Max",
-                            "url": "https://github.com/leeattend/ui-ux-pro-max",
-                            "description": "Advanced UI/UX design toolkit",
-                        }
-                    }
-                },
-                f,
-            )
+        (catalog_dir / "skills-catalog.toml").write_text(
+            '[skills.ui-ux-pro-max]\n'
+            'name = "UI/UX Pro Max"\n'
+            'url = "https://github.com/leeattend/ui-ux-pro-max"\n'
+            'description = "Advanced UI/UX design toolkit"\n'
+        )
 
         from _skills_manager import SkillsManager
 
@@ -129,10 +118,7 @@ class TestSkillsManagerDispatch:
 
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(agent_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump({"skills": {}}, f)
+        (agent_dir / "skills-catalog.toml").write_text("[skills]\n")
 
         (tmp_path / "skills.d").mkdir()
         mgr = SkillsManager()
@@ -176,6 +162,51 @@ class TestSkillsManagerDispatch:
         args = type("Args", (), {"skills_action": "remove", "name": "nonexistent"})()
         mgr.dispatch(args)  # Should not raise, just logs warning
 
+    def test_plugin_install_is_in_runtime_registry_and_remove_prunes_it(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        catalog_dir = tmp_path / ".agent"
+        catalog_dir.mkdir(parents=True)
+        (catalog_dir / "skills-catalog.toml").write_text(
+            '[skills.community-plugin]\n'
+            'name = "Community Plugin"\n'
+            'url = "https://example.test/community-plugin.git"\n'
+        )
+
+        def clone(_cmd, **_kwargs):
+            skill = tmp_path / "skills.d" / "community-plugin" / ".claude" / "skills" / "community-skill"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: community-skill\ndescription: test\n---\nUse references.\n"
+            )
+            (skill / "references").mkdir()
+            (skill / "references" / "workflow.md").write_text("workflow\n")
+            return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("subprocess.run", clone)
+        mgr = SkillsManager()
+        mgr._install_by_name("community-plugin")
+
+        runtime_skill = tmp_path / ".claude" / "skills" / "community-skill"
+        assert runtime_skill.is_symlink()
+        assert (runtime_skill / "SKILL.md").read_text().endswith("Use references.\n")
+        assert (runtime_skill / "references" / "workflow.md").read_text() == "workflow\n"
+
+        mgr._list()
+        output = capsys.readouterr().err
+        assert "● installed  community-plugin (community-skill)" in output
+        assert "community-skill [external" not in output
+
+        mgr._remove("community-plugin")
+        assert not (tmp_path / "skills.d" / "community-plugin").exists()
+        assert not runtime_skill.exists()
+        assert not runtime_skill.is_symlink()
+
     def test_dispatch_unknown_action(self, monkeypatch, tmp_path):
         """dispatch with unknown action silently no-ops."""
         import _devkit_config  # noqa: F811
@@ -215,10 +246,7 @@ class TestSkillsManagerInternals:
         # Empty catalog
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(agent_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump({"skills": {}}, f)
+        (agent_dir / "skills-catalog.toml").write_text("[skills]\n")
 
         mgr = SkillsManager()
         mgr._install_by_name("nonexistent")  # Should not raise
@@ -233,20 +261,11 @@ class TestSkillsManagerInternals:
 
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(agent_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump(
-                {
-                    "skills": {
-                        "my-skill": {
-                            "name": "MySkill",
-                            "url": "https://github.com/x/y.git",
-                        }
-                    }
-                },
-                f,
-            )
+        (agent_dir / "skills-catalog.toml").write_text(
+            '[skills.my-skill]\n'
+            'name = "MySkill"\n'
+            'url = "https://github.com/x/y.git"\n'
+        )
 
         # Create the skill dir to simulate "already installed"
         (tmp_path / "skills.d" / "my-skill").mkdir(parents=True)
@@ -264,20 +283,11 @@ class TestSkillsManagerInternals:
 
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(agent_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump(
-                {
-                    "skills": {
-                        "cool-skill": {
-                            "name": "CoolSkill",
-                            "url": "https://github.com/x/cool.git",
-                        }
-                    }
-                },
-                f,
-            )
+        (agent_dir / "skills-catalog.toml").write_text(
+            '[skills.cool-skill]\n'
+            'name = "CoolSkill"\n'
+            'url = "https://github.com/x/cool.git"\n'
+        )
 
         mgr = SkillsManager()
         with patch.object(mgr, "_sync_claude_resources") as mock_sync:
@@ -309,20 +319,11 @@ class TestSkillsManagerInternals:
 
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
-        import tomli_w
-
-        with open(agent_dir / "skills-catalog.toml", "wb") as f:
-            tomli_w.dump(
-                {
-                    "skills": {
-                        "existing": {
-                            "name": "Existing",
-                            "url": "https://github.com/x/existing.git",
-                        }
-                    }
-                },
-                f,
-            )
+        (agent_dir / "skills-catalog.toml").write_text(
+            '[skills.existing]\n'
+            'name = "Existing"\n'
+            'url = "https://github.com/x/existing.git"\n'
+        )
 
         mgr = SkillsManager()
         # "existing" is a catalog name, not a URL — should log error

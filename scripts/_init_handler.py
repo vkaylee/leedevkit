@@ -79,11 +79,33 @@ def _prune_stale(dest_dir: Path, keep: set[str], devkit: Path) -> None:
             item.unlink()
 
 
+def discover_skill_sources(*source_dirs: Path) -> dict[str, Path]:
+    """Return Claude-discoverable skill IDs and their package directories."""
+    sources: dict[str, Path] = {}
+    for source_dir in source_dirs:
+        if not source_dir.is_dir():
+            continue
+        for package in sorted(source_dir.iterdir()):
+            if package.is_dir() and not package.name.startswith("."):
+                root_skill = package / "SKILL.md"
+                if root_skill.is_file():
+                    sources.setdefault(package.name, package)
+
+                plugin_skills = package / ".claude" / "skills"
+                if plugin_skills.is_dir():
+                    for skill in sorted(plugin_skills.iterdir()):
+                        if (
+                            skill.is_dir()
+                            and not skill.name.startswith(".")
+                            and (skill / "SKILL.md").is_file()
+                        ):
+                            sources.setdefault(skill.name, skill)
+    return sources
+
+
 def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
     """Bridge agents and built-in/community skills into Claude Code paths."""
     agent_source = devkit / ".agent" / "agents"
-    builtin_skill_source = devkit / ".agent" / "skills"
-    community_skill_source = devkit / "skills.d"
     agent_dest = root / ".claude" / "agents"
     skill_dest = root / ".claude" / "skills"
     agents = 0
@@ -95,20 +117,9 @@ def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
             agents += 1
     _prune_stale(agent_dest, {source.name for source in agent_sources}, devkit)
 
-    skill_sources: dict[str, Path] = {}
-    for source_dir in (builtin_skill_source, community_skill_source):
-        if not source_dir.is_dir():
-            continue
-        for source in sorted(source_dir.iterdir()):
-            if (
-                source.is_dir()
-                and not source.name.startswith(".")
-                and source.name != "_shared"
-                and (source / "SKILL.md").is_file()
-                and source.name not in skill_sources
-            ):
-                skill_sources[source.name] = source
-
+    skill_sources = discover_skill_sources(
+        devkit / ".agent" / "skills", devkit / "skills.d"
+    )
     for name, source in sorted(skill_sources.items()):
         if _bridge(source, skill_dest / name, devkit):
             skills += 1
