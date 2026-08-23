@@ -129,9 +129,14 @@ my-project/
 │   └── agents/, workflows/   # project-specific (optional)
 ├── .claude/                  # Claude Code discovery paths
 │   ├── agents/                # symlinks to .leedevkit/.agent/agents/
-│   └── skills/               # symlinks to .leedevkit/.agent/skills/
+│   ├── skills/                # symlinks to .leedevkit/.agent/skills/
+│   └── settings.local.json    # optional machine-local permissions (do not commit)
 └── leedevkit → .leedevkit/bin/leedevkit   # CLI wrapper (gitignored)
 ```
+
+`.claude/settings.local.json` is for local Claude Code permissions and may contain
+machine-specific paths. Keep it untracked; shared project settings belong in
+`.claude/settings.json` when needed.
 
 ## leedevkit.toml
 
