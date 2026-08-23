@@ -9,6 +9,7 @@ both _init_handler.py and _update_handler.py.
 
 from __future__ import annotations
 
+import posixpath
 import shutil
 import tarfile
 import tempfile
@@ -18,12 +19,23 @@ from pathlib import Path, PurePosixPath
 
 def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
     members = archive.getmembers()
+    archive_roots = {
+        PurePosixPath(member.name).parts[0] for member in members if member.name
+    }
     for member in members:
         path = PurePosixPath(member.name)
         if path.is_absolute() or ".." in path.parts:
             raise RuntimeError(f"unsafe archive path: {member.name}")
+        if member.issym():
+            target = PurePosixPath(
+                posixpath.normpath(str(path.parent / member.linkname))
+            )
+            if target.is_absolute() or not target.parts or target.parts[0] not in archive_roots:
+                raise RuntimeError(f"unsafe archive link: {member.name}")
+            continue
         if not (member.isfile() or member.isdir()):
             raise RuntimeError(f"unsupported archive member: {member.name}")
+    # Symlink targets were checked to remain within the archive root.
     archive.extractall(destination, members=members)  # noqa: S202
 
 

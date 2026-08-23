@@ -117,8 +117,52 @@ class TestDownloadAndExtract:
             lambda _url, filename: shutil.copy(tarball_path, filename),
         )
 
-        with pytest.raises(RuntimeError, match="unsupported archive member"):
+        with pytest.raises(RuntimeError, match="unsafe archive link"):
             download_and_extract_tarball("https://example.com/unsafe.tar.gz", tmp_path / "dest")
+
+    def test_extracts_internal_symlink_member(self, tmp_path, monkeypatch):
+        """Archives may contain symlinks that stay inside their root."""
+        from _download import download_and_extract_tarball
+
+        tarball_path = tmp_path / "release.tar.gz"
+        source_root = tmp_path / "source" / "leedevkit-v0.7.4"
+        (source_root / "bin").mkdir(parents=True)
+        (source_root / "bin" / "leedevkit").write_text("#!/bin/sh\n")
+        (source_root / "leedevkit").symlink_to("bin/leedevkit")
+
+        with tarfile.open(tarball_path, "w:gz") as tf:
+            tf.add(source_root, arcname=source_root.name)
+
+        monkeypatch.setattr(
+            "_download.urllib.request.urlretrieve",
+            lambda _url, filename: shutil.copy(tarball_path, filename),
+        )
+
+        target = tmp_path / "dest"
+        download_and_extract_tarball("https://example.com/v0.7.4.tar.gz", target)
+
+        link = target / "leedevkit"
+        assert link.is_symlink()
+        assert link.read_text() == "#!/bin/sh\n"
+
+    def test_rejects_escaping_symlink_member(self, tmp_path, monkeypatch):
+        """Archives cannot create links outside their root."""
+        from _download import download_and_extract_tarball
+
+        tarball_path = tmp_path / "unsafe-link.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tf:
+            member = tarfile.TarInfo("root/link")
+            member.type = tarfile.SYMTYPE
+            member.linkname = "../../escape"
+            tf.addfile(member)
+
+        monkeypatch.setattr(
+            "_download.urllib.request.urlretrieve",
+            lambda _url, filename: shutil.copy(tarball_path, filename),
+        )
+
+        with pytest.raises(RuntimeError, match="unsafe archive link"):
+            download_and_extract_tarball("https://example.com/unsafe-link.tar.gz", tmp_path / "dest")
 
     def test_overwrites_existing_target(self, tmp_path, monkeypatch):
         """Existing target_dir is removed before moving new one."""
