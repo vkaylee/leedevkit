@@ -31,6 +31,11 @@ class SkillsManager:
         self._skills_d.mkdir(parents=True, exist_ok=True)
         self._catalog: dict | None = None
 
+    def _sync_claude_resources(self) -> None:
+        from _init_handler import sync_claude_resources
+
+        sync_claude_resources(PROJECT_ROOT, self._devkit)
+
     # -- Public API ---------------------------------------------------------
 
     def dispatch(self, args: argparse.Namespace) -> None:
@@ -126,6 +131,7 @@ class SkillsManager:
         )
         log_success(f"Installed {skill['name']} @ {version}")
         self._write_lock()
+        self._sync_claude_resources()
 
     def _install_from_toml(self) -> None:
         """Install skills from leedevkit.toml [addons.skills], preferring lock SHAs."""
@@ -196,6 +202,7 @@ class SkillsManager:
 
         log_success(f"Installed {installed} new skill repo(s)")
         self._write_lock()
+        self._sync_claude_resources()
 
     def _add_from_url(self, url: str, version: str = "main") -> None:
         if not url:
@@ -228,6 +235,7 @@ class SkillsManager:
         )
         log_success(f"Installed {name} @ {version}")
         self._write_lock()
+        self._sync_claude_resources()
 
     def _update_and_lock(self) -> None:
         """Pull latest for all installed skills, update lock file."""
@@ -242,6 +250,7 @@ class SkillsManager:
                 updated += 1
         log_success(f"Updated {updated} skill repo(s)")
         self._write_lock()
+        self._sync_claude_resources()
 
     def _remove(self, name: str) -> None:
         if not name:
@@ -256,6 +265,7 @@ class SkillsManager:
         shutil.rmtree(str(target))
         log_success(f"Removed {name}")
         self._write_lock()
+        self._sync_claude_resources()
 
     # -- Catalog & lock helpers --------------------------------------------
 

@@ -247,6 +247,7 @@ class TestLifecycleDependencies:
             '[test.dependencies]\n"int-go" = ["postgres"]\n'
         )
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("DEVKIT_HOME", str(Path(__file__).resolve().parents[2]))
         config = load_project_config()
         assert resolve_lifecycle_dependencies(config) == {"int-go": ["postgres"]}
 

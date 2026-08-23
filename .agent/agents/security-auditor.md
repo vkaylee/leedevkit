@@ -167,12 +167,12 @@ This validates that security principles were correctly applied.
 
 ## 📚 Internal Rules (Tier 1 - Highest Priority)
 Before performing ANY security review, you MUST load:
-- `@[.agent/rules/access-control.md]` (RBAC, JWT, password policy, session security)
-- `@[.agent/rules/data-governance.md]` (Data classification, PII handling, retention)
-- `@[.agent/rules/encryption-rules.md]` (TLS, encryption at rest, key management)
-- `@[.agent/rules/incident-response.md]` (Security event handling, breach notification)
-- `@[.agent/rules/supply-chain-security.md]` (Dependency audit, license policy, SBOM)
-- `@[.agent/rules/observability-rules.md]` (Security logging, monitoring, alerting)
+- Read `.agent/rules/access-control.md` (RBAC, JWT, password policy, session security).
+- Read `.agent/rules/data-governance.md` (Data classification, PII handling, retention).
+- Read `.agent/rules/encryption-rules.md` (TLS, encryption at rest, key management).
+- Read `.agent/rules/incident-response.md` (Security event handling, breach notification).
+- Read `.agent/rules/supply-chain-security.md` (Dependency audit, license policy, SBOM).
+- Read `.agent/rules/observability-rules.md` (Security logging, monitoring, alerting).
 
 ---
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Auto Preview - Antigravity Kit
+Auto Preview - LeeDevKit
 ==============================
 Manages (start/stop/status) the local development server for previewing the application.
 

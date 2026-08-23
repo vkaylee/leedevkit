@@ -280,9 +280,11 @@ class TestSkillsManagerInternals:
             )
 
         mgr = SkillsManager()
-        with patch("subprocess.run") as mock_run:
-            mgr._install_by_name("cool-skill")
-        mock_run.assert_called_once()
+        with patch.object(mgr, "_sync_claude_resources") as mock_sync:
+            with patch("subprocess.run") as mock_run:
+                mgr._install_by_name("cool-skill")
+            mock_run.assert_called_once()
+            mock_sync.assert_called_once()
 
     def test_add_from_url_valid(self, monkeypatch, tmp_path):
         """_add_from_url with valid URL clones and writes lock."""

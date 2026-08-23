@@ -1,175 +1,83 @@
 ---
 name: parallel-agents
-description: Multi-agent orchestration patterns. Use when multiple independent tasks can run with different domain expertise or when comprehensive analysis requires multiple perspectives.
-allowed-tools: Read, Glob, Grep
+description: Coordinate specialized subagents and deterministic workflows using Claude Code agent tools.
+allowed-tools: Read, Glob, Grep, Agent, Workflow
 ---
 
-# Native Parallel Agents
+# Multi-Agent and Workflow Orchestration
 
-> Orchestration through Antigravity's built-in Agent Tool
+Use `Agent` for independent specialist tasks. Use `Workflow` for deterministic multi-stage discovery, verification, and synthesis.
 
-## Overview
+## Available Specialized Agents
 
-This skill enables coordinating multiple specialized agents through Antigravity's native agent system. Unlike external scripts, this approach keeps all orchestration within Antigravity's control.
+- `orchestrator`: Overall task decomposition and synthesis.
+- `security-auditor`: Threat modeling, vulnerability analysis, and auth review.
+- `penetration-tester`: Active security verification and exploit assessment.
+- `backend-specialist`: Server architecture, backend logic, and systems engineering.
+- `frontend-specialist`: Web UI, accessibility, component design, and styling.
+- `api-designer`: API contracts, OpenAPI, payload design, and versioning.
+- `database-architect`: Schemas, migrations, indexing, and query patterns.
+- `devops-engineer`: CI/CD, containerization, deployments, and observability.
+- `test-engineer`: Test strategy, regression tests, and coverage.
+- `qa-automation-engineer`: End-to-end automation and pipeline verification.
+- `debugger`: Root-cause analysis and reproduction of failures.
+- `performance-optimizer`: Profiling, latency, and resource bottlenecks.
+- `mobile-developer`: Mobile applications across iOS, Android, and cross-platform.
+- `game-developer`: Game systems, mechanics, and engines.
+- `documentation-writer`: Technical docs, contract guides, and changelogs.
+- `project-planner`: Work breakdown, dependency sequencing, and milestone mapping.
+- `product-manager`: Product requirements, feature definitions, and trade-offs.
+- `product-owner`: User stories, backlog refinement, and acceptance criteria.
+- `seo-specialist`: Search discoverability and web performance metrics.
+- `explorer-agent`: Deep structural exploration and architecture discovery.
+- `code-archaeologist`: Legacy code comprehension and refactoring safety.
 
-## When to Use Orchestration
+## Built-In Agents
 
-✅ **Good for:**
-- Complex tasks requiring multiple expertise domains
-- Code analysis from security, performance, and quality perspectives
-- Comprehensive reviews (architecture + security + testing)
-- Feature implementation needing backend + frontend + database work
+- `general-purpose`: Multi-step coding or exploration when no specialist fits.
+- `Explore`: Read-only discovery for symbols, file paths, and cross-references.
+- `Plan`: High-level architecture and implementation planning.
 
-❌ **Not for:**
-- Simple, single-domain tasks
-- Quick fixes or small changes
-- Tasks where one agent suffices
+## Single and Chained Invocations
 
----
+Invoke agents through the Claude Code tool runner:
 
-## Native Agent Invocation
-
-### Single Agent
-```
-Use the security-auditor agent to review authentication
-```
-
-### Sequential Chain
-```
-First, use the explorer-agent to discover project structure.
-Then, use the backend-specialist to review API endpoints.
-Finally, use the test-engineer to identify test gaps.
-```
-
-### With Context Passing
-```
-Use the frontend-specialist to analyze React components.
-Based on those findings, have the test-engineer generate component tests.
-```
-
-### Resume Previous Work
-```
-Resume agent [agentId] and continue with additional requirements.
+```text
+Agent({
+  description: "Audit auth middleware",
+  subagent_type: "security-auditor",
+  prompt: "Review src/auth/middleware.ts for session validation, token expiration, and bypass risks."
+})
 ```
 
----
+When running multiple independent lookups, send the tool calls in parallel within a single turn.
 
-## Orchestration Patterns
+## Workflow Orchestration Pattern
 
-### Pattern 1: Comprehensive Analysis
-```
-Agents: explorer-agent → [domain-agents] → synthesis
+Use `Workflow` when orchestrating fan-out, adversarial checks, or synthesis across many files:
 
-1. explorer-agent: Map codebase structure
-2. security-auditor: Security posture
-3. backend-specialist: API quality
-4. frontend-specialist: UI/UX patterns
-5. test-engineer: Test coverage
-6. Synthesize all findings
-```
+```javascript
+export const meta = {
+  name: 'code-audit',
+  description: 'Decompose codebase review across security, backend, and testing',
+  phases: [{ title: 'Audit' }, { title: 'Synthesize' }],
+}
 
-### Pattern 2: Feature Review
-```
-Agents: affected-domain-agents → test-engineer
+const targets = ['security', 'backend', 'tests']
+const reviews = await pipeline(
+  targets,
+  target => agent(`Review ${target} in this codebase`, { phase: 'Audit' }),
+)
 
-1. Identify affected domains (backend? frontend? both?)
-2. Invoke relevant domain agents
-3. test-engineer verifies changes
-4. Synthesize recommendations
+phase('Synthesize')
+const summary = await agent(`Synthesize findings: ${JSON.stringify(reviews)}`, { phase: 'Synthesize' })
+return { summary }
 ```
 
-### Pattern 3: Security Audit
-```
-Agents: security-auditor → penetration-tester → synthesis
+## Protocol
 
-1. security-auditor: Configuration and code review
-2. penetration-tester: Active vulnerability testing
-3. Synthesize with prioritized remediation
-```
-
----
-
-## Available Agents
-
-| Agent | Expertise | Trigger Phrases |
-|-------|-----------|-----------------|
-| `orchestrator` | Coordination | "comprehensive", "multi-perspective" |
-| `security-auditor` | Security | "security", "auth", "vulnerabilities" |
-| `penetration-tester` | Security Testing | "pentest", "red team", "exploit" |
-| `backend-specialist` | Backend | "API", "server", "Node.js", "Express" |
-| `frontend-specialist` | Frontend | "React", "UI", "components", "Next.js" |
-| `test-engineer` | Testing | "tests", "coverage", "TDD" |
-| `devops-engineer` | DevOps | "deploy", "CI/CD", "infrastructure" |
-| `database-architect` | Database | "schema", "Prisma", "migrations" |
-| `mobile-developer` | Mobile | "React Native", "Flutter", "mobile" |
-| `api-designer` | API Design | "REST", "GraphQL", "OpenAPI" |
-| `debugger` | Debugging | "bug", "error", "not working" |
-| `explorer-agent` | Discovery | "explore", "map", "structure" |
-| `documentation-writer` | Documentation | "write docs", "create README", "generate API docs" |
-| `performance-optimizer` | Performance | "slow", "optimize", "profiling" |
-| `project-planner` | Planning | "plan", "roadmap", "milestones" |
-| `seo-specialist` | SEO | "SEO", "meta tags", "search ranking" |
-| `game-developer` | Game Development | "game", "Unity", "Godot", "Phaser" |
-
----
-
-## Antigravity Built-in Agents
-
-These work alongside custom agents:
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| **Explore** | Haiku | Fast read-only codebase search |
-| **Plan** | Sonnet | Research during plan mode |
-| **General-purpose** | Sonnet | Complex multi-step modifications |
-
-Use **Explore** for quick searches, **custom agents** for domain expertise.
-
----
-
-## Synthesis Protocol
-
-After all agents complete, synthesize:
-
-```markdown
-## Orchestration Synthesis
-
-### Task Summary
-[What was accomplished]
-
-### Agent Contributions
-| Agent | Finding |
-|-------|---------|
-| security-auditor | Found X |
-| backend-specialist | Identified Y |
-
-### Consolidated Recommendations
-1. **Critical**: [Issue from Agent A]
-2. **Important**: [Issue from Agent B]
-3. **Nice-to-have**: [Enhancement from Agent C]
-
-### Action Items
-- [ ] Fix critical security issue
-- [ ] Refactor API endpoint
-- [ ] Add missing tests
-```
-
----
-
-## Best Practices
-
-1. **Available agents** - 17 specialized agents can be orchestrated
-2. **Logical order** - Discovery → Analysis → Implementation → Testing
-3. **Share context** - Pass relevant findings to subsequent agents
-4. **Single synthesis** - One unified report, not separate outputs
-5. **Verify changes** - Always include test-engineer for code modifications
-
----
-
-## Key Benefits
-
-- ✅ **Single session** - All agents share context
-- ✅ **AI-controlled** - Claude orchestrates autonomously
-- ✅ **Native integration** - Works with built-in Explore, Plan agents
-- ✅ **Resume support** - Can continue previous agent work
-- ✅ **Context passing** - Findings flow between agents
+1. Scope the task before launching agents.
+2. Read project rules from `.agent/rules/` before modifying code.
+3. Pass exact paths, constraints, and success criteria into agent prompts.
+4. Run project checks before declaring work complete.
+5. Report findings directly with actionable next steps.

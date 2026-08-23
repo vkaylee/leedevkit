@@ -57,22 +57,22 @@ Improve nearby code when the issue is verified, low-risk, behavior-preserving, a
 
 ## 10. Related Rulebooks
 When working on specific concerns, also consult:
-- `@[.agent/rules/ai-agent-governance.md]` — Rule priority, applicability, scope, exceptions, verification, Definition of Done
-- `@[.agent/rules/database-rules.md]` — Multi-tenancy, N+1 prevention, migrations, soft deletes
-- `@[.agent/rules/testing-standards.md]` — Mandatory post-implementation test gate, coverage thresholds, `./leedevkit test` runner
-- `@[.agent/rules/development-workflow.md]` — Primary implementation loop, test-impact matrix, edge cases, and completion evidence
-- `@[.agent/rules/secure-development-lifecycle.md]` — Threat modeling, implementation controls, and security verification
-- `@[.agent/rules/architecture-governance.md]` — ADRs, system boundaries, and architecture review gates
-- `@[.agent/rules/api-governance.md]` — Public contracts, compatibility, reliability semantics, and contract verification
-- `@[.agent/rules/reliability-engineering.md]` — SLOs, dependency resilience, capacity, and operational readiness
-- `@[.agent/rules/migration-and-rollback.md]` — Safe evolution of schemas, data, contracts, and infrastructure
-- `@[.agent/rules/release-management.md]` — Reproducible artifacts, readiness, rollout, and post-release verification
-- `@[.agent/rules/vulnerability-management.md]` — Finding triage, remediation targets, risk acceptance, and closure evidence
-- `@[.agent/rules/access-control.md]` — RBAC enforcement, JWT, permission granularity
-- `@[.agent/rules/data-governance.md]` — PII masking, data classification, retention
-- `@[.agent/rules/design-rules.md]` — UI/UX, design system, responsive, accessibility
-- `@[.agent/rules/observability-rules.md]` — Tracing, structured logging, metrics
-- `@[.agent/rules/encryption-rules.md]` — Secrets, TLS, key management
-- `@[.agent/rules/configuration-management.md]` — Env vars, fail-fast validation
-- `@[.agent/rules/execution-wrappers.md]` — Hermetic build/test scripts
-- `@[.agent/rules/project-structure.md]` — Component map, commit conventions, directory layout
+- Read `.agent/rules/ai-agent-governance.md` — rule priority, scope, exceptions, verification, and Definition of Done.
+- Read `.agent/rules/database-rules.md` — multi-tenancy, N+1 prevention, migrations, and soft deletes.
+- Read `.agent/rules/testing-standards.md` — test gates, coverage thresholds, and `./leedevkit test`.
+- Read `.agent/rules/development-workflow.md` — implementation loop, test impact, edge cases, and evidence.
+- Read `.agent/rules/secure-development-lifecycle.md` — threat modeling and security verification.
+- Read `.agent/rules/architecture-governance.md` — ADRs, boundaries, and architecture gates.
+- Read `.agent/rules/api-governance.md` — public contracts and compatibility.
+- Read `.agent/rules/reliability-engineering.md` — SLOs, resilience, capacity, and operations.
+- Read `.agent/rules/migration-and-rollback.md` — safe evolution and rollback.
+- Read `.agent/rules/release-management.md` — artifacts, rollout, and release verification.
+- Read `.agent/rules/vulnerability-management.md` — triage, remediation, and closure evidence.
+- Read `.agent/rules/access-control.md` — RBAC, JWT, and permissions.
+- Read `.agent/rules/data-governance.md` — PII masking, classification, and retention.
+- Read `.agent/rules/design-rules.md` — UI/UX, responsive design, and accessibility.
+- Read `.agent/rules/observability-rules.md` — tracing, logging, and metrics.
+- Read `.agent/rules/encryption-rules.md` — secrets, TLS, and key management.
+- Read `.agent/rules/configuration-management.md` — environment variables and fail-fast validation.
+- Read `.agent/rules/execution-wrappers.md` — hermetic build and test scripts.
+- Read `.agent/rules/project-structure.md` — component map, commits, and directory layout.

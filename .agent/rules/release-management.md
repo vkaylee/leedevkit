@@ -45,6 +45,19 @@ Deployment and feature exposure are separate controls. A deployed feature MUST N
 - Emergency releases may use reduced pre-release scope only under the change-management hotfix process.
 - Emergency changes still require traceability, targeted verification, monitoring, and retrospective review.
 
-## 7. Release Completion
+## 7. LeeDevKit Release Procedure (REQUIRED)
+
+A request to release LeeDevKit means the complete customer-visible workflow, not only a commit or Git tag:
+
+1. Run the release readiness gate: format, lint, type checks, tests, coverage, and `git diff --check`.
+2. Update `VERSION` and `RELEASE_NOTES_vX.Y.Z.md`; commit the release changes.
+3. Push `main` to `origin`.
+4. Create and push immutable annotated tag `vX.Y.Z`.
+5. Create the public GitHub Release with `gh release create vX.Y.Z --repo vkaylee/leedevkit --notes-file RELEASE_NOTES_vX.Y.Z.md`.
+6. Verify `gh release view vX.Y.Z` reports public, non-draft, non-prerelease, and that `releases/latest` resolves to the new tag.
+
+Do not report release completion until all six steps pass. LeeDevKit customer updates read GitHub Releases, not tags alone; a tag without a GitHub Release is incomplete.
+
+## 8. Release Completion
 
 A release is complete only when artifacts are published or deployed, verification passes, stakeholder communication is complete, temporary rollout controls have owners, and discovered issues are tracked.

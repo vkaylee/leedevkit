@@ -80,34 +80,39 @@ def _prune_stale(dest_dir: Path, keep: set[str], devkit: Path) -> None:
 
 
 def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
-    """Bridge devkit agents and built-in skills into Claude Code paths."""
+    """Bridge agents and built-in/community skills into Claude Code paths."""
     agent_source = devkit / ".agent" / "agents"
-    skill_source = devkit / ".agent" / "skills"
+    builtin_skill_source = devkit / ".agent" / "skills"
+    community_skill_source = devkit / "skills.d"
     agent_dest = root / ".claude" / "agents"
     skill_dest = root / ".claude" / "skills"
     agents = 0
     skills = 0
 
-    if agent_source.is_dir():
-        sources = sorted(agent_source.glob("*.md"))
-        for source in sources:
-            if _bridge(source, agent_dest / source.name, devkit):
-                agents += 1
-        _prune_stale(agent_dest, {source.name for source in sources}, devkit)
+    agent_sources = sorted(agent_source.glob("*.md")) if agent_source.is_dir() else []
+    for source in agent_sources:
+        if _bridge(source, agent_dest / source.name, devkit):
+            agents += 1
+    _prune_stale(agent_dest, {source.name for source in agent_sources}, devkit)
 
-    if skill_source.is_dir():
-        sources = sorted(
-            item
-            for item in skill_source.iterdir()
-            if item.is_dir()
-            and not item.name.startswith(".")
-            and item.name != "_shared"
-            and (item / "SKILL.md").is_file()
-        )
-        for source in sources:
-            if _bridge(source, skill_dest / source.name, devkit):
-                skills += 1
-        _prune_stale(skill_dest, {source.name for source in sources}, devkit)
+    skill_sources: dict[str, Path] = {}
+    for source_dir in (builtin_skill_source, community_skill_source):
+        if not source_dir.is_dir():
+            continue
+        for source in sorted(source_dir.iterdir()):
+            if (
+                source.is_dir()
+                and not source.name.startswith(".")
+                and source.name != "_shared"
+                and (source / "SKILL.md").is_file()
+                and source.name not in skill_sources
+            ):
+                skill_sources[source.name] = source
+
+    for name, source in sorted(skill_sources.items()):
+        if _bridge(source, skill_dest / name, devkit):
+            skills += 1
+    _prune_stale(skill_dest, set(skill_sources), devkit)
 
     return agents, skills
 
