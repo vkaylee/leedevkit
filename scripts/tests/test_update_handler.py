@@ -370,8 +370,11 @@ class TestAutoSyncAfterUpdate:
         root = project_root / ".leedevkit"
         skill = root / "skills.d" / "my-skill"
         skill.mkdir(parents=True)
+        venv_python = root / ".venv" / "bin" / "python3"
+        venv_python.parent.mkdir(parents=True)
         (root / "VERSION").write_text("0.1.0")
         (skill / "SKILL.md").write_text("keep me\n")
+        venv_python.write_text("existing environment\n")
 
         monkeypatch.chdir(project_root)
         monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
@@ -391,6 +394,8 @@ class TestAutoSyncAfterUpdate:
         handle_update(target="v0.2.0")
 
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+        assert (root / ".venv" / "bin" / "python3").read_text() == "existing environment\n"
+        assert not (root.with_name(".leedevkit.bak") / ".venv").exists()
         assert (project_root / ".claude" / "skills" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
 
     def test_update_preserves_skills_directory_symlink(self, tmp_path, monkeypatch):

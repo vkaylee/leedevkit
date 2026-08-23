@@ -97,11 +97,12 @@ def handle_update(target: str | None = None) -> None:
         log_info(f"Backed up current install to {backup.name}/")
         shutil.move(str(tmp_extract), str(root))
 
-        backup_skills = backup / "skills.d"
-        if backup_skills.exists() or backup_skills.is_symlink():
-            restored_skills = root / "skills.d"
-            _remove_path(restored_skills)
-            shutil.move(str(backup_skills), str(restored_skills))
+        for preserved_name in ("skills.d", ".venv"):
+            preserved = backup / preserved_name
+            if preserved.exists() or preserved.is_symlink():
+                restored = root / preserved_name
+                _remove_path(restored)
+                shutil.move(str(preserved), str(restored))
     except Exception:
         _restore_backup(root, backup)
         log_warn("Update failed; rolled back to previous version.")
