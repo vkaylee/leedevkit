@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import shutil
 import tarfile
 
 import pytest
@@ -79,6 +81,45 @@ class TestDownloadAndExtract:
         assert (target / "VERSION").read_text() == "0.2.0"
         assert (target / "README.md").read_text() == "# Hello"
 
+    def test_rejects_path_traversal_member(self, tmp_path, monkeypatch):
+        """Archives cannot write outside the extraction directory."""
+        from _download import download_and_extract_tarball
+
+        tarball_path = tmp_path / "unsafe.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tf:
+            member = tarfile.TarInfo("../escape.txt")
+            payload = b"unsafe"
+            member.size = len(payload)
+            tf.addfile(member, io.BytesIO(payload))
+
+        monkeypatch.setattr(
+            "_download.urllib.request.urlretrieve",
+            lambda _url, filename: shutil.copy(tarball_path, filename),
+        )
+
+        with pytest.raises(RuntimeError, match="unsafe archive path"):
+            download_and_extract_tarball("https://example.com/unsafe.tar.gz", tmp_path / "dest")
+        assert not (tmp_path / "escape.txt").exists()
+
+    def test_rejects_symlink_member(self, tmp_path, monkeypatch):
+        """Archives cannot create symlinks during extraction."""
+        from _download import download_and_extract_tarball
+
+        tarball_path = tmp_path / "unsafe.tar.gz"
+        with tarfile.open(tarball_path, "w:gz") as tf:
+            member = tarfile.TarInfo("link")
+            member.type = tarfile.SYMTYPE
+            member.linkname = "/etc/passwd"
+            tf.addfile(member)
+
+        monkeypatch.setattr(
+            "_download.urllib.request.urlretrieve",
+            lambda _url, filename: shutil.copy(tarball_path, filename),
+        )
+
+        with pytest.raises(RuntimeError, match="unsupported archive member"):
+            download_and_extract_tarball("https://example.com/unsafe.tar.gz", tmp_path / "dest")
+
     def test_overwrites_existing_target(self, tmp_path, monkeypatch):
         """Existing target_dir is removed before moving new one."""
         from _download import download_and_extract_tarball
@@ -132,6 +173,64 @@ class TestHandleUpdateRollback:
             handle_update(target="v0.2.0")
 
         # Original tree intact, no backup left behind
+        assert (root / "VERSION").read_text() == "0.1.0"
+        assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+        assert not (tmp_path / "devkit.bak").exists()
+
+    def test_missing_version_rolls_back_without_losing_skills(self, tmp_path, monkeypatch):
+        """A malformed release cannot replace the current installation."""
+        from _update_handler import handle_update
+
+        root = tmp_path / "devkit"
+        root.mkdir()
+        (root / "VERSION").write_text("0.1.0")
+        skill = root / "skills.d" / "my-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("keep me\n")
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+
+        def fake_download(_url, target_dir):
+            target_dir.mkdir(parents=True)
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+
+        with pytest.raises(RuntimeError, match="missing VERSION"):
+            handle_update(target="v0.2.0")
+
+        assert (root / "VERSION").read_text() == "0.1.0"
+        assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+        assert not (tmp_path / "devkit.bak").exists()
+
+    def test_skill_migration_failure_rolls_back_with_skills(self, tmp_path, monkeypatch):
+        """A failed skills migration restores the complete old installation."""
+        from _update_handler import handle_update
+        import _update_handler
+
+        root = tmp_path / "devkit"
+        root.mkdir()
+        (root / "VERSION").write_text("0.1.0")
+        skill = root / "skills.d" / "my-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("keep me\n")
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+
+        def fake_download(_url, target_dir):
+            target_dir.mkdir(parents=True)
+            (target_dir / "VERSION").write_text("0.2.0")
+
+        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        real_move = _update_handler.shutil.move
+
+        def fail_skill_move(source, destination):
+            if str(source).endswith("devkit.bak/skills.d"):
+                raise OSError("skill migration failed")
+            return real_move(source, destination)
+
+        monkeypatch.setattr(_update_handler.shutil, "move", fail_skill_move)
+
+        with pytest.raises(OSError, match="skill migration failed"):
+            handle_update(target="v0.2.0")
+
         assert (root / "VERSION").read_text() == "0.1.0"
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
         assert not (tmp_path / "devkit.bak").exists()

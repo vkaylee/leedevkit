@@ -22,6 +22,26 @@ def _devkit_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _restore_backup(root: Path, backup: Path) -> None:
+    if not backup.exists():
+        return
+    backup_skills = backup / "skills.d"
+    restored_skills = root / "skills.d"
+    if root.exists() and not backup_skills.exists() and not backup_skills.is_symlink():
+        if restored_skills.exists() or restored_skills.is_symlink():
+            shutil.move(str(restored_skills), str(backup_skills))
+    _remove_path(root)
+    if backup.exists():
+        shutil.move(str(backup), str(root))
+
+
 def _latest_release_version() -> str:
     """Return the latest release tag (e.g. 'v0.2.0') from GitHub Releases."""
     api = "https://api.github.com/repos/vkaylee/leedevkit/releases/latest"
@@ -56,42 +76,40 @@ def handle_update(target: str | None = None) -> None:
 
     log_info(f"Updating {current} → {target}")
 
-    # Backup current install to <root>.bak before overwriting.
     backup = root.with_name(root.name + ".bak")
-    if backup.exists():
-        shutil.rmtree(backup)
-    shutil.move(str(root), str(backup))
-    log_info(f"Backed up current install to {backup.name}/")
-
-    # Download into a temp dir, then move the extracted tree onto root.
     tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
     url = f"https://github.com/vkaylee/leedevkit/archive/refs/tags/{target}.tar.gz"
     try:
         log_info(f"Downloading {url} ...")
         download_and_extract_tarball(url, tmp_extract)
-        if root.exists():
-            shutil.rmtree(root)
+        version_file = tmp_extract / "VERSION"
+        if not version_file.is_file():
+            raise RuntimeError("Downloaded devkit is missing VERSION")
+        new_ver = version_file.read_text().strip()
+        if new_ver != ver:
+            raise RuntimeError(
+                f"Downloaded devkit version {new_ver!r} does not match requested {ver!r}"
+            )
+
+        if backup.exists() or backup.is_symlink():
+            _remove_path(backup)
+        shutil.move(str(root), str(backup))
+        log_info(f"Backed up current install to {backup.name}/")
         shutil.move(str(tmp_extract), str(root))
 
-        # skills.d contains project-owned repositories; keep them across updates.
         backup_skills = backup / "skills.d"
         if backup_skills.exists() or backup_skills.is_symlink():
             restored_skills = root / "skills.d"
-            if restored_skills.is_symlink() or restored_skills.is_file():
-                restored_skills.unlink()
-            elif restored_skills.exists():
-                shutil.rmtree(restored_skills)
+            _remove_path(restored_skills)
             shutil.move(str(backup_skills), str(restored_skills))
     except Exception:
-        # Roll back on any failure — broad catch is intentional here
-        # to guarantee rollback regardless of the error type.
-        if root.exists():
-            shutil.rmtree(root)
-        shutil.move(str(backup), str(root))
+        _restore_backup(root, backup)
         log_warn("Update failed; rolled back to previous version.")
         raise
+    finally:
+        if tmp_extract.exists() or tmp_extract.is_symlink():
+            _remove_path(tmp_extract)
 
-    new_ver = (root / "VERSION").read_text().strip()
     log_success(f"Updated leedevkit {current} → {new_ver}")
     log_info(f"Previous version kept at {backup.name}/ (safe to remove).")
 

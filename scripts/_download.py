@@ -13,7 +13,18 @@ import shutil
 import tarfile
 import tempfile
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
+    members = archive.getmembers()
+    for member in members:
+        path = PurePosixPath(member.name)
+        if path.is_absolute() or ".." in path.parts:
+            raise RuntimeError(f"unsafe archive path: {member.name}")
+        if not (member.isfile() or member.isdir()):
+            raise RuntimeError(f"unsupported archive member: {member.name}")
+    archive.extractall(destination, members=members)  # noqa: S202
 
 
 def download_and_extract_tarball(url: str, target_dir: Path) -> None:
@@ -33,7 +44,7 @@ def download_and_extract_tarball(url: str, target_dir: Path) -> None:
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()
         with tarfile.open(tarball, "r:gz") as tf:
-            tf.extractall(extract_dir)  # noqa: S202
+            _safe_extract(tf, extract_dir)
         # The tarball may contain a single root dir (leedevkit-vX.Y.Z/)
         contents = list(extract_dir.iterdir())
         if len(contents) == 1 and contents[0].is_dir():
