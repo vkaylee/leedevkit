@@ -1,1 +1,0 @@
-/tmp/pytest-of-elt1541/pytest-12/test_no_symlink_when_rules_dir0/project/.leedevkit/.agent/agents/backend-specialist.md
