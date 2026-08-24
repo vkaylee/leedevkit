@@ -182,11 +182,23 @@ all = ["apiserver", "agent-main", "webdashboard"]
 rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
 
+# Optional: route unset Claude Code subagent models by task complexity.
+# Init/update wires .claude/settings.json and .mcp.json automatically.
+[ai.model_routing]
+enabled = false
+default_model = "sonnet"
+
 [addons.skills]
 skills = [
     # { url = "https://github.com/author/skill.git", version = "main" },
 ]
 ```
+
+### Claude Code model routing
+
+LeeDevKit automatically wires a fail-open `PreToolUse` hook into `.claude/settings.json` and registers the `assess_task` MCP tool in `.mcp.json`. Enable active subagent model routing by setting `ai.model_routing.enabled = true` in `leedevkit.toml`. When disabled (`enabled = false`, the default), the hook is dormant and exits immediately without modifying tool inputs. Explicit `model` values always win.
+
+The default routing tiers are `haiku` for lookups, `sonnet` for routine implementation, `opus` for debugging or security work, and `fable` for ambiguous cross-system design.
 
 ## Go-Only Project
 

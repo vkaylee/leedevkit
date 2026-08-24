@@ -11,3 +11,9 @@ name = "UI/UX Pro Max"
 description = "Comprehensive UI/UX design system — colors, typography, icons, stacks, landing patterns, UX psychology"
 url = "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git"
 tags = ["frontend", "design", "ui", "ux"]
+
+[skills.claude-code-model-router]
+name = "Claude Code Model Router"
+description = "Routes unset Claude Code subagent models using lightweight keyword and complexity heuristics"
+url = "https://github.com/nedjamez/claude-code-model-router"
+tags = ["claude-code", "model-routing", "subagents", "cost-control"]

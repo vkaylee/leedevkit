@@ -209,6 +209,17 @@ class InitHandler(HandlerBase):
                 f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
             )
 
+        from _claude_config import install_ai_integrations
+
+        try:
+            settings_ok, mcp_ok = install_ai_integrations(root)
+            if settings_ok:
+                log_success("Configured model routing hook in .claude/settings.json")
+            if mcp_ok:
+                log_success("Registered task assessor MCP server in .mcp.json")
+        except Exception as e:
+            log_warn(f"⚠️  AI integration sync failed: {e}")
+
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install.
 
@@ -346,6 +357,17 @@ class InitHandler(HandlerBase):
             log_success(
                 f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
             )
+
+        from _claude_config import install_ai_integrations
+
+        try:
+            settings_ok, mcp_ok = install_ai_integrations(root)
+            if settings_ok:
+                log_success("Configured model routing hook in .claude/settings.json")
+            if mcp_ok:
+                log_success("Registered task assessor MCP server in .mcp.json")
+        except Exception as e:
+            log_warn(f"⚠️  AI integration sync failed: {e}")
 
         # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
         wrapper = root / "leedevkit"

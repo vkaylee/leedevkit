@@ -69,6 +69,10 @@ rules_dir = ".agent/rules"
 # Override manifest: which devkit rules to replace/extend.
 override_manifest = ".agent/overrides.yaml"
 
+[ai.model_routing]
+enabled = false
+default_model = "sonnet"
+
 # ── Community Add-ons (like package.json for AI skills) ───────────────────
 
 [addons]

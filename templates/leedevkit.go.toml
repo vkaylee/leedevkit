@@ -24,5 +24,9 @@ extra_rules = []
 rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
 
+[ai.model_routing]
+enabled = false
+default_model = "sonnet"
+
 [addons]
 skills = []
