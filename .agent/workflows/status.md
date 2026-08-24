@@ -82,5 +82,5 @@ Show current project and agent status.
 ## Technical
 
 Status uses these scripts:
-- `python .agent/scripts/session_manager.py status`
-- `python .agent/scripts/auto_preview.py status`
+- `.leedevkit/.venv/bin/python3 .agent/scripts/session_manager.py status`
+- `.leedevkit/.venv/bin/python3 .agent/scripts/auto_preview.py status`

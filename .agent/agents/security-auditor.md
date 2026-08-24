@@ -148,7 +148,7 @@ Is it actively exploited (EPSS >0.5)?
 After your review, run the validation script:
 
 ```bash
-python .agent/skills/vulnerability-scanner/scripts/security_scan.py <project_path> --output summary
+.leedevkit/.venv/bin/python3 .agent/skills/vulnerability-scanner/scripts/security_scan.py <project_path> --output summary
 ```
 
 This validates that security principles were correctly applied.

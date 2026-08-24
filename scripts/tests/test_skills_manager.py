@@ -80,7 +80,7 @@ class TestSkillsManagerCatalog:
         catalog_dir = tmp_path / ".agent"
         catalog_dir.mkdir(parents=True)
         (catalog_dir / "skills-catalog.toml").write_text(
-            '[skills.ui-ux-pro-max]\n'
+            "[skills.ui-ux-pro-max]\n"
             'name = "UI/UX Pro Max"\n'
             'url = "https://github.com/leeattend/ui-ux-pro-max"\n'
             'description = "Advanced UI/UX design toolkit"\n'
@@ -173,13 +173,20 @@ class TestSkillsManagerDispatch:
         catalog_dir = tmp_path / ".agent"
         catalog_dir.mkdir(parents=True)
         (catalog_dir / "skills-catalog.toml").write_text(
-            '[skills.community-plugin]\n'
+            "[skills.community-plugin]\n"
             'name = "Community Plugin"\n'
             'url = "https://example.test/community-plugin.git"\n'
         )
 
         def clone(_cmd, **_kwargs):
-            skill = tmp_path / "skills.d" / "community-plugin" / ".claude" / "skills" / "community-skill"
+            skill = (
+                tmp_path
+                / "skills.d"
+                / "community-plugin"
+                / ".claude"
+                / "skills"
+                / "community-skill"
+            )
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
                 "---\nname: community-skill\ndescription: test\n---\nUse references.\n"
@@ -195,7 +202,9 @@ class TestSkillsManagerDispatch:
         runtime_skill = tmp_path / ".claude" / "skills" / "community-skill"
         assert runtime_skill.is_symlink()
         assert (runtime_skill / "SKILL.md").read_text().endswith("Use references.\n")
-        assert (runtime_skill / "references" / "workflow.md").read_text() == "workflow\n"
+        assert (
+            runtime_skill / "references" / "workflow.md"
+        ).read_text() == "workflow\n"
 
         mgr._list()
         output = capsys.readouterr().err
@@ -262,9 +271,7 @@ class TestSkillsManagerInternals:
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "skills-catalog.toml").write_text(
-            '[skills.my-skill]\n'
-            'name = "MySkill"\n'
-            'url = "https://github.com/x/y.git"\n'
+            '[skills.my-skill]\nname = "MySkill"\nurl = "https://github.com/x/y.git"\n'
         )
 
         # Create the skill dir to simulate "already installed"
@@ -284,7 +291,7 @@ class TestSkillsManagerInternals:
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "skills-catalog.toml").write_text(
-            '[skills.cool-skill]\n'
+            "[skills.cool-skill]\n"
             'name = "CoolSkill"\n'
             'url = "https://github.com/x/cool.git"\n'
         )
@@ -324,7 +331,7 @@ class TestSkillsManagerInternals:
         agent_dir = tmp_path / ".agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "skills-catalog.toml").write_text(
-            '[skills.existing]\n'
+            "[skills.existing]\n"
             'name = "Existing"\n'
             'url = "https://github.com/x/existing.git"\n'
         )
@@ -685,8 +692,14 @@ class TestSkillsManagerCoverageGaps:
 
         monkeypatch.setattr("subprocess.run", failed_clone)
         mgr = SkillsManager()
-        monkeypatch.setattr(mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError()))
-        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(
+            mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError())
+        )
+        monkeypatch.setattr(
+            mgr,
+            "_sync_claude_resources",
+            lambda: (_ for _ in ()).throw(AssertionError()),
+        )
         mgr._install_by_name("failed")
         assert not target.exists()
 
@@ -709,8 +722,14 @@ class TestSkillsManagerCoverageGaps:
 
         monkeypatch.setattr("subprocess.run", failed_clone)
         mgr = SkillsManager()
-        monkeypatch.setattr(mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError()))
-        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: (_ for _ in ()).throw(AssertionError()))
+        monkeypatch.setattr(
+            mgr, "_write_lock", lambda: (_ for _ in ()).throw(AssertionError())
+        )
+        monkeypatch.setattr(
+            mgr,
+            "_sync_claude_resources",
+            lambda: (_ for _ in ()).throw(AssertionError()),
+        )
         mgr._install_from_toml()
         assert not target.exists()
 
@@ -724,7 +743,9 @@ class TestSkillsManagerCoverageGaps:
         (repo / ".git").mkdir(parents=True)
         monkeypatch.setattr(
             "subprocess.run",
-            lambda *_args, **_kwargs: type("Result", (), {"returncode": 1, "stderr": "nope", "stdout": ""})(),
+            lambda *_args, **_kwargs: type(
+                "Result", (), {"returncode": 1, "stderr": "nope", "stdout": ""}
+            )(),
         )
         mgr = SkillsManager()
         monkeypatch.setattr(mgr, "_write_lock", lambda: None)

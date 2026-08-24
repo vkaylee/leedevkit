@@ -212,7 +212,7 @@ Before shipping to production:
 
 | Script                                 | Purpose                     | Command                                                      |
 | -------------------------------------- | --------------------------- | ------------------------------------------------------------ |
-| `.agent/skills/nextjs-react-expert/scripts/react_performance_checker.py` | Automated performance audit | `python .agent/skills/nextjs-react-expert/scripts/react_performance_checker.py <project_path>` |
+| `.agent/skills/nextjs-react-expert/scripts/react_performance_checker.py` | Automated performance audit | `.leedevkit/.venv/bin/python3 .agent/skills/nextjs-react-expert/scripts/react_performance_checker.py <project_path>` |
 
 ---
 

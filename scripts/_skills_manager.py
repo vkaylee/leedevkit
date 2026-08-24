@@ -231,7 +231,9 @@ class SkillsManager:
             installed += 1
 
         if failed:
-            log_warn(f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}")
+            log_warn(
+                f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}"
+            )
         log_success(f"Installed {installed} new skill repo(s)")
         if installed > 0:
             self._write_lock()
@@ -297,7 +299,9 @@ class SkillsManager:
                 else:
                     failed.append(repo.name)
         if failed:
-            log_warn(f"Failed to update {len(failed)} skill repo(s): {', '.join(failed)}")
+            log_warn(
+                f"Failed to update {len(failed)} skill repo(s): {', '.join(failed)}"
+            )
         log_success(f"Updated {updated} skill repo(s)")
         self._write_lock()
         self._sync_claude_resources()

@@ -30,7 +30,11 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
             target = PurePosixPath(
                 posixpath.normpath(str(path.parent / member.linkname))
             )
-            if target.is_absolute() or not target.parts or target.parts[0] not in archive_roots:
+            if (
+                target.is_absolute()
+                or not target.parts
+                or target.parts[0] not in archive_roots
+            ):
                 raise RuntimeError(f"unsafe archive link: {member.name}")
             continue
         if not (member.isfile() or member.isdir()):

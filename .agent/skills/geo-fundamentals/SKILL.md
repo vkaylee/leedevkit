@@ -152,5 +152,5 @@ How AI engines select content to cite:
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `.agent/skills/geo-fundamentals/scripts/geo_checker.py` | GEO audit (AI citation readiness) | `python .agent/skills/geo-fundamentals/scripts/geo_checker.py <project_path>` |
+| `.agent/skills/geo-fundamentals/scripts/geo_checker.py` | GEO audit (AI citation readiness) | `.leedevkit/.venv/bin/python3 .agent/skills/geo-fundamentals/scripts/geo_checker.py <project_path>` |
 

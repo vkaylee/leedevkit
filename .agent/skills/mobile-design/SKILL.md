@@ -17,7 +17,7 @@ allowed-tools: Read, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `.agent/skills/mobile-design/scripts/mobile_audit.py` | Mobile UX & Touch Audit | `python .agent/skills/mobile-design/scripts/mobile_audit.py <project_path>` |
+| `.agent/skills/mobile-design/scripts/mobile_audit.py` | Mobile UX & Touch Audit | `.leedevkit/.venv/bin/python3 .agent/skills/mobile-design/scripts/mobile_audit.py <project_path>` |
 
 ---
 

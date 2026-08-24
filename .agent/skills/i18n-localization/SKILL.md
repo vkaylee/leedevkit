@@ -151,4 +151,4 @@ Before shipping:
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `.agent/skills/i18n-localization/scripts/i18n_checker.py` | Detect hardcoded strings & missing translations | `python .agent/skills/i18n-localization/scripts/i18n_checker.py <project_path>` |
+| `.agent/skills/i18n-localization/scripts/i18n_checker.py` | Detect hardcoded strings & missing translations | `.leedevkit/.venv/bin/python3 .agent/skills/i18n-localization/scripts/i18n_checker.py <project_path>` |

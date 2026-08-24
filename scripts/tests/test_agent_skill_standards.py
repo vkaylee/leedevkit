@@ -70,9 +70,7 @@ def _referenced_agents() -> set[str]:
                 if match.endswith(suffixes):
                     names.add(match)
             names.update(
-                re.findall(
-                    r"subagent_type\s*:\s*[\"']([a-z][a-z0-9-]+)[\"']", text
-                )
+                re.findall(r"subagent_type\s*:\s*[\"']([a-z][a-z0-9-]+)[\"']", text)
             )
     return names
 
@@ -142,7 +140,9 @@ def test_no_legacy_framework_references() -> None:
 
 
 def test_markdown_python_and_bash_paths_exist() -> None:
-    command = re.compile(r"\b(?:python3?|bash)\s+([^\s`]+\.(?:py|sh))")
+    command = re.compile(
+        r"\b(?:python3?|bash|\.leedevkit/\.venv/bin/python3)\s+([^\s`]+\.(?:py|sh))"
+    )
     # Paths under these prefixes are installed at runtime, not shipped in the repo.
     runtime_prefixes = (".leedevkit/", "skills.d/")
     missing: list[str] = []
@@ -159,6 +159,26 @@ def test_markdown_python_and_bash_paths_exist() -> None:
     assert not missing, "Missing executable paths:\n" + "\n".join(sorted(missing))
 
 
+def test_markdown_python_scripts_use_leedevkit_venv() -> None:
+    raw_host_python = re.compile(
+        r"(?<!\.leedevkit/\.venv/bin/)\bpython3?\s+([^\s`]+\.py)"
+    )
+    violations: list[str] = []
+    for root in (
+        ROOT / ".agent" / "skills",
+        ROOT / ".agent" / "agents",
+        ROOT / ".agent" / "workflows",
+    ):
+        for path in root.rglob("*.md"):
+            text = path.read_text()
+            for match in raw_host_python.finditer(text):
+                violations.append(f"{path.relative_to(ROOT)}: {match.group(0)}")
+    assert not violations, (
+        "Host python commands found in skills/agents/workflows:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_claude_resource_bridge_includes_community_skills(tmp_path: Path) -> None:
     import sys
 
@@ -169,12 +189,20 @@ def test_claude_resource_bridge_includes_community_skills(tmp_path: Path) -> Non
     (devkit / ".agent" / "agents").mkdir(parents=True)
     (devkit / ".agent" / "skills" / "builtin").mkdir(parents=True)
     (devkit / "skills.d" / "community").mkdir(parents=True)
-    (devkit / ".agent" / "agents" / "general-purpose.md").write_text("---\nname: general-purpose\ndescription: test\ntools: Read\nmodel: inherit\n---\n")
-    (devkit / ".agent" / "skills" / "builtin" / "SKILL.md").write_text("---\nname: builtin\ndescription: test\n---\n")
-    (devkit / "skills.d" / "community" / "SKILL.md").write_text("---\nname: community\ndescription: test\n---\n")
+    (devkit / ".agent" / "agents" / "general-purpose.md").write_text(
+        "---\nname: general-purpose\ndescription: test\ntools: Read\nmodel: inherit\n---\n"
+    )
+    (devkit / ".agent" / "skills" / "builtin" / "SKILL.md").write_text(
+        "---\nname: builtin\ndescription: test\n---\n"
+    )
+    (devkit / "skills.d" / "community" / "SKILL.md").write_text(
+        "---\nname: community\ndescription: test\n---\n"
+    )
 
     assert sync_claude_resources(tmp_path / "project", devkit) == (1, 2)
-    assert (tmp_path / "project" / ".claude" / "agents" / "general-purpose.md").is_symlink()
+    assert (
+        tmp_path / "project" / ".claude" / "agents" / "general-purpose.md"
+    ).is_symlink()
     assert (tmp_path / "project" / ".claude" / "skills" / "builtin").is_symlink()
     assert (tmp_path / "project" / ".claude" / "skills" / "community").is_symlink()
 
@@ -187,7 +215,9 @@ def test_discover_skill_sources_warns_on_duplicate_id(tmp_path: Path, capsys) ->
 
     source_dir = tmp_path / "skills"
     (source_dir / "alpha").mkdir(parents=True)
-    (source_dir / "alpha" / "SKILL.md").write_text("---\nname: alpha\ndescription: t\n---\n")
+    (source_dir / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: t\n---\n"
+    )
     # Plugin under alpha reuses the same skill ID "alpha".
     (source_dir / "alpha" / ".claude" / "skills" / "alpha").mkdir(parents=True)
     (source_dir / "alpha" / ".claude" / "skills" / "alpha" / "SKILL.md").write_text(

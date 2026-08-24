@@ -98,7 +98,9 @@ class TestDownloadAndExtract:
         )
 
         with pytest.raises(RuntimeError, match="unsafe archive path"):
-            download_and_extract_tarball("https://example.com/unsafe.tar.gz", tmp_path / "dest")
+            download_and_extract_tarball(
+                "https://example.com/unsafe.tar.gz", tmp_path / "dest"
+            )
         assert not (tmp_path / "escape.txt").exists()
 
     def test_rejects_symlink_member(self, tmp_path, monkeypatch):
@@ -118,7 +120,9 @@ class TestDownloadAndExtract:
         )
 
         with pytest.raises(RuntimeError, match="unsafe archive link"):
-            download_and_extract_tarball("https://example.com/unsafe.tar.gz", tmp_path / "dest")
+            download_and_extract_tarball(
+                "https://example.com/unsafe.tar.gz", tmp_path / "dest"
+            )
 
     def test_extracts_internal_symlink_member(self, tmp_path, monkeypatch):
         """Archives may contain symlinks that stay inside their root."""
@@ -162,7 +166,9 @@ class TestDownloadAndExtract:
         )
 
         with pytest.raises(RuntimeError, match="unsafe archive link"):
-            download_and_extract_tarball("https://example.com/unsafe-link.tar.gz", tmp_path / "dest")
+            download_and_extract_tarball(
+                "https://example.com/unsafe-link.tar.gz", tmp_path / "dest"
+            )
 
     def test_overwrites_existing_target(self, tmp_path, monkeypatch):
         """Existing target_dir is removed before moving new one."""
@@ -221,7 +227,9 @@ class TestHandleUpdateRollback:
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
         assert not (tmp_path / "devkit.bak").exists()
 
-    def test_missing_version_rolls_back_without_losing_skills(self, tmp_path, monkeypatch):
+    def test_missing_version_rolls_back_without_losing_skills(
+        self, tmp_path, monkeypatch
+    ):
         """A malformed release cannot replace the current installation."""
         from _update_handler import handle_update
 
@@ -236,7 +244,9 @@ class TestHandleUpdateRollback:
         def fake_download(_url, target_dir):
             target_dir.mkdir(parents=True)
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
 
         with pytest.raises(RuntimeError, match="missing VERSION"):
             handle_update(target="v0.2.0")
@@ -245,7 +255,9 @@ class TestHandleUpdateRollback:
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
         assert not (tmp_path / "devkit.bak").exists()
 
-    def test_skill_migration_failure_rolls_back_with_skills(self, tmp_path, monkeypatch):
+    def test_skill_migration_failure_rolls_back_with_skills(
+        self, tmp_path, monkeypatch
+    ):
         """A failed skills migration restores the complete old installation."""
         from _update_handler import handle_update
         import _update_handler
@@ -262,7 +274,9 @@ class TestHandleUpdateRollback:
             target_dir.mkdir(parents=True)
             (target_dir / "VERSION").write_text("0.2.0")
 
-        monkeypatch.setattr("_update_handler.download_and_extract_tarball", fake_download)
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
         real_move = _update_handler.shutil.move
 
         def fail_skill_move(source, destination):
@@ -400,17 +414,13 @@ class TestUpdateVersionPin:
 class TestAutoSyncAfterUpdate:
     """Test automatic sync after successful update."""
 
-    def test_update_preserves_installed_skills_and_bridge(
-        self, tmp_path, monkeypatch
-    ):
+    def test_update_preserves_installed_skills_and_bridge(self, tmp_path, monkeypatch):
         """Installed community skills survive update and post-update sync."""
         from _update_handler import handle_update
 
         project_root = tmp_path / "project"
         project_root.mkdir()
-        (project_root / "leedevkit.toml").write_text(
-            '[devkit]\nversion = "0.1.0"\n'
-        )
+        (project_root / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
         root = project_root / ".leedevkit"
         skill = root / "skills.d" / "my-skill"
         skill.mkdir(parents=True)
@@ -438,9 +448,13 @@ class TestAutoSyncAfterUpdate:
         handle_update(target="v0.2.0")
 
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
-        assert (root / ".venv" / "bin" / "python3").read_text() == "existing environment\n"
+        assert (
+            root / ".venv" / "bin" / "python3"
+        ).read_text() == "existing environment\n"
         assert not (root.with_name(".leedevkit.bak") / ".venv").exists()
-        assert (project_root / ".claude" / "skills" / "my-skill" / "SKILL.md").read_text() == "keep me\n"
+        assert (
+            project_root / ".claude" / "skills" / "my-skill" / "SKILL.md"
+        ).read_text() == "keep me\n"
 
     def test_update_preserves_skills_directory_symlink(self, tmp_path, monkeypatch):
         """An external skills.d target remains linked after update."""
@@ -465,7 +479,9 @@ class TestAutoSyncAfterUpdate:
                 (target_dir / "VERSION").write_text("0.2.0"),
             ),
         )
-        monkeypatch.setattr("_init_handler.InitHandler.handle_post_update_sync", lambda self: None)
+        monkeypatch.setattr(
+            "_init_handler.InitHandler.handle_post_update_sync", lambda self: None
+        )
 
         handle_update(target="v0.2.0")
 

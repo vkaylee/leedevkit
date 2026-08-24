@@ -204,9 +204,18 @@ class TestClaudeResourceBridge:
 
         root = tmp_path / "project"
         devkit = root / ".leedevkit"
-        skill = devkit / "skills.d" / "community-plugin" / ".claude" / "skills" / "community-skill"
+        skill = (
+            devkit
+            / "skills.d"
+            / "community-plugin"
+            / ".claude"
+            / "skills"
+            / "community-skill"
+        )
         skill.mkdir(parents=True)
-        (skill / "SKILL.md").write_text("---\nname: community-skill\ndescription: test\n---\nUse it.\n")
+        (skill / "SKILL.md").write_text(
+            "---\nname: community-skill\ndescription: test\n---\nUse it.\n"
+        )
         (skill / "references").mkdir()
         (skill / "references" / "guide.md").write_text("guide\n")
 

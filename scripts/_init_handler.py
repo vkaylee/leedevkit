@@ -106,8 +106,10 @@ def discover_skill_sources(*source_dirs: Path) -> dict[str, Path]:
 def _register_skill_source(sources: dict[str, Path], name: str, path: Path) -> None:
     """Record a skill ID, warning when a later source collides with an earlier one."""
     if name in sources:
-        log_warn(f"Skill ID '{name}' is defined in multiple locations: "
-                 f"{sources[name]} and {path}. Using the first one.")
+        log_warn(
+            f"Skill ID '{name}' is defined in multiple locations: "
+            f"{sources[name]} and {path}. Using the first one."
+        )
     else:
         sources[name] = path
 
