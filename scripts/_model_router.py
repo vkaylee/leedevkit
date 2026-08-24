@@ -15,10 +15,38 @@ EFFORTS = ("low", "medium", "high", "xhigh")
 _TARGET_TOOLS = {"Agent", "Task"}
 
 _PATTERNS = (
-    ("fable", "xhigh", re.compile(r"\b(ambiguous|novel|multi[- ]system|cross[- ]system|critical breach|failed escalation)\b", re.I)),
-    ("opus", "high", re.compile(r"\b(debug|root cause|architecture|security|vulnerability|migration|race condition|performance|optimi[sz]e|production)\b", re.I)),
-    ("sonnet", "medium", re.compile(r"\b(implement|feature|refactor|test|endpoint|api|integration|fix|update)\b", re.I)),
-    ("haiku", "low", re.compile(r"\b(grep|find|list|read|count|format|rename|lint|typo|lookup|status)\b", re.I)),
+    (
+        "fable",
+        "xhigh",
+        re.compile(
+            r"\b(ambiguous|novel|multi[- ]system|cross[- ]system|critical breach|failed escalation)\b",
+            re.I,
+        ),
+    ),
+    (
+        "opus",
+        "high",
+        re.compile(
+            r"\b(debug|root cause|architecture|security|vulnerability|migration|race condition|performance|optimi[sz]e|production)\b",
+            re.I,
+        ),
+    ),
+    (
+        "sonnet",
+        "medium",
+        re.compile(
+            r"\b(implement|feature|refactor|test|endpoint|api|integration|fix|update)\b",
+            re.I,
+        ),
+    ),
+    (
+        "haiku",
+        "low",
+        re.compile(
+            r"\b(grep|find|list|read|count|format|rename|lint|typo|lookup|status)\b",
+            re.I,
+        ),
+    ),
 )
 
 
@@ -123,7 +151,9 @@ def assess_task(
             0.65,
             "long task description suggests non-trivial scope",
         )
-    if re.search(r"\b(critical|destructive|data loss|secret|credential)\b", haystack, re.I):
+    if re.search(
+        r"\b(critical|destructive|data loss|secret|credential)\b", haystack, re.I
+    ):
         tier, effort, confidence, rationale = (
             "opus",
             "high",
@@ -131,9 +161,12 @@ def assess_task(
             "high-risk task requires stronger review",
         )
 
-    if config and config.get("default_model") in TIERS and not any(
-        pattern.search(haystack) for _, _, pattern in _PATTERNS
-    ) and file_count == 0:
+    if (
+        config
+        and config.get("default_model") in TIERS
+        and not any(pattern.search(haystack) for _, _, pattern in _PATTERNS)
+        and file_count == 0
+    ):
         tier = config["default_model"]
         effort = EFFORTS[min(TIERS.index(tier), len(EFFORTS) - 1)]
         rationale = "using configured default tier"
@@ -146,7 +179,9 @@ def assess_task(
     }
 
 
-def route_pretool_input(payload: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def route_pretool_input(
+    payload: dict[str, Any], config: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """Return updated tool input, or None when no change is needed."""
     if not isinstance(payload, dict) or payload.get("tool_name") not in _TARGET_TOOLS:
         return None

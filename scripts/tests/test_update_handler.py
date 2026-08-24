@@ -548,6 +548,7 @@ class TestAutoSyncAfterUpdate:
         assert (
             project_root / ".claude" / "skills" / "api-patterns" / "SKILL.md"
         ).read_text() == "# API\n"
+        assert "## LeeDevKit base context" in (project_root / "CLAUDE.md").read_text()
 
     def test_update_succeeds_even_if_sync_fails(self, tmp_path, monkeypatch, capsys):
         """Update succeeds even if post-update sync fails."""

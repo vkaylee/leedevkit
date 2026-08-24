@@ -139,6 +139,29 @@ def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
     return agents, skills
 
 
+CLAUDE_BASE_CONTEXT = """## LeeDevKit base context
+
+This repository uses LeeDevKit. Before making changes, read and apply:
+`.leedevkit/templates/CLAUDE.base.md`.
+
+The rules below add specific constraints. Apply both.
+"""
+
+
+def ensure_claude_md_base_context(project_root: Path) -> bool:
+    """Ensure CLAUDE.md references the project-local LeeDevKit base context."""
+    claude_md = project_root / "CLAUDE.md"
+    if claude_md.exists():
+        content = claude_md.read_text()
+        if CLAUDE_BASE_CONTEXT in content:
+            return False
+        separator = "\n" if content.endswith("\n") else "\n\n"
+        claude_md.write_text(content + separator + CLAUDE_BASE_CONTEXT)
+    else:
+        claude_md.write_text(CLAUDE_BASE_CONTEXT + "\n")
+    return True
+
+
 class InitHandler(HandlerBase):
     """Project initialization logic extracted from the Orchestrator god class.
 
@@ -164,6 +187,8 @@ class InitHandler(HandlerBase):
         root = Path.cwd()
         config_toml = root / "leedevkit.toml"
         cfg = _load_toml(config_toml) if config_toml.exists() else {}
+        if ensure_claude_md_base_context(root):
+            log_success("Configured CLAUDE.md LeeDevKit base context")
 
         try:
             devkit = get_devkit_root()
@@ -368,6 +393,9 @@ class InitHandler(HandlerBase):
                 log_success("Registered task assessor MCP server in .mcp.json")
         except Exception as e:
             log_warn(f"⚠️  AI integration sync failed: {e}")
+
+        if ensure_claude_md_base_context(root):
+            log_success("Configured CLAUDE.md LeeDevKit base context")
 
         # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
         wrapper = root / "leedevkit"

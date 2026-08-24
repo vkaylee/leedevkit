@@ -25,8 +25,13 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_assessment_covers_tiers_and_is_deterministic():
     assert assess_task("grep where config is defined")["suggested_tier"] == "haiku"
     assert assess_task("implement a routine API endpoint")["suggested_tier"] == "sonnet"
-    assert assess_task("debug the production race condition")["suggested_tier"] == "opus"
-    assert assess_task("design an ambiguous multi-system migration")["suggested_tier"] == "fable"
+    assert (
+        assess_task("debug the production race condition")["suggested_tier"] == "opus"
+    )
+    assert (
+        assess_task("design an ambiguous multi-system migration")["suggested_tier"]
+        == "fable"
+    )
     result = assess_task("implement a routine API endpoint")
     assert result == assess_task("implement a routine API endpoint")
     assert 0 <= result["confidence"] <= 1
@@ -39,10 +44,13 @@ def test_routing_preserves_explicit_model_and_disabled_config():
         "tool_input": {"description": "grep config", "model": "opus"},
     }
     assert route_pretool_input(payload, {"enabled": True}) is None
-    assert route_pretool_input(
-        {"tool_name": "Agent", "tool_input": {"description": "grep config"}},
-        {"enabled": False},
-    ) is None
+    assert (
+        route_pretool_input(
+            {"tool_name": "Agent", "tool_input": {"description": "grep config"}},
+            {"enabled": False},
+        )
+        is None
+    )
 
 
 def test_routing_adds_model_only_to_agent_or_task():
@@ -52,10 +60,13 @@ def test_routing_adds_model_only_to_agent_or_task():
     }
     updated = route_pretool_input(payload, {"enabled": True})
     assert updated["model"] == "opus"
-    assert route_pretool_input(
-        {"tool_name": "Bash", "tool_input": {"description": "security audit"}},
-        {"enabled": True},
-    ) is None
+    assert (
+        route_pretool_input(
+            {"tool_name": "Bash", "tool_input": {"description": "security audit"}},
+            {"enabled": True},
+        )
+        is None
+    )
 
 
 def test_hook_fails_open_on_bad_input():
@@ -85,14 +96,24 @@ def test_mcp_protocol_and_assess_task():
     )
     content = called["result"]["content"][0]["text"]
     assert json.loads(content)["suggested_tier"] == "haiku"
-    assert handle_request({"jsonrpc": "2.0", "id": 4, "method": "unknown"})["error"]["code"] == -32601
+    assert (
+        handle_request({"jsonrpc": "2.0", "id": 4, "method": "unknown"})["error"][
+            "code"
+        ]
+        == -32601
+    )
 
 
 def test_settings_and_mcp_merges_are_safe_and_idempotent(tmp_path):
     settings = tmp_path / ".claude" / "settings.json"
     settings.parent.mkdir()
     settings.write_text(
-        json.dumps({"permissions": {"allow": ["Bash(git status)"]}, "hooks": {"UserPromptSubmit": []}})
+        json.dumps(
+            {
+                "permissions": {"allow": ["Bash(git status)"]},
+                "hooks": {"UserPromptSubmit": []},
+            }
+        )
     )
     mcp = tmp_path / ".mcp.json"
     mcp.write_text(json.dumps({"mcpServers": {"user-server": {"command": "user"}}}))
@@ -122,18 +143,26 @@ def test_mcp_name_collision_preserves_user_config(tmp_path):
     path = tmp_path / ".mcp.json"
     path.write_text(json.dumps({"mcpServers": {MCP_SERVER_NAME: {"command": "user"}}}))
     assert not merge_mcp_json(tmp_path)
-    assert json.loads(path.read_text())["mcpServers"][MCP_SERVER_NAME]["command"] == "user"
+    assert (
+        json.loads(path.read_text())["mcpServers"][MCP_SERVER_NAME]["command"] == "user"
+    )
 
 
 def test_disabled_runtime_routing_still_installs_dormant_integrations(tmp_path):
     assert install_ai_integrations(tmp_path) == (True, True)
     assert (tmp_path / ".claude" / "settings.json").exists()
     assert (tmp_path / ".mcp.json").exists()
-    assert route_pretool_input(
-        {"tool_name": "Agent", "tool_input": {"description": "implement feature"}},
-        {"enabled": False},
-    ) is None
-    assert route_pretool_input(
-        {"tool_name": "Agent", "tool_input": {"description": "implement feature"}},
-        {"enabled": True},
-    )["model"] == "sonnet"
+    assert (
+        route_pretool_input(
+            {"tool_name": "Agent", "tool_input": {"description": "implement feature"}},
+            {"enabled": False},
+        )
+        is None
+    )
+    assert (
+        route_pretool_input(
+            {"tool_name": "Agent", "tool_input": {"description": "implement feature"}},
+            {"enabled": True},
+        )["model"]
+        == "sonnet"
+    )

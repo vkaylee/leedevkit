@@ -79,9 +79,7 @@ def handle_request(req: dict[str, Any]) -> dict[str, Any] | None:
     if method == "tools/call":
         params = req.get("params") or {}
         if params.get("name") != TOOL_NAME:
-            return _error(
-                msg_id, -32601, f"Unknown tool: {params.get('name')!r}"
-            )
+            return _error(msg_id, -32601, f"Unknown tool: {params.get('name')!r}")
         args = params.get("arguments") or {}
         task = args.get("task")
         if not isinstance(task, str) or not task.strip():
@@ -98,9 +96,7 @@ def handle_request(req: dict[str, Any]) -> dict[str, Any] | None:
         return _response(
             msg_id,
             {
-                "content": [
-                    {"type": "text", "text": json.dumps(assessment, indent=2)}
-                ],
+                "content": [{"type": "text", "text": json.dumps(assessment, indent=2)}],
                 "isError": False,
             },
         )
@@ -113,6 +109,7 @@ def main() -> int:
         text = line.strip()
         if not text:
             continue
+        resp: dict[str, Any] | None
         try:
             req = json.loads(text)
         except json.JSONDecodeError:

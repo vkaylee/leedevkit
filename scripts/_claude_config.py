@@ -45,12 +45,16 @@ def merge_settings_json(root: Path) -> bool:
 
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
-        log_warn(f"⚠️  'hooks' in {target} is not a dictionary — skipping hook installation")
+        log_warn(
+            f"⚠️  'hooks' in {target} is not a dictionary — skipping hook installation"
+        )
         return False
 
     pre_tool_list = hooks.setdefault("PreToolUse", [])
     if not isinstance(pre_tool_list, list):
-        log_warn(f"⚠️  'hooks.PreToolUse' in {target} is not a list — skipping hook installation")
+        log_warn(
+            f"⚠️  'hooks.PreToolUse' in {target} is not a list — skipping hook installation"
+        )
         return False
 
     for entry in pre_tool_list:
@@ -58,7 +62,10 @@ def merge_settings_json(root: Path) -> bool:
             inner_hooks = entry.get("hooks", [])
             if isinstance(inner_hooks, list):
                 for hook in inner_hooks:
-                    if isinstance(hook, dict) and hook.get("command") == ROUTER_HOOK_COMMAND:
+                    if (
+                        isinstance(hook, dict)
+                        and hook.get("command") == ROUTER_HOOK_COMMAND
+                    ):
                         return False
 
     pre_tool_list.append(
@@ -81,7 +88,9 @@ def merge_mcp_json(root: Path) -> bool:
 
     servers = data.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
-        log_warn(f"⚠️  'mcpServers' in {target} is not a dictionary — skipping MCP installation")
+        log_warn(
+            f"⚠️  'mcpServers' in {target} is not a dictionary — skipping MCP installation"
+        )
         return False
 
     if MCP_SERVER_NAME in servers:

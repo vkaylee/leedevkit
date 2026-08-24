@@ -82,6 +82,22 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     return src
 
 
+class TestClaudeBaseContext:
+    def test_creates_and_preserves_context(self, tmp_path):
+        from _init_handler import CLAUDE_BASE_CONTEXT, ensure_claude_md_base_context
+
+        claude_md = tmp_path / "CLAUDE.md"
+        assert ensure_claude_md_base_context(tmp_path) is True
+        assert claude_md.read_text() == CLAUDE_BASE_CONTEXT + "\n"
+        assert ensure_claude_md_base_context(tmp_path) is False
+
+        claude_md.write_text("# Local rules\n")
+        assert ensure_claude_md_base_context(tmp_path) is True
+        content = claude_md.read_text()
+        assert content.startswith("# Local rules\n\n")
+        assert content.endswith(CLAUDE_BASE_CONTEXT)
+
+
 class TestClaudeResourceBridge:
     def test_bridges_agents_and_skill_directories(self, tmp_path):
         from _init_handler import sync_claude_resources
