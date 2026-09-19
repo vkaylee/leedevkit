@@ -4,6 +4,7 @@ Dispatch/integration tests live in test_orchestrator.py (TestSkillsSubCommands).
 """
 
 import os
+import subprocess
 import sys
 from unittest.mock import patch
 
@@ -752,3 +753,112 @@ class TestSkillsManagerCoverageGaps:
         monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
         mgr._update_and_lock()
         assert repo.exists()
+
+
+class TestSkillsManagerLockPins:
+    """Lock-pinned installs use local repositories and never mutate their source."""
+
+    @staticmethod
+    def _create_repository(path, content):
+        path.mkdir()
+        subprocess.run(["git", "init", "-b", "main", str(path)], check=True)
+        subprocess.run(
+            ["git", "-C", str(path), "config", "user.email", "tests@example.test"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(path), "config", "user.name", "Skills Tests"],
+            check=True,
+        )
+        (path / "SKILL.md").write_text(content)
+        subprocess.run(["git", "-C", str(path), "add", "SKILL.md"], check=True)
+        subprocess.run(["git", "-C", str(path), "commit", "-m", "initial"], check=True)
+        return subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def test_unavailable_pin_preserves_existing_repo_and_lock(
+        self, monkeypatch, tmp_path
+    ):
+        """An unavailable pin rolls back an existing checkout and leaves its lock unchanged."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        source = tmp_path / "source"
+        original_sha = self._create_repository(source, "original\n")
+        target = tmp_path / "skills.d" / "source"
+        subprocess.run(
+            ["git", "clone", str(source), str(target)], check=True, capture_output=True
+        )
+        original_content = (target / "SKILL.md").read_text()
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_before = 'source = "' + "0" * 40 + '"\n'
+        lock_path.write_text(lock_before)
+
+        monkeypatch.setattr(
+            _devkit_config,
+            "load_project_config",
+            lambda: {"addons": {"skills": [{"url": str(source), "version": "main"}]}},
+        )
+        mgr = SkillsManager()
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
+        monkeypatch.setattr(
+            mgr,
+            "_write_lock",
+            lambda: (_ for _ in ()).throw(AssertionError("lock must not be rewritten")),
+        )
+
+        mgr._install_from_toml()
+
+        target_sha = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        source_sha = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert target_sha == original_sha
+        assert source_sha == original_sha
+        assert (target / "SKILL.md").read_text() == original_content
+        assert lock_path.read_text() == lock_before
+
+    def test_valid_pin_installs_exact_commit(self, monkeypatch, tmp_path):
+        """A valid local pin installs and verifies the requested commit exactly."""
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        source = tmp_path / "source"
+        expected_sha = self._create_repository(source, "pinned\n")
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_path.write_text(f'source = "{expected_sha}"\n')
+        monkeypatch.setattr(
+            _devkit_config,
+            "load_project_config",
+            lambda: {"addons": {"skills": [{"url": str(source), "version": "main"}]}},
+        )
+
+        mgr = SkillsManager()
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
+        mgr._install_from_toml()
+
+        target = tmp_path / "skills.d" / "source"
+        actual_sha = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert actual_sha == expected_sha
+        assert SkillsManager._read_lock() == {"source": expected_sha}

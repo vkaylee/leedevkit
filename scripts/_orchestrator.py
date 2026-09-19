@@ -316,6 +316,7 @@ class Orchestrator:
 
     def get_compose_files(self, env: str) -> list[str]:
         return self._db_handler.get_compose_files(env)
+
     def execute_podman_up(self, compose: list[str]) -> None:
         """Sequence Podman Compose services using resolved dependency conditions."""
         if self.dry_run:

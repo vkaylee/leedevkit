@@ -6,7 +6,9 @@ from _compose_up import ComposeConfigError, _compose_config, start_podman_compos
 
 
 def _result(stdout: str = "", returncode: int = 0):
-    return type("Result", (), {"stdout": stdout, "stderr": "", "returncode": returncode})()
+    return type(
+        "Result", (), {"stdout": stdout, "stderr": "", "returncode": returncode}
+    )()
 
 
 def test_compose_graph_rejects_cycle_before_startup() -> None:
@@ -44,8 +46,9 @@ def test_completed_job_failure_stops_downstream_start() -> None:
         if command[-1] == "job":
             raise SystemExit(23)
 
-    with patch("_compose_up.subprocess.run", return_value=_result(config)), patch(
-        "_compose_up._inspect_project_containers", return_value=[]
+    with (
+        patch("_compose_up.subprocess.run", return_value=_result(config)),
+        patch("_compose_up._inspect_project_containers", return_value=[]),
     ):
         with pytest.raises(SystemExit) as exc:
             start_podman_compose(["podman-compose"], {}, execute)
@@ -66,8 +69,9 @@ def test_completed_job_is_run_before_downstream_service() -> None:
 """
     calls: list[list[str]] = []
 
-    with patch("_compose_up.subprocess.run", return_value=_result(config)), patch(
-        "_compose_up._inspect_project_containers", return_value=[]
+    with (
+        patch("_compose_up.subprocess.run", return_value=_result(config)),
+        patch("_compose_up._inspect_project_containers", return_value=[]),
     ):
         start_podman_compose(["podman-compose"], {}, calls.append)
 

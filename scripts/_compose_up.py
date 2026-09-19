@@ -31,7 +31,11 @@ def _dependencies(service: Mapping[str, Any]) -> dict[str, str]:
 
     result: dict[str, str] = {}
     for name, value in raw.items():
-        condition = value.get("condition", "service_started") if isinstance(value, Mapping) else "service_started"
+        condition = (
+            value.get("condition", "service_started")
+            if isinstance(value, Mapping)
+            else "service_started"
+        )
         condition = str(condition)
         if condition not in _VALID_CONDITIONS:
             raise ComposeConfigError(f"unsupported dependency condition: {condition}")
@@ -83,7 +87,9 @@ def _compose_config(compose: list[str], env: Mapping[str, str]) -> dict[str, Any
     return {"services": services}
 
 
-def _inspect_project_containers(compose: list[str], env: Mapping[str, str]) -> list[dict[str, Any]]:
+def _inspect_project_containers(
+    compose: list[str], env: Mapping[str, str]
+) -> list[dict[str, Any]]:
     result = subprocess.run(
         [*compose, "ps", "-q"],
         env=dict(env),
@@ -133,7 +139,9 @@ def _remove_stale_dependency_containers(
             for dependency in dependencies
             if dependency in remaining
         }
-        leaves = [container_id for container_id in remaining if container_id not in referenced]
+        leaves = [
+            container_id for container_id in remaining if container_id not in referenced
+        ]
         if not leaves:
             raise ComposeConfigError("stale container dependency cycle")
         for container_id in leaves:
@@ -156,14 +164,21 @@ def _wait_for_healthy(
             for container in containers:
                 state = container.get("State", {})
                 if not state.get("Running", False):
-                    raise ComposeConfigError(f"dependency exited before becoming healthy: {service}")
+                    raise ComposeConfigError(
+                        f"dependency exited before becoming healthy: {service}"
+                    )
                 health = state.get("Health", {}).get("Status")
                 if health == "unhealthy":
                     raise ComposeConfigError(f"dependency became unhealthy: {service}")
-            if all(container.get("State", {}).get("Health", {}).get("Status") == "healthy" for container in containers):
+            if all(
+                container.get("State", {}).get("Health", {}).get("Status") == "healthy"
+                for container in containers
+            ):
                 return
         if time.monotonic() >= deadline:
-            raise ComposeConfigError(f"timed out waiting for healthy dependency: {service}")
+            raise ComposeConfigError(
+                f"timed out waiting for healthy dependency: {service}"
+            )
         time.sleep(1.0)
 
 
@@ -191,15 +206,28 @@ def start_podman_compose(
     for service in order:
         dependencies = _dependencies(services[service])
         for dependency, condition in dependencies.items():
-            if condition == "service_completed_successfully" and dependency not in completed:
-                raise ComposeConfigError(f"completed dependency was not run: {dependency}")
+            if (
+                condition == "service_completed_successfully"
+                and dependency not in completed
+            ):
+                raise ComposeConfigError(
+                    f"completed dependency was not run: {dependency}"
+                )
             if condition == "service_healthy" and dependency not in healthy:
                 if dependency not in started:
-                    raise ComposeConfigError(f"healthy dependency was not started: {dependency}")
+                    raise ComposeConfigError(
+                        f"healthy dependency was not started: {dependency}"
+                    )
                 _wait_for_healthy(compose, env, dependency)
                 healthy.add(dependency)
-            if condition == "service_started" and dependency not in started and dependency not in completed:
-                raise ComposeConfigError(f"started dependency was not started: {dependency}")
+            if (
+                condition == "service_started"
+                and dependency not in started
+                and dependency not in completed
+            ):
+                raise ComposeConfigError(
+                    f"started dependency was not started: {dependency}"
+                )
 
         if service in jobs:
             execute([*compose, "run", "--rm", "--no-deps", service])

@@ -425,6 +425,7 @@ class TestOrchestratorRun:
             tool_args = ["test", "--lib"]
             orch._run_handler._handle_run_cargo(compose_cmd, tool_args, "apiserver")
             assert "nextest" in compose_cmd
+
     def test_run_parser_accepts_dev_project(self):
         from _orchestrator import Orchestrator
 
@@ -459,8 +460,14 @@ class TestOrchestratorRun:
             args = type(
                 "Args",
                 (),
-                {"command": "run", "dry_run": False, "project": "dev", "tool": "go",
-                 "pooler": False, "args": ["version"]},
+                {
+                    "command": "run",
+                    "dry_run": False,
+                    "project": "dev",
+                    "tool": "go",
+                    "pooler": False,
+                    "args": ["version"],
+                },
             )()
             with patch.object(orch.parser, "parse_args", return_value=args):
                 with patch.object(orch._run_handler, "handle_run"):
@@ -476,9 +483,14 @@ class TestOrchestratorRun:
             args = type(
                 "Args",
                 (),
-                {"command": "run", "dry_run": False,
-                 "project": "leedevkit-test-abc12345", "tool": "go",
-                 "pooler": False, "args": ["version"]},
+                {
+                    "command": "run",
+                    "dry_run": False,
+                    "project": "leedevkit-test-abc12345",
+                    "tool": "go",
+                    "pooler": False,
+                    "args": ["version"],
+                },
             )()
             with patch.object(orch.parser, "parse_args", return_value=args):
                 with patch.object(orch._run_handler, "handle_run"):
@@ -494,14 +506,22 @@ class TestOrchestratorRun:
             args = type(
                 "Args",
                 (),
-                {"command": "run", "dry_run": False, "project": None, "tool": "go",
-                 "pooler": False, "args": ["version"]},
+                {
+                    "command": "run",
+                    "dry_run": False,
+                    "project": None,
+                    "tool": "go",
+                    "pooler": False,
+                    "args": ["version"],
+                },
             )()
             with patch.object(orch.parser, "parse_args", return_value=args):
                 with patch.object(orch._run_handler, "handle_run"):
                     orch.run()
             assert orch.owns_project is True
-            assert os.environ.get("COMPOSE_PROJECT_NAME", "").startswith("leedevkit-test-")
+            assert os.environ.get("COMPOSE_PROJECT_NAME", "").startswith(
+                "leedevkit-test-"
+            )
 
 
 class TestModeMap:

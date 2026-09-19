@@ -1,0 +1,90 @@
+name: LeeDevKit Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-quality:
+    name: Source quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install verification dependencies
+        run: |
+          mkdir -p logs
+          python -m pip install --upgrade pip > logs/run_ci-install.log 2>&1 </dev/null
+          python -m pip install pytest pytest-cov psutil tomli tomli-w pyyaml types-PyYAML ruff mypy playwright > logs/run_ci-dependencies.log 2>&1 </dev/null
+
+      - name: Check shell syntax
+        run: |
+          mkdir -p logs
+          bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit > logs/run_ci-shell-syntax.log 2>&1 </dev/null
+
+      - name: Check formatting
+        run: |
+          mkdir -p logs
+          ruff format --check scripts > logs/run_ci-format.log 2>&1 </dev/null
+
+      - name: Run lint and type checks
+        run: |
+          mkdir -p logs
+          ruff check scripts > logs/run_ci-ruff.log 2>&1 </dev/null
+          mypy scripts > logs/run_ci-mypy.log 2>&1 </dev/null
+
+      - name: Run unit and integration tests
+        run: |
+          mkdir -p logs
+          python -m pytest scripts/tests -q --cov=scripts --cov-report=term-missing --cov-fail-under=80 > logs/run_ci-tests.log 2>&1 </dev/null
+
+      - name: Upload quality logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leedevkit-quality-logs
+          path: logs/*.log
+          if-no-files-found: ignore
+
+  release-acceptance:
+    name: Release acceptance
+    runs-on: ubuntu-latest
+    needs: source-quality
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install acceptance dependencies
+        run: |
+          mkdir -p logs
+          python -m pip install --upgrade pip > logs/run_ci-release-install.log 2>&1 </dev/null
+          python -m pip install pytest tomli tomli-w pyyaml psutil playwright > logs/run_ci-release-dependencies.log 2>&1 </dev/null
+
+      - name: Build and accept release artifact
+        run: |
+          mkdir -p logs
+          python3 scripts/_release_acceptance.py --repo-root . > logs/run_ci-release-acceptance.log 2>&1 </dev/null
+
+      - name: Upload release logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leedevkit-release-logs
+          path: logs/*.log
+          if-no-files-found: ignore

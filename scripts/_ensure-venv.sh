@@ -5,12 +5,9 @@
 set -euo pipefail
 
 DEVKIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Keep the venv inside the DevKit installation so the CLI and orchestrator use it.
 VENV_DIR="$DEVKIT_ROOT/.venv"
 PYTHON_BIN="$VENV_DIR/bin/python3"
 
-# Required pip packages and their import names (pip-name:import-name).
-# Parallel arrays keep this script compatible with macOS's Bash 3.2.
 REQUIRED_PACKAGES=(
     "pytest"
     "pytest-cov"
@@ -18,20 +15,10 @@ REQUIRED_PACKAGES=(
     "tomli"
     "tomli-w"
     "pyyaml"
+    "types-PyYAML"
     "ruff"
     "mypy"
 )
-REQUIRED_IMPORTS=(
-    "pytest"
-    "pytest_cov"
-    "psutil"
-    "tomli"
-    "tomli_w"
-    "yaml"
-    "ruff"
-    "mypy"
-)
-
 PIP_TIMEOUT="${PIP_TIMEOUT:-120}"
 
 if [ ! -f "$PYTHON_BIN" ]; then
@@ -41,29 +28,54 @@ if [ ! -f "$PYTHON_BIN" ]; then
     "$PYTHON_BIN" -m pip install --upgrade --quiet --timeout "$PIP_TIMEOUT" pip
     echo "📦 Installing packages..." >&2
     "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" "${REQUIRED_PACKAGES[@]}"
-    echo "✅ Virtual environment ready" >&2
 else
-    # Check for missing packages and install them.
-    MISSING=()
-    for i in "${!REQUIRED_PACKAGES[@]}"; do
-        pkg_name="${REQUIRED_PACKAGES[$i]}"
-        import_name="${REQUIRED_IMPORTS[$i]}"
-        if ! "$PYTHON_BIN" -c "import $import_name" 2>/dev/null; then
-            MISSING+=("$pkg_name")
-        fi
+    MISSING="$($PYTHON_BIN - <<'PY'
+import importlib.metadata
+import importlib.util
+
+checks = {
+    "pytest": importlib.util.find_spec("pytest") is None,
+    "pytest_cov": importlib.util.find_spec("pytest_cov") is None,
+    "psutil": importlib.util.find_spec("psutil") is None,
+    "tomli": importlib.util.find_spec("tomli") is None,
+    "tomli_w": importlib.util.find_spec("tomli_w") is None,
+    "yaml": importlib.util.find_spec("yaml") is None,
+    "types_PyYAML": False,
+    "ruff": importlib.util.find_spec("ruff") is None,
+    "mypy": importlib.util.find_spec("mypy") is None,
+}
+try:
+    importlib.metadata.version("types-PyYAML")
+except importlib.metadata.PackageNotFoundError:
+    checks["types_PyYAML"] = True
+print(" ".join(name for name, missing in checks.items() if missing))
+PY
+    )"
+    MISSING_PACKAGES=()
+    for package in $MISSING; do
+        case "$package" in
+            pytest) MISSING_PACKAGES+=("pytest") ;;
+            pytest_cov) MISSING_PACKAGES+=("pytest-cov") ;;
+            psutil) MISSING_PACKAGES+=("psutil") ;;
+            tomli) MISSING_PACKAGES+=("tomli") ;;
+            tomli_w) MISSING_PACKAGES+=("tomli-w") ;;
+            yaml) MISSING_PACKAGES+=("pyyaml") ;;
+            types_PyYAML) MISSING_PACKAGES+=("types-PyYAML") ;;
+            ruff) MISSING_PACKAGES+=("ruff") ;;
+            mypy) MISSING_PACKAGES+=("mypy") ;;
+        esac
     done
-    if [ ${#MISSING[@]} -gt 0 ]; then
-        echo "📦 Installing missing packages: ${MISSING[*]}" >&2
+    if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
+        echo "📦 Installing missing packages: ${MISSING_PACKAGES[*]}" >&2
         "$PYTHON_BIN" -m pip install --upgrade --quiet --timeout "$PIP_TIMEOUT" pip
-        "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" "${MISSING[@]}"
+        "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" "${MISSING_PACKAGES[@]}"
     fi
 fi
 
-# playwright is lazy-loaded — install without browser download (no hang)
+# Playwright is required by the test harness but browsers are deliberately not downloaded here.
 if ! "$PYTHON_BIN" -c "import playwright" 2>/dev/null; then
     echo "📦 Installing playwright (browsers skipped — no hang)" >&2
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 "$PYTHON_BIN" -m pip install --quiet --timeout "$PIP_TIMEOUT" playwright
 fi
 
-# Always output the python binary path as the last line
 echo "$PYTHON_BIN"

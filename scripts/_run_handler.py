@@ -105,7 +105,6 @@ class RunHandler(HandlerBase):
             self._env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
         ]
 
-
         needs_db = False
         if tool in ["cargo", "diesel"]:
             needs_db = tool == "diesel"
@@ -254,9 +253,7 @@ class RunHandler(HandlerBase):
         if is_running:
             compose_cmd.extend(["--workdir", workdir, service, "cargo"])
         else:
-            compose_cmd.extend(
-                ["--workdir", workdir, "--entrypoint", "cargo", service]
-            )
+            compose_cmd.extend(["--workdir", workdir, "--entrypoint", "cargo", service])
         if tool_args:
             # AI Agent behavior correction: silently convert "cargo test" to "cargo nextest run"
             if tool_args[0] == "test":

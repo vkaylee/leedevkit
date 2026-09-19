@@ -9,6 +9,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT
@@ -144,6 +145,52 @@ class SkillsManager:
         self._write_lock()
         self._sync_claude_resources()
 
+    @staticmethod
+    def _pin_repo(repo: Path, sha: str) -> bool:
+        """Checkout *sha* in a repository and verify the exact resulting HEAD."""
+        object_res = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "-e", f"{sha}^{{commit}}"],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+        )
+        if object_res.returncode != 0:
+            fetch_res = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "fetch",
+                    "--depth",
+                    "1",
+                    "origin",
+                    sha,
+                ],
+                check=False,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+            )
+            if fetch_res.returncode != 0:
+                return False
+
+        checkout_res = subprocess.run(
+            ["git", "-C", str(repo), "checkout", "--detach", sha],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+        )
+        if checkout_res.returncode != 0:
+            return False
+
+        head_res = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        return head_res.returncode == 0 and head_res.stdout.strip() == sha
+
     def _install_from_toml(self) -> None:
         """Install skills from leedevkit.toml [addons.skills], preferring lock SHAs."""
         from _devkit_config import load_project_config
@@ -157,87 +204,112 @@ class SkillsManager:
         lock = self._read_lock()
         installed = 0
         failed: list[str] = []
-        for entry in entries:
-            if isinstance(entry, str):
-                url, version = entry, "main"
-            else:
-                url = entry.get("url", "")
-                version = entry.get("version", "main")
-            name = url.rstrip("/").split("/")[-1].replace(".git", "")
-            target = self._skills_d / name
-            if target.exists():
-                if name in lock:
-                    checkout_res = subprocess.run(
-                        ["git", "-C", str(target), "checkout", "--detach", lock[name]],
-                        check=False,
-                        stdin=subprocess.DEVNULL,
-                        capture_output=True,
-                    )
-                    if checkout_res.returncode == 0:
-                        log_success(f"  {name} @ {lock[name][:8]} (locked)")
-                    else:
-                        log_warn(f"  Failed to checkout locked version for {name}")
-                continue
+        lock_failed = False
+        new_targets: list[Path] = []
+        existing_backups: list[tuple[Path, Path]] = []
+        rollback_root = Path(
+            tempfile.mkdtemp(prefix=".skills-install-", dir=str(self._skills_d))
+        )
 
-            log_info(f"Installing {name} @ {version}...")
-            clone_res = subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--depth",
-                    "1",
-                    "--branch",
-                    version,
-                    url,
-                    str(target),
-                ],
-                check=False,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-            )
-            if clone_res.returncode != 0:
+        try:
+            for entry in entries:
+                if isinstance(entry, str):
+                    url, version = entry, "main"
+                else:
+                    url = entry.get("url", "")
+                    version = entry.get("version", "main")
+                name = url.rstrip("/").split("/")[-1].replace(".git", "")
+                target = self._skills_d / name
+                pinned_sha = lock.get(name)
+
                 if target.exists():
-                    shutil.rmtree(str(target), ignore_errors=True)
-                err_msg = clone_res.stderr.strip() or "clone failed"
-                log_error(f"Failed to clone {name}: {err_msg}")
-                failed.append(name)
-                continue
+                    if pinned_sha:
+                        backup = (
+                            rollback_root / f"backup-{len(existing_backups)}-{name}"
+                        )
+                        try:
+                            shutil.copytree(target, backup, symlinks=True)
+                        except OSError as exc:
+                            log_error(
+                                f"Failed to preserve existing skill {name}: {exc}"
+                            )
+                            failed.append(name)
+                            lock_failed = True
+                            continue
 
-            if name in lock:
-                fetch_res = subprocess.run(
+                        if self._pin_repo(target, pinned_sha):
+                            existing_backups.append((target, backup))
+                            log_success(f"  {name} @ {pinned_sha[:8]} (locked)")
+                        else:
+                            shutil.rmtree(str(target), ignore_errors=True)
+                            shutil.move(str(backup), str(target))
+                            log_error(f"Failed to checkout locked SHA for {name}")
+                            failed.append(name)
+                            lock_failed = True
+                    continue
+
+                log_info(f"Installing {name} @ {version}...")
+                clone_target = target
+                if pinned_sha:
+                    clone_target = rollback_root / f"clone-{name}"
+                clone_res = subprocess.run(
                     [
                         "git",
-                        "-C",
-                        str(target),
-                        "fetch",
+                        "clone",
                         "--depth",
                         "1",
-                        "origin",
-                        lock[name],
+                        "--branch",
+                        version,
+                        url,
+                        str(clone_target),
                     ],
                     check=False,
                     stdin=subprocess.DEVNULL,
                     capture_output=True,
+                    text=True,
                 )
-                checkout_res = subprocess.run(
-                    ["git", "-C", str(target), "checkout", "--detach", lock[name]],
-                    check=False,
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                )
-                if fetch_res.returncode != 0 or checkout_res.returncode != 0:
-                    log_warn(f"Failed to checkout locked SHA for {name}")
-            installed += 1
+                if clone_res.returncode != 0:
+                    if clone_target.exists():
+                        shutil.rmtree(str(clone_target), ignore_errors=True)
+                    err_msg = clone_res.stderr.strip() or "clone failed"
+                    log_error(f"Failed to clone {name}: {err_msg}")
+                    failed.append(name)
+                    if pinned_sha:
+                        lock_failed = True
+                    continue
 
-        if failed:
-            log_warn(
-                f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}"
-            )
-        log_success(f"Installed {installed} new skill repo(s)")
-        if installed > 0:
-            self._write_lock()
-            self._sync_claude_resources()
+                if pinned_sha and not self._pin_repo(clone_target, pinned_sha):
+                    shutil.rmtree(str(clone_target), ignore_errors=True)
+                    log_error(f"Failed to checkout locked SHA for {name}")
+                    failed.append(name)
+                    lock_failed = True
+                    continue
+
+                if pinned_sha:
+                    shutil.move(str(clone_target), str(target))
+                new_targets.append(target)
+                installed += 1
+
+            if lock_failed:
+                for target in new_targets:
+                    shutil.rmtree(str(target), ignore_errors=True)
+                for target, backup in reversed(existing_backups):
+                    shutil.rmtree(str(target), ignore_errors=True)
+                    shutil.move(str(backup), str(target))
+                new_targets.clear()
+                existing_backups.clear()
+
+            if failed:
+                log_warn(
+                    f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}"
+                )
+            if not lock_failed:
+                log_success(f"Installed {installed} new skill repo(s)")
+                if installed > 0:
+                    self._write_lock()
+                    self._sync_claude_resources()
+        finally:
+            shutil.rmtree(str(rollback_root), ignore_errors=True)
 
     def _add_from_url(self, url: str, version: str = "main") -> None:
         if not url:

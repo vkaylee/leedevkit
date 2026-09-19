@@ -4,10 +4,15 @@ Provides parallel task runner, timeout handling, log management,
 and result reporting for lint/unit/integration/coverage phases.
 """
 
+import contextlib
 import os
+import signal
 import subprocess
 import sys
+import typing
 from pathlib import Path
+
+import psutil
 
 from _bootstrap import PROJECT_ROOT, bootstrap_env
 
@@ -17,6 +22,8 @@ TIMEOUT_LINT = int(os.environ.get("TIMEOUT_LINT", "900"))
 TIMEOUT_UNIT = int(os.environ.get("TIMEOUT_UNIT", "900"))
 TIMEOUT_INTEGRATION = int(os.environ.get("TIMEOUT_INTEGRATION", "1200"))
 TIMEOUT_BUILD = int(os.environ.get("TIMEOUT_BUILD", "600"))
+
+_PROCESS_TREE_WAIT_TIMEOUT = 3.0
 
 
 def get_phase_timeout(phase_name: str) -> int:
@@ -30,6 +37,77 @@ def get_phase_timeout(phase_name: str) -> int:
     if "Coverage" in phase_name:
         return TIMEOUT_INTEGRATION
     return TIMEOUT_UNIT
+
+
+def _process_group_options() -> dict[str, int | bool]:
+    """Return subprocess options that isolate the task on each platform."""
+    if os.name == "nt":
+        return {
+            "creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        }
+    return {"start_new_session": True}
+
+
+def _taskkill_tree(pid: int, force: bool = False) -> None:
+    """Terminate a Windows process tree without affecting other processes."""
+    command = ["taskkill", "/PID", str(pid), "/T"]
+    if force:
+        command.append("/F")
+    subprocess.run(
+        command,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    """Terminate and reap the task process and descendants only."""
+    try:
+        root = psutil.Process(proc.pid)
+        descendants = root.children(recursive=True)
+    except psutil.Error:
+        root = None
+        descendants = []
+
+    if os.name == "nt":
+        _taskkill_tree(proc.pid)
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
+        for process in reversed(descendants):
+            with contextlib.suppress(psutil.Error):
+                process.terminate()
+
+    _, alive_descendants = psutil.wait_procs(
+        descendants, timeout=_PROCESS_TREE_WAIT_TIMEOUT
+    )
+    if alive_descendants:
+        if os.name == "nt":
+            _taskkill_tree(proc.pid, force=True)
+        else:
+            for process in alive_descendants:
+                with contextlib.suppress(psutil.Error):
+                    process.kill()
+        psutil.wait_procs(alive_descendants, timeout=_PROCESS_TREE_WAIT_TIMEOUT)
+
+    if root is not None:
+        with contextlib.suppress(psutil.Error):
+            root.terminate()
+        _, alive_root = psutil.wait_procs([root], timeout=_PROCESS_TREE_WAIT_TIMEOUT)
+        if alive_root:
+            if os.name == "nt":
+                _taskkill_tree(proc.pid, force=True)
+            else:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+            for process in alive_root:
+                with contextlib.suppress(psutil.Error):
+                    process.kill()
+            psutil.wait_procs(alive_root, timeout=_PROCESS_TREE_WAIT_TIMEOUT)
+
+    proc.wait()
 
 
 def _ensure_log_dir() -> Path:
@@ -79,20 +157,21 @@ def run_single_task(
     timeout: int,
 ) -> int:
     """Run a single task and return its exit code."""
-    with log_file.open("w") as f:
+    del name
+    with log_file.open("w") as output:
         proc = subprocess.Popen(
             cmd,
-            cwd=PROJECT_ROOT,
+            cwd=str(PROJECT_ROOT),
             stdin=subprocess.DEVNULL,
-            stdout=f,
+            stdout=output,
             stderr=subprocess.STDOUT,
+            **typing.cast(dict[str, typing.Any], _process_group_options()),
         )
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            return 124  # timeout exit code
+            _terminate_process_tree(proc)
+            return 124
         return proc.returncode
 
 

@@ -1,8 +1,10 @@
 """Tests for _test_utils — parallel runner, compose exec builder."""
 
 import os
+import subprocess
 import sys
 
+import psutil
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -92,6 +94,43 @@ class TestRunSingleTask:
         log_file = tmp_path / "timeout.log"
         exit_code = run_single_task("slow", ["sleep", "30"], log_file, timeout=1)
         assert exit_code == 124  # timeout exit code
+
+    def test_timeout_terminates_descendant(self, tmp_path):
+        child_pid_file = tmp_path / "child.pid"
+        child_code = "import time; time.sleep(30)"
+        parent_code = (
+            "import pathlib, subprocess, sys, time; "
+            f"p=subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+            f"pathlib.Path({str(child_pid_file)!r}).write_text(str(p.pid)); "
+            "time.sleep(30)"
+        )
+        log_file = tmp_path / "tree-timeout.log"
+
+        exit_code = run_single_task(
+            "tree-timeout", [sys.executable, "-c", parent_code], log_file, timeout=1
+        )
+
+        assert exit_code == 124
+        child_pid = int(child_pid_file.read_text())
+        assert not psutil.pid_exists(child_pid)
+
+    def test_timeout_preserves_unrelated_process(self, tmp_path):
+        unrelated = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"]
+        )
+        try:
+            exit_code = run_single_task(
+                "isolated-timeout",
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                tmp_path / "isolated-timeout.log",
+                timeout=1,
+            )
+
+            assert exit_code == 124
+            assert psutil.pid_exists(unrelated.pid)
+        finally:
+            unrelated.terminate()
+            unrelated.wait()
 
 
 class TestRunParallelOrdered:

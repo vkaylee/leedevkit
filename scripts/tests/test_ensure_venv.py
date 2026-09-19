@@ -76,6 +76,7 @@ def test_creates_venv_inside_devkit_and_installs_required_packages(tmp_path):
     commands = log_path.read_text()
     assert "-m pip install --upgrade --quiet --timeout 120 pip" in commands
     assert "pytest-cov" in commands
+    assert "types-PyYAML" in commands
     assert "playwright" in commands
 
 
@@ -95,5 +96,4 @@ def test_healthy_venv_does_not_invoke_pip(tmp_path):
 
     assert result.stdout.strip() == str(python_path)
     commands = log_path.read_text().splitlines()
-    assert len(commands) == 9
-    assert all(command.startswith("-c import ") for command in commands)
+    assert not any("-m pip" in command for command in commands)

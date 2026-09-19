@@ -56,8 +56,13 @@ class TestHandler(HandlerBase):
         target = getattr(args, "target", None)
 
         if target == "infra":
-            if args.lint_only:
+            if getattr(args, "lint_only", False):
                 self.handle_lint_infra()
+            elif getattr(args, "unit_only", False):
+                self.handle_test_infra()
+            elif getattr(args, "e2e_only", False):
+                log_error("The infra target does not support --e2e-only")
+                sys.exit(2)
             else:
                 self.handle_verify_infra()
             return

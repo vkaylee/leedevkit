@@ -752,6 +752,39 @@ class TestTestHandler:
         # fmt + lint + test = at least 4 calls
         assert orch.execute_safe.call_count >= 4
 
+    def test_handle_test_infra_unit_only_runs_tests_without_format_or_lint(self):
+        """infra --unit-only executes only the test command."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = MagicMock()
+        args.target = "infra"
+        args.lint_only = False
+        args.unit_only = True
+        args.e2e_only = False
+        handler.handle_test(args)
+        orch.execute_safe.assert_called_once()
+        assert "pytest" in orch.execute_safe.call_args.args[0][0]
+
+    def test_handle_test_infra_e2e_only_is_rejected(self):
+        """infra has no e2e phase and rejects --e2e-only explicitly."""
+        import pytest as _pytest
+
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = MagicMock()
+        args.target = "infra"
+        args.lint_only = False
+        args.unit_only = False
+        args.e2e_only = True
+        with _pytest.raises(SystemExit) as exc_info:
+            handler.handle_test(args)
+        assert exc_info.value.code == 2
+        orch.execute_safe.assert_not_called()
+
     def test_handle_test_lint_only(self):
         """handle_test with lint_only runs only lint phase."""
         from _test_handler import TestHandler
