@@ -16,6 +16,7 @@ from _bootstrap import (
     detect_compose_cmd,
     detect_engine,
 )
+from _compose_up import start_podman_compose
 from _cli_parser import CliParser
 from _db_handler import DbHandler
 from _devkit_config import inject_rust_version_env
@@ -221,6 +222,9 @@ class Orchestrator:
             files = self.get_compose_files(target_env)
             if sub == "clean":
                 cmd = self.compose_engine + files + ["down", "-v"]
+            elif sub == "up" and self.engine == "podman":
+                self.execute_podman_up(self.compose_engine + files)
+                return
             else:
                 cmd = self.compose_engine + files + [sub]
                 if sub == "up":
@@ -285,6 +289,15 @@ class Orchestrator:
 
     def get_compose_files(self, env: str) -> list[str]:
         return self._db_handler.get_compose_files(env)
+    def execute_podman_up(self, compose: list[str]) -> None:
+        """Sequence Podman Compose services using resolved dependency conditions."""
+        if self.dry_run:
+            log_info(f"🔍 Dry-run: Executing {' '.join([*compose, 'up', '-d'])}")
+            return
+        current_env = os.environ.copy()
+        current_env.update(self.env_vars)
+        current_env.pop("PODMAN_COMPOSE_PROJECT_NAME", None)
+        start_podman_compose(compose, current_env, self.execute_safe)
 
     def execute_safe(
         self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800
