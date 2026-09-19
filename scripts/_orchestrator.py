@@ -58,6 +58,8 @@ class Orchestrator:
             "DOCKER_COMPOSE_CMD": " ".join(self.compose_engine),
         }
         self.needs_cleanup = False
+        self.owns_project = True
+        self.project_mode = "test"
         self.active_mode = "all"
         self.start_time = time.time()
         self.lock_fd: int | None = None
@@ -103,6 +105,12 @@ class Orchestrator:
 
         self.needs_cleanup = False
         os.environ["MODE"] = self.active_mode
+
+        # Only the process that spawned an ephemeral project tears it down.
+        # `run --project dev` (or attaching to another project) skips teardown.
+        if not getattr(self, "owns_project", True):
+            log_info("🛡️ Attached to external project — skipping teardown on exit.")
+            return
 
         try:
             cleanup_log = PROJECT_ROOT / ".test_logs" / "cleanup.log"
@@ -153,15 +161,34 @@ class Orchestrator:
         if not args.command:
             self.parser.print_help()
             return
-        if args.command in ("test", "run"):
-            # Use dynamic project name for perfect run isolation
+        if args.command == "run" and getattr(args, "project", None) == "dev":
+            # Attach to the long-lived dev project
+            project_name = "leedevkit-dev"
+            self.owns_project = False
+            self.project_mode = "dev"
+            self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
+            self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
+            os.environ["COMPOSE_PROJECT_NAME"] = project_name
+            os.environ["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
+        elif args.command == "run" and getattr(args, "project", None):
+            # Attach to an explicit named project (e.g. active test session)
+            project_name = args.project
+            self.owns_project = False
+            self.project_mode = "test"
+            self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
+            self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
+            os.environ["COMPOSE_PROJECT_NAME"] = project_name
+            os.environ["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
+        elif args.command in ("test", "run"):
+            # Create an isolated ephemeral project owned by this invocation
+            self.owns_project = True
+            self.project_mode = "test"
             suffix = uuid.uuid4().hex[:8]
             project_name = f"leedevkit-test-{suffix}"
             self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
             self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
             os.environ["COMPOSE_PROJECT_NAME"] = project_name
             os.environ["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
-
             # Acquire an OS-level file lock to prevent garbage collection
             self.lock_fd = LockManager.acquire(project_name)
             if self.lock_fd is None:

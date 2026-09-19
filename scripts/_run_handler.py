@@ -52,17 +52,20 @@ class RunHandler(HandlerBase):
         return any(project_name in n and service in n for n in res.stdout.splitlines())
 
     def handle_run(self, args: argparse.Namespace) -> None:
-        """Execute a tool (npm/bun, cargo, or diesel) inside a compose container.
+        """Execute a toolbox command in a selected Compose project.
 
-        Resolves the correct service, brings up dependencies (DB, pooler),
-        sanitizes AI-provided arguments, builds the compose command, and
-        executes it safely.
+        The default creates an isolated test project. ``--project dev`` attaches
+        to the long-lived dev project and uses its dev Compose files.
         """
         self._orch.needs_cleanup = True
         tool = args.tool
+        is_dev_project = getattr(args, "project", None) == "dev"
+
         if tool != "go":
             inject_rust_version_env()
-        elif not self.is_service_running(self._tool_map.get("go", "go")):
+        elif not is_dev_project and not self.is_service_running(
+            self._tool_map.get("go", "go")
+        ):
             _lifecycle_up("go")
 
         tool_args = args.args
@@ -102,6 +105,7 @@ class RunHandler(HandlerBase):
             self._env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test"),
         ]
 
+
         needs_db = False
         if tool in ["cargo", "diesel"]:
             needs_db = tool == "diesel"
@@ -110,7 +114,7 @@ class RunHandler(HandlerBase):
                 if first_arg in ["run", "test", "nextest"]:
                     needs_db = True
 
-            if needs_db:
+            if needs_db and not is_dev_project:
                 log_info(f"🔹 Bringing up backend dependencies for {tool}...")
                 _lifecycle_up("infra-db")
 
@@ -133,8 +137,14 @@ class RunHandler(HandlerBase):
         else:
             compose_cmd.extend(["--profile", "frontend"])
 
-        compose_mode = {"cargo": "api", "npm": "web", "go": "go"}.get(tool, "all")
-        compose_cmd.extend(["-f", self._compose_file_for_mode(compose_mode)])
+        if is_dev_project:
+            # Dev stack lives in docker-compose.yml + dev overlay, not test files
+            compose_cmd.extend(
+                ["-f", "docker-compose.yml", "-f", ".compose/docker-compose.dev.yml"]
+            )
+        else:
+            compose_mode = {"cargo": "api", "npm": "web", "go": "go"}.get(tool, "all")
+            compose_cmd.extend(["-f", self._compose_file_for_mode(compose_mode)])
 
         if tool == "npm":
             first = tool_args[0] if tool_args else ""
@@ -153,20 +163,29 @@ class RunHandler(HandlerBase):
                     compose_cmd.extend(["run", "-T", "--rm"])
                 self._handle_run_npm(compose_cmd, tool_args, service, is_running)
         elif tool == "cargo":
-            if not needs_db:
+            is_running = is_dev_project and self.is_service_running(service)
+            if is_running:
+                compose_cmd.extend(["exec", "-T"])
+            elif not needs_db:
                 compose_cmd.extend(["run", "-T", "--rm", "--no-deps"])
             else:
                 compose_cmd.extend(["run", "-T", "--rm"])
-            self._handle_run_cargo(compose_cmd, tool_args, service)
+            self._handle_run_cargo(compose_cmd, tool_args, service, is_running)
         elif tool == "go":
-            compose_cmd.extend(
-                ["run", "-T", "--rm", "--no-deps", "--entrypoint", "go", service]
-            )
+            if is_dev_project and self.is_service_running(service):
+                compose_cmd.extend(["exec", "-T", service, "go"])
+            else:
+                compose_cmd.extend(
+                    ["run", "-T", "--rm", "--no-deps", "--entrypoint", "go", service]
+                )
             compose_cmd.extend(tool_args)
         else:  # diesel
-            compose_cmd.extend(
-                ["run", "-T", "--rm", "--entrypoint", tool, service]
-            )  # pragma: no cover
+            if is_dev_project and self.is_service_running(service):
+                compose_cmd.extend(["exec", "-T", service, "diesel"])
+            else:
+                compose_cmd.extend(
+                    ["run", "-T", "--rm", "--entrypoint", tool, service]
+                )  # pragma: no cover
             if tool_args:  # pragma: no cover
                 compose_cmd.extend(tool_args)  # pragma: no cover
 
@@ -217,14 +236,13 @@ class RunHandler(HandlerBase):
             compose_cmd.extend(tool_args)
 
     def _handle_run_cargo(
-        self, compose_cmd: list[str], tool_args: list[str], service: str
+        self,
+        compose_cmd: list[str],
+        tool_args: list[str],
+        service: str,
+        is_running: bool = False,
     ) -> None:
-        """Run cargo commands via compose inside the Rust service container.
-
-        Sets the working directory based on the caller's relative path and
-        transparently rewrites 'cargo test' → 'cargo nextest run' for the
-        project's preferred test runner.
-        """
+        """Append cargo command arguments for Compose ``run`` or ``exec``."""
         caller_dir = Path.cwd()
         rel_dir = ""
         with contextlib.suppress(ValueError):
@@ -233,15 +251,12 @@ class RunHandler(HandlerBase):
                 rel_dir = ""
 
         workdir = f"/workspace/{rel_dir}" if rel_dir else "/workspace"
-        compose_cmd.extend(
-            [
-                "--workdir",
-                workdir,
-                "--entrypoint",
-                "cargo",
-                service,
-            ]
-        )
+        if is_running:
+            compose_cmd.extend(["--workdir", workdir, service, "cargo"])
+        else:
+            compose_cmd.extend(
+                ["--workdir", workdir, "--entrypoint", "cargo", service]
+            )
         if tool_args:
             # AI Agent behavior correction: silently convert "cargo test" to "cargo nextest run"
             if tool_args[0] == "test":

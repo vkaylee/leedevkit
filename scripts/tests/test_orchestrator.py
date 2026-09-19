@@ -425,6 +425,83 @@ class TestOrchestratorRun:
             tool_args = ["test", "--lib"]
             orch._run_handler._handle_run_cargo(compose_cmd, tool_args, "apiserver")
             assert "nextest" in compose_cmd
+    def test_run_parser_accepts_dev_project(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            parser = Orchestrator().parser
+            args = parser.parse_args(["run", "--project", "dev", "go", "test", "./..."])
+            assert args.project == "dev"
+            assert args.tool == "go"
+            assert args.args == ["test", "./..."]
+
+    def test_run_parser_defaults_to_isolated_project(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            args = Orchestrator().parser.parse_args(["run", "go", "test", "./..."])
+            assert args.project is None
+
+    def test_run_parser_accepts_explicit_project_name(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            args = Orchestrator().parser.parse_args(
+                ["run", "--project", "leedevkit-test-abc12345", "go", "version"]
+            )
+            assert args.project == "leedevkit-test-abc12345"
+
+    def test_run_dev_project_skips_teardown(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = type(
+                "Args",
+                (),
+                {"command": "run", "dry_run": False, "project": "dev", "tool": "go",
+                 "pooler": False, "args": ["version"]},
+            )()
+            with patch.object(orch.parser, "parse_args", return_value=args):
+                with patch.object(orch._run_handler, "handle_run"):
+                    orch.run()
+            assert orch.owns_project is False
+            assert os.environ.get("COMPOSE_PROJECT_NAME") == "leedevkit-dev"
+
+    def test_run_explicit_project_skips_teardown(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = type(
+                "Args",
+                (),
+                {"command": "run", "dry_run": False,
+                 "project": "leedevkit-test-abc12345", "tool": "go",
+                 "pooler": False, "args": ["version"]},
+            )()
+            with patch.object(orch.parser, "parse_args", return_value=args):
+                with patch.object(orch._run_handler, "handle_run"):
+                    orch.run()
+            assert orch.owns_project is False
+            assert os.environ.get("COMPOSE_PROJECT_NAME") == "leedevkit-test-abc12345"
+
+    def test_run_default_creates_owned_project(self):
+        from _orchestrator import Orchestrator
+
+        with patch.object(Orchestrator, "register_traps", return_value=None):
+            orch = Orchestrator()
+            args = type(
+                "Args",
+                (),
+                {"command": "run", "dry_run": False, "project": None, "tool": "go",
+                 "pooler": False, "args": ["version"]},
+            )()
+            with patch.object(orch.parser, "parse_args", return_value=args):
+                with patch.object(orch._run_handler, "handle_run"):
+                    orch.run()
+            assert orch.owns_project is True
+            assert os.environ.get("COMPOSE_PROJECT_NAME", "").startswith("leedevkit-test-")
 
 
 class TestModeMap:

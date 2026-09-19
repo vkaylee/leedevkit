@@ -204,10 +204,19 @@ class CliParser:
             "run", help="Run toolbox command", parents=[parent_parser]
         )
         run_p.add_argument(
-            "tool", choices=list(self._tool_map.keys()), help="Tool to run"
+            "--project",
+            default=None,
+            metavar="PROJECT",
+            help=(
+                "Compose project to attach to: 'dev' maps to leedevkit-dev; "
+                "an explicit name attaches to that test project; omitted creates an isolated one"
+            ),
         )
         run_p.add_argument(
             "--pooler", action="store_true", help="Enable connection pooler"
+        )
+        run_p.add_argument(
+            "tool", choices=list(self._tool_map.keys()), help="Tool to run"
         )
         run_p.add_argument(
             "args", nargs=argparse.REMAINDER, help="Arguments for the tool"
