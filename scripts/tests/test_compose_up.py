@@ -75,3 +75,27 @@ def test_completed_job_is_run_before_downstream_service() -> None:
         ["podman-compose", "run", "--rm", "--no-deps", "job"],
         ["podman-compose", "up", "-d", "--no-deps", "app"],
     ]
+
+
+def test_stale_dependencies_removed_leaf_first() -> None:
+    from _compose_up import _remove_stale_dependency_containers
+
+    containers = [
+        {"Id": "db", "Dependencies": []},
+        {"Id": "job", "Dependencies": ["db"]},
+        {"Id": "app", "Dependencies": ["db", "job"]},
+        {"Id": "proxy", "Dependencies": ["db", "job", "app"]},
+    ]
+    removed: list[str] = []
+
+    def execute(command: list[str]) -> None:
+        container_id = command[-1]
+        for container in containers:
+            if container["Id"] not in removed:
+                assert container_id not in container["Dependencies"]
+        removed.append(container_id)
+
+    with patch("_compose_up._inspect_project_containers", return_value=containers):
+        _remove_stale_dependency_containers(["podman-compose"], {}, execute)
+
+    assert removed == ["proxy", "app", "job"]
