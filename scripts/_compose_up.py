@@ -119,13 +119,26 @@ def _inspect_project_containers(compose: list[str], env: Mapping[str, str]) -> l
 def _remove_stale_dependency_containers(
     compose: list[str], env: Mapping[str, str], execute: Callable[[list[str]], None]
 ) -> None:
-    stale = [
-        str(container["Id"])
-        for container in _inspect_project_containers(compose, env)
+    """Remove stale containers from leaves to roots, preserving volumes."""
+    containers = _inspect_project_containers(compose, env)
+    remaining = {
+        str(container["Id"]): set(container.get("Dependencies", []))
+        for container in containers
         if container.get("Dependencies")
-    ]
-    if stale:
-        execute(["podman", "rm", "-f", *stale])
+    }
+    while remaining:
+        referenced = {
+            dependency
+            for dependencies in remaining.values()
+            for dependency in dependencies
+            if dependency in remaining
+        }
+        leaves = [container_id for container_id in remaining if container_id not in referenced]
+        if not leaves:
+            raise ComposeConfigError("stale container dependency cycle")
+        for container_id in leaves:
+            execute(["podman", "rm", "-f", container_id])
+            remaining.pop(container_id)
 
 
 def _wait_for_healthy(
