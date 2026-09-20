@@ -12,6 +12,7 @@ from _test_modules import (  # noqa: E402
     _has_rust_service,
     _has_web_service,
     _resolve_go_service,
+    _resolve_go_workdir,
     _safe_pattern,
     _safe_pattern_quoted,
     leedevkit_run_coverage,
@@ -267,6 +268,21 @@ class TestGoServiceDetection:
         )
         monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
         assert _has_web_service() is True
+
+
+class TestResolveGoWorkdir:
+    def test_resolve_go_workdir_uses_nested_module(self, tmp_path, monkeypatch) -> None:
+        import _bootstrap
+
+        proj = tmp_path / "project"
+        module = proj / "plugin-source"
+        module.mkdir(parents=True)
+        (proj / "leedevkit.toml").write_text(
+            '[services.go]\nlang = "go"\nworkdir = "plugin-source"\n'
+        )
+        (module / "go.mod").write_text("module example/plugin\n")
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        assert _resolve_go_workdir() == "/workspace/plugin-source"
 
 
 class TestResolveGoService:

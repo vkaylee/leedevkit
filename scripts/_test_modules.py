@@ -139,6 +139,23 @@ def _resolve_go_service(component_filter: str = "") -> str:
     return "go"
 
 
+def _resolve_go_workdir() -> str:
+    """Resolve configured nested Go module path inside the test container."""
+    from _bootstrap import PROJECT_ROOT
+    from _devkit_config import _load_toml
+
+    config_path = PROJECT_ROOT / "leedevkit.toml"
+    if config_path.exists():
+        config = _load_toml(config_path)
+        service = config.get("services", {}).get("go", {})
+        workdir = service.get("workdir") if isinstance(service, dict) else None
+        if isinstance(workdir, str) and workdir.strip():
+            candidate = (PROJECT_ROOT / workdir).resolve()
+            if candidate.is_dir() and (candidate / "go.mod").is_file():
+                return f"/workspace/{candidate.relative_to(PROJECT_ROOT).as_posix()}"
+    return "/workspace"
+
+
 def _resolve_pkg_flag(component_filter: str) -> str:
     """Resolve --package flag for cargo commands.
 
@@ -252,12 +269,13 @@ def leedevkit_run_lint(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
+        go_workdir = _resolve_go_workdir()
         format_cmd = "gofmt -w ." if fix else 'test -z "$(gofmt -l .)"'
         tasks.append(
             (
                 "go-format",
                 go_svc,
-                build_compose_exec(go_svc, format_cmd, workdir="/workspace", mode="go"),
+                build_compose_exec(go_svc, format_cmd, workdir=go_workdir, mode="go"),
             )
         )
         tasks.append(
@@ -265,7 +283,7 @@ def leedevkit_run_lint(
                 "go-vet",
                 go_svc,
                 build_compose_exec(
-                    go_svc, "go vet ./...", workdir="/workspace", mode="go"
+                    go_svc, "go vet ./...", workdir=go_workdir, mode="go"
                 ),
             )
         )
@@ -328,13 +346,14 @@ def leedevkit_run_unit(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
+        go_workdir = _resolve_go_workdir()
         run_flag = f" -run {_safe_pattern(test_pattern)}" if test_pattern else ""
         tasks.append(
             (
                 "go-unit",
                 go_svc,
                 build_compose_exec(
-                    go_svc, f"go test ./...{run_flag}", workdir="/workspace", mode="go"
+                    go_svc, f"go test ./...{run_flag}", workdir=go_workdir, mode="go"
                 ),
             )
         )
@@ -448,6 +467,7 @@ def leedevkit_run_coverage(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
+        go_workdir = _resolve_go_workdir()
         coverage = (
             "mkdir -p /workspace/.test_logs && "
             f"go test -coverprofile=/workspace/.test_logs/coverage-go.out ./...{f' -run {_safe_pattern(test_pattern)}' if test_pattern else ''} && "
@@ -457,7 +477,7 @@ def leedevkit_run_coverage(
             (
                 "go-coverage",
                 go_svc,
-                build_compose_exec(go_svc, coverage, workdir="/workspace", mode="go"),
+                build_compose_exec(go_svc, coverage, workdir=go_workdir, mode="go"),
             )
         )
 
