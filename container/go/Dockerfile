@@ -4,4 +4,4 @@ FROM golang:${GO_VERSION}-bookworm
 
 WORKDIR /workspace
 
-RUN go version && gofmt -h >/dev/null && go vet -h >/dev/null
+RUN go version && gofmt -h >/dev/null && go help vet >/dev/null
