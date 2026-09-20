@@ -349,6 +349,25 @@ class TestGoVersionInjection:
         _inject_go_version_env()
         assert os.environ.get("GO_VERSION") == "1.23"
 
+    def test_nested_go_module_still_injects_configured_version(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Nested modules receive GO_VERSION without a root go.mod."""
+        proj = tmp_path / "project"
+        module = proj / "plugin-source"
+        module.mkdir(parents=True)
+        (proj / "leedevkit.toml").write_text(
+            '[services.go]\nlang = "go"\ngo_version = "1.26"\nworkdir = "plugin-source"\n'
+        )
+        (module / "go.mod").write_text("module example/plugin\n")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.delenv("GO_VERSION", raising=False)
+        _bootstrap.bootstrap_env("unit-go")
+        assert os.environ.get("GO_VERSION") == "1.26"
+
     def test_go_version_env_takes_priority(self, tmp_path, monkeypatch) -> None:
         """Explicit GO_VERSION env var wins over config."""
         proj = tmp_path / "project"

@@ -199,8 +199,7 @@ def _inject_go_version_env() -> None:
 
 def bootstrap_env(mode: str = "all") -> dict[str, str]:
     """Build the full environment dict for the given mode."""
-    if mode == "go" or (PROJECT_ROOT / "go.mod").exists():
-        _inject_go_version_env()
+    _inject_go_version_env()
     engine = detect_engine()
     compose_cmd = detect_compose_cmd()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
