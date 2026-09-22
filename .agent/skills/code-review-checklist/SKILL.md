@@ -6,113 +6,99 @@ allowed-tools: Read, Glob, Grep
 
 # Code Review Checklist
 
-## Quick Review Checklist
+## Reviewer Operating Rules
+- Review read-only. Do not modify files, rewrite tests, or silently apply fixes.
+- Review the requested behavior and its boundaries, not personal style preference.
+- Cite every finding with an evidence location: `path:line`, test name, request/event ID, or exact log location.
+- Separate observed facts from hypotheses. Mark unverified concerns as questions or follow-up checks.
+- Review the diff plus relevant callers, tests, configuration, documentation, and dependency usage. Do not infer safety from the changed lines alone.
 
-### Correctness
-- [ ] Code does what it's supposed to do
-- [ ] Edge cases handled
-- [ ] Error handling in place
-- [ ] No obvious bugs
+## Review Scope
 
-### Security
-- [ ] Input validated and sanitized
-- [ ] No SQL/NoSQL injection vulnerabilities
-- [ ] No XSS or CSRF vulnerabilities
-- [ ] No hardcoded secrets or sensitive credentials
-- [ ] **AI-Specific:** Protection against Prompt Injection (if applicable)
-- [ ] **AI-Specific:** Outputs are sanitized before being used in critical sinks
+### Spec-Compliance Verdict
+Determine whether change meets explicit requirements and acceptance criteria.
 
-### Performance
-- [ ] No N+1 queries
-- [ ] No unnecessary loops
-- [ ] Appropriate caching
-- [ ] Bundle size impact considered
+- [ ] Requested behavior implemented end to end
+- [ ] Inputs, outputs, errors, and compatibility match stated contract
+- [ ] All named files/symbols/callers updated or intentionally unchanged
+- [ ] Required tests, docs, configuration, and migrations included
+- [ ] Scope constraints and non-goals respected
 
-### Code Quality
-- [ ] Clear naming
-- [ ] DRY - no duplicate code
-- [ ] SOLID principles followed
-- [ ] Appropriate abstraction level
+Verdict: **SPEC COMPLIANT**, **SPEC NON-COMPLIANT**, or **UNVERIFIED**.
+Record evidence locations and blocking gaps.
+
+### Quality Verdict
+Assess maintainability and risk independently of spec compliance.
+
+- [ ] Correctness and edge cases handled
+- [ ] Error handling prevents data loss or unsafe partial state
+- [ ] Security boundaries validated: injection, XSS/CSRF, authorization, secrets, unsafe deserialization, and sensitive logging
+- [ ] Performance and resource use reasonable: queries, loops, caching, bundle/runtime cost, timeouts
+- [ ] Naming, structure, abstraction level, and duplication support maintenance
 - [ ] No verified dead code: unused imports/variables/private functions, unreachable branches, obsolete dependencies, or commented-out implementations
-- [ ] Replaced code and its related tests, configuration, documentation, and dependencies were removed together
-- [ ] Intentional transitional code has a reason, owner, removal condition, and review/removal date
-- [ ] Indirect runtime and external usage was checked before deletion; public APIs follow the deprecation policy
+- [ ] Replaced code and related tests, configuration, documentation, and dependencies removed together
+- [ ] Transitional code has reason, owner, removal condition, and review/removal date
+- [ ] Indirect runtime and external usage checked before deletion; public APIs follow deprecation policy
 
-### Testing
-- [ ] Unit tests for new code
-- [ ] Edge cases tested
-- [ ] Tests readable and maintainable
-- [ ] Test Impact Matrix dimensions were considered and non-applicable dimensions have concrete reasons
-- [ ] Bug fixes include a regression test that fails without the fix, or a documented reproduction limitation
-- [ ] Applicable boundary, malformed-input, negative, authorization, dependency-failure, timeout, partial-state, compatibility, and resource-limit cases are covered
+Verdict: **QUALITY SOUND**, **QUALITY CONCERNS**, or **QUALITY BLOCKED**.
+Record evidence locations, severity, and remediation.
+
+## Behavioral Review
+
+### Reasonable-User and Unnamed-Input Review
+Exercise the feature as a reasonable user would, including inputs the specification does not name explicitly. Do not treat unnamed input as permission to invent requirements; check safe, unsurprising behavior and document assumptions.
+
+- [ ] Typical valid input works
+- [ ] Empty, missing, null-like, whitespace-only, and boundary values behave safely where applicable
+- [ ] Malformed, unexpected, oversized, repeated, or out-of-order input fails safely or is handled predictably
+- [ ] User-visible errors are actionable without exposing secrets or internals
+- [ ] Authorization, tenant, locale, time-zone, and compatibility boundaries remain enforced where applicable
+- [ ] Unnamed-input behavior is either reasonable and evidenced, or called out as an explicit question
+
+Evidence: [path:line, test name, request/event ID, or log location]
+
+## Testing Review
+- [ ] Tests assert observable behavior and meaningful boundaries
+- [ ] Bug fixes include regression coverage that fails without fix, or documented reproduction limitation
+- [ ] Applicable negative, authorization, dependency-failure, timeout, partial-state, compatibility, and resource-limit cases covered
 - [ ] Assertions verify absence of unauthorized or partial side effects where relevant
-- [ ] No assertions were weakened and no tests were skipped, retried, or quarantined without a tracked, time-bound reason
+- [ ] No source-text, AST, implementation-name, or change-detector tests substitute for behavior assertions
+- [ ] No assertions weakened; no tests skipped, retried, or quarantined without tracked, time-bound reason
+- [ ] Test Impact Matrix dimensions considered; non-applicable dimensions have concrete reasons
+- [ ] Project test suite result recorded with command and evidence location when required by project workflow
 
-### Documentation
-- [ ] Complex logic commented
-- [ ] Public APIs documented
-- [ ] README updated if needed
+## Findings Format
+For each finding, report:
 
-## AI & LLM Review Patterns (2025)
+```text
+[BLOCKING|IMPORTANT|NIT|QUESTION] path:line
+Observed: [specific fact]
+Impact: [user, security, correctness, or maintenance consequence]
+Evidence: [test/log/spec location]
+Action: [required change or question]
+```
 
-### Logic & Hallucinations
-- [ ] **Chain of Thought:** Does the logic follow a verifiable path?
-- [ ] **Edge Cases:** Did the AI account for empty states, timeouts, and partial failures?
-- [ ] **External State:** Is the code making safe assumptions about file systems or networks?
+Do not block on nits. Do block on security, data loss, broken contract, unsafe failure, or missing required behavior. End review with separate verdicts:
 
-### Prompt Engineering Review
-```markdown
-// ❌ Vague prompt in code
-const response = await ai.generate(userInput);
-
-// ✅ Structured & Safe prompt
-const response = await ai.generate({
-  system: "You are a specialized parser...",
-  input: sanitize(userInput),
-  schema: ResponseSchema
-});
+```text
+Spec compliance: [SPEC COMPLIANT | SPEC NON-COMPLIANT | UNVERIFIED]
+Quality: [QUALITY SOUND | QUALITY CONCERNS | QUALITY BLOCKED]
+Blocking findings: [none or evidence-linked list]
+Open questions: [none or evidence-linked list]
 ```
 
 ## Anti-Patterns to Flag
+- Random or speculative behavior outside the request
+- Silent scope expansion or unrelated cleanup
+- Assumptions presented as evidence
+- Source-text assertions that only detect implementation changes
+- Deep nesting, long functions, magic numbers, untyped escape hatches, or verified dead paths
+- Hardcoded secrets, unsanitized input, injection sinks, unsafe prompt/data boundaries, or sensitive output leakage
+- Missing checks for empty, malformed, unauthorized, timeout, partial, or resource-limit cases
 
-```typescript
-// ❌ Magic numbers
-if (status === 3) { ... }
-
-// ✅ Named constants
-if (status === Status.ACTIVE) { ... }
-
-// ❌ Deep nesting
-if (a) { if (b) { if (c) { ... } } }
-
-// ✅ Early returns
-if (!a) return;
-if (!b) return;
-if (!c) return;
-// do work
-
-// ❌ Long functions (100+ lines)
-// ✅ Small, focused functions
-
-// ❌ any type
-const data: any = ...
-
-// ✅ Proper types
-const data: UserData = ...
-```
-
-## Review Comments Guide
-
-```
-// Blocking issues use 🔴
-🔴 BLOCKING: SQL injection vulnerability here
-
-// Important suggestions use 🟡
-🟡 SUGGESTION: Consider using useMemo for performance
-
-// Minor nits use 🟢
-🟢 NIT: Prefer const over let for immutable variable
-
-// Questions use ❓
-❓ QUESTION: What happens if user is null here?
-```
+## Review Completion
+- [ ] Findings cite evidence locations
+- [ ] Spec-compliance and quality verdicts are separate
+- [ ] Reviewer made no repository changes
+- [ ] Reasonable-user unnamed-input behavior considered
+- [ ] Blocking findings distinguish required fixes from questions and nits

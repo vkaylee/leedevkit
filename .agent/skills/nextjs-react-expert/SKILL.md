@@ -102,12 +102,12 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 | Need                    | Skill                             |
 | ----------------------- | --------------------------------- |
-| API design patterns     | `Skill({skill: "api-patterns"})`          |
-| Database optimization   | `Skill({skill: "database-design"})`       |
-| Testing strategies      | `Skill({skill: "testing-patterns"})`      |
-| UI/UX design principles | `Skill({skill: "frontend-design"})`       |
-| Clean code patterns     | `Skill({skill: "clean-code"})`            |
-| Deployment & DevOps     | `Skill({skill: "deployment-procedures"})` |
+| API design patterns     | `api-patterns` skill          |
+| Database optimization   | `database-design` skill       |
+| Testing strategies      | `testing-patterns` skill      |
+| UI/UX design principles | `frontend-design` skill       |
+| Clean code patterns     | `clean-code` skill            |
+| Deployment & DevOps     | `deployment-procedures` skill |
 
 ---
 

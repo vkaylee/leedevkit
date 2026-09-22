@@ -376,7 +376,7 @@ Examples:
         print_error(f"Project path does not exist: {project_path}")
         sys.exit(1)
 
-    print_header("🚀 ANTIGRAVITY KIT - FULL VERIFICATION SUITE")
+    print_header("🚀 LEEDEVKIT - FULL VERIFICATION SUITE")
     print(f"Project: {project_path}")
     print(f"URL: {args.url}")
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

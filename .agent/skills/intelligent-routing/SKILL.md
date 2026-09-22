@@ -1,6 +1,6 @@
 ---
 name: intelligent-routing
-description: Select the smallest suitable Claude Code agent or agent set from task intent, domain, and complexity.
+description: Select smallest suitable agent or agent set from task intent, domain, and complexity.
 allowed-tools: Read, Grep, Glob
 ---
 
@@ -56,3 +56,7 @@ If the user names a specific agent, honor that choice when the agent exists. If 
 - `"Add an OpenAPI contract for invoices"` → `api-designer`.
 - `"Build a secure chat app with a web UI"` → `orchestrator` coordinating `backend-specialist`, `frontend-specialist`, `security-auditor`, and `test-engineer`.
 - `"Explain how React state works"` → answer directly; no agent.
+
+## Harness portability
+
+Use harness-native delegation and file-discovery mechanisms. If harness has no agent router, apply matrix directly and keep work in current session; if it has no named tools, map `Read`, `Write`, `Edit`, `Glob`, and `Grep` to equivalent capabilities or inspect files through its standard interface.

@@ -34,9 +34,14 @@ class SkillsManager:
         self._catalog: dict | None = None
 
     def _sync_claude_resources(self) -> None:
-        from _init_handler import sync_claude_resources
+        """Sync installed resources through configured harness adapters.
 
-        sync_claude_resources(PROJECT_ROOT, self._devkit)
+        Method name remains for compatibility with existing callers/tests.
+        """
+        from _devkit_config import load_project_config
+        from _harness_engine import sync_harnesses
+
+        sync_harnesses(PROJECT_ROOT, self._devkit, load_project_config())
 
     # -- Public API ---------------------------------------------------------
 
@@ -65,14 +70,11 @@ class SkillsManager:
     # -- Actions ------------------------------------------------------------
 
     def _list(self) -> None:
-        from _init_handler import discover_skill_sources
+        from _harness_engine import discover_skill_sources
 
-        # Read the same Claude discovery surface that sessions load.
-        runtime_dir = PROJECT_ROOT / ".claude" / "skills"
-        runtime = discover_skill_sources(runtime_dir)
         builtins = set(discover_skill_sources(self._devkit / ".agent" / "skills"))
-        installed = set(runtime) - builtins
         community = discover_skill_sources(self._skills_d)
+        installed = set(community)
         catalog = self._load_catalog()
         catalog_runtime: set[str] = set()
 
@@ -103,6 +105,15 @@ class SkillsManager:
 
         for name in sorted(installed - catalog_runtime):
             log_info(f"  ● {name} [external — not in catalog]")
+
+        from _devkit_config import load_project_config
+        from _harness_engine import resolve_harnesses
+
+        log_info("")
+        log_info(
+            "Projected into: "
+            + ", ".join(resolve_harnesses(PROJECT_ROOT, load_project_config()))
+        )
 
         if not installed and not catalog:
             log_info("No community skills. Add one:")

@@ -32,7 +32,16 @@ This skill provides a framework for breaking down work into clear, actionable ta
 ### 4. Dynamic Naming in Project Root
 - Plan files are saved as `{task-slug}.md` in the PROJECT ROOT
 - Name derived from task (e.g., "add auth" → `auth-feature.md`)
-- **NEVER** inside `.claude/`, `docs/`, or temp folders
+- Keep saved plans in the project root or repository's established plan location; never assume a vendor-specific hidden directory.
+
+### 5. Saved-Plan Approval Gate
+- For non-trivial, medium/high-risk, cross-cutting, or externally visible work, save the plan before implementation and request explicit approval.
+- State approval status in the saved plan (`Status: Awaiting approval` → `Status: Approved`) and do not begin implementation while approval is pending.
+- Approval is optional for trivial, low-risk, easily reversible work; proceed directly when a saved plan would add more ceremony than value.
+
+### 6. Right-Size Ceremony
+- Use a short task list for small changes; add dependencies, phases, interfaces, constraints, or a saved-plan gate only when risk or coordination requires them.
+- Never create planning artifacts solely to satisfy this skill. Prefer the smallest plan that makes scope, ownership, and verification unambiguous.
 
 ## Planning Principles (NOT Templates!)
 
@@ -113,24 +122,33 @@ This skill provides a framework for breaking down work into clear, actionable ta
 ```
 # [Task Name]
 
+Status: [Draft | Awaiting approval | Approved]
+
 ## Goal
 One sentence: What are we building/fixing?
 
+## Constraints and Interfaces
+- **Global constraints:** [Compatibility, security, performance, scope, or tooling limits every task must respect]
+- **Global interfaces:** [APIs, schemas, contracts, file boundaries, or ownership rules every task must honor]
+
 ## Tasks
-- [ ] Task 1: [Specific action] → Verify: [How to check]
-- [ ] Task 2: [Specific action] → Verify: [How to check]
-- [ ] Task 3: [Specific action] → Verify: [How to check]
+- [ ] Task 1: [Specific action] → Constraints: [task-specific limits plus inherited global constraints] → Interface: [contract or surface this task changes] → Verify: [How to check]
+- [ ] Task 2: [Specific action] → Constraints: [...] → Interface: [...] → Verify: [How to check]
+- [ ] Task 3: [Specific action] → Constraints: [...] → Interface: [...] → Verify: [How to check]
 
 ## Done When
 - [ ] [Main success criteria]
-```
 
-> **That's it.** No phases, no sub-sections unless truly needed.
-> Keep it minimal. Add complexity only when required.
+## Review Focus (Optional)
+- [Up to five risks the specification implies but existing tests or checks do not cover]
 
 ## Notes
 [Any important considerations]
 ```
+
+> **That's it.** No phases, no sub-sections unless truly needed.
+> Keep it minimal. Add complexity only when required.
+> Trust explicit interfaces over task-local assumptions, and verify at the level the user will observe.
 
 ---
 

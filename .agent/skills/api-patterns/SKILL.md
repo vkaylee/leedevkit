@@ -36,9 +36,9 @@ allowed-tools: Read, Write, Edit, Glob, Grep
 
 | Need | Skill |
 |------|-------|
-| API implementation | `Agent({subagent_type: "backend-specialist"})` |
-| Data structure | `Skill({skill: "database-design"})` |
-| Security details | `Agent({subagent_type: "security-auditor"})` |
+| API implementation | `backend-specialist` agent |
+| Data structure | `database-design` skill |
+| Security details | `security-auditor` agent |
 
 ---
 

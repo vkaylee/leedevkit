@@ -11,7 +11,7 @@ $ARGUMENTS
 ## 🔴 CRITICAL RULES
 
 1. **NO CODE WRITING** - This command creates plan file only
-2. **Use project-planner agent** - Invoke via `Agent({subagent_type: "project-planner"})`
+2. **Use project-planner agent** - Delegate to `project-planner` (or plan inline when no delegation capability exists)
 3. **Socratic Gate** - Ask clarifying questions before planning
 4. **Dynamic Naming** - Plan file named based on task
 

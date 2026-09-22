@@ -26,9 +26,9 @@ allowed-tools: Read, Glob, Grep
 
 | Skill | Use For |
 |-------|---------|
-| `Skill({skill: "database-design"})` | Database schema design |
-| `Skill({skill: "api-patterns"})` | API design patterns |
-| `Skill({skill: "deployment-procedures"})` | Deployment architecture |
+| `database-design` skill | Database schema design |
+| `api-patterns` skill | API design patterns |
+| `deployment-procedures` skill | Deployment architecture |
 
 ---
 

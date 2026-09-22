@@ -130,6 +130,9 @@ def test_no_legacy_framework_references() -> None:
     for root in SCAN_ROOTS:
         for path in root.rglob("*"):
             if path.is_file() and ".git" not in path.parts:
+                # The multi-harness adapter engine and its tests define instruction file mappings
+                if path.name in {"_harness_engine.py", "test_harness_engine.py"}:
+                    continue
                 try:
                     text = path.read_text()
                 except UnicodeDecodeError:

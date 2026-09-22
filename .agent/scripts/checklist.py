@@ -231,7 +231,7 @@ Examples:
     if not project_path.exists():
         print_error(f"Project path does not exist: {project_path}")
         sys.exit(1)
-    print_header("🚀 ANTIGRAVITY KIT - MASTER CHECKLIST")
+    print_header("🚀 LEEDEVKIT - MASTER CHECKLIST")
     print(f"Project: {project_path}")
     print(
         f"URL: {args.url if args.url else 'Not provided (performance checks skipped)'}"

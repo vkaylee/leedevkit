@@ -57,8 +57,8 @@ Read only the agents or skills relevant to the current task.
 - **Mobile Development:** `.agent/agents/mobile-developer.md`
 - **Game Development:** `.agent/agents/game-developer.md`
 
-## 🤖 SUBAGENT MODEL SELECTION
-Before delegating an ambiguous or non-trivial task, call `mcp__leedevkit-task-assessor__assess_task` with the task description, file count, and risk. Use its suggested tier unless explicit task context justifies an override.
+## 🤖 OPTIONAL TASK ROUTING
+If active harness exposes `mcp__leedevkit-task-assessor__assess_task`, call it for ambiguous or non-trivial delegation and use its suggested tier unless explicit task context justifies an override. Otherwise estimate task risk and choose an appropriate local or harness-native agent path; never invent unavailable MCP or subagent tools.
 
 ## 🔧 LAYER 5: DEVKIT COMMANDS
 | Command | Purpose |

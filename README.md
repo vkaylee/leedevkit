@@ -127,10 +127,13 @@ my-project/
 │   ├── rules/                # rulebooks (copied from devkit + project custom)
 │   ├── overrides.yaml        # which devkit rules to replace/extend/add
 │   └── agents/, workflows/   # project-specific (optional)
-├── .claude/                  # Claude Code discovery paths
+├── .claude/                  # Claude Code discovery paths (active when claude harness enabled)
 │   ├── agents/                # symlinks to .leedevkit/.agent/agents/
 │   ├── skills/                # symlinks to .leedevkit/.agent/skills/
 │   └── settings.local.json    # optional machine-local permissions (do not commit)
+├── AGENTS.md                 # root instructions for Codex, Copilot, Aider, Cline
+├── GEMINI.md                 # root instructions for Gemini CLI
+├── .cursor/rules/            # Cursor project rules (leedevkit.mdc)
 └── leedevkit → .leedevkit/bin/leedevkit   # CLI wrapper (gitignored)
 ```
 
@@ -179,9 +182,9 @@ all = ["apiserver", "agent-main", "webdashboard"]
 # See "Rust-Only Project" section below or templates/leedevkit.rust.toml
 
 [ai]
+harnesses = ["claude"]         # configure active targets: claude, codex, cursor, gemini
 rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
-
 # Optional: route unset Claude Code subagent models by task complexity.
 # Init/update wires .claude/settings.json and .mcp.json automatically.
 [ai.model_routing]
@@ -305,48 +308,48 @@ add: []       # project-only rules
 extend: []    # append to devkit rules (both loaded)
 ```
 
-## AI Agent Context
+## AI Agent Context & Multi-Harness Adapters
 
-Three entry points — all symlink to the same template:
+LeeDevKit projects the single source of truth in `.agent/` (rules, skills, agents, workflows) into each target coding harness:
 
-| File | AI Agent |
-|------|----------|
-| `CLAUDE.md` | Claude Code |
-| `AGENTS.md` | Cursor, Copilot, Aider, Cline |
-| `GEMINI.md` | Gemini CLI |
+| Harness | Generated / Managed Path | Discovery Mechanism |
+|---|---|---|
+| **Claude Code** | `.claude/skills/`, `.claude/agents/`, `CLAUDE.md` | Relative symlinks + managed context block |
+| **Codex / Copilot / Aider / Cline** | `AGENTS.md` | Root instruction file with managed marker block and skill index |
+| **Cursor** | `.cursor/rules/leedevkit.mdc` | Project rule file with `alwaysApply: true` |
+| **Gemini CLI** | `GEMINI.md` | Root instruction file with inlined context and skill index |
+| **Pi** | `.pi/skills/`, `AGENTS.md` | Native Pi skills + managed project context |
+| **Oh My Pi** | `.omp/skills/`, `.omp/agents/`, `.omp/AGENTS.md` | Native OMP skills, task agents, and context |
 
-Template at `templates/CLAUDE.base.md` uses lazy-load pattern:
-- Layer 0: AI governance, development–testing discipline, scoped quality, security, compatibility, and verification
-- Layer 4: Domain rulebooks (`.agent/rules/*.md`)
-- Layer 5: Specialist agents (`.agent/agents/*.md`)
-- Layer 6: Devkit commands
+Configure active harnesses in `leedevkit.toml`:
+
+```toml
+[ai]
+harnesses = ["claude", "codex", "cursor", "gemini", "pi", "omp"]
+rules_dir = ".agent/rules"
+override_manifest = ".agent/overrides.yaml"
+
+```
+Managed files use delimiter comments (`<!-- leedevkit:begin -->` ... `<!-- leedevkit:end -->`) so custom instructions outside the block survive re-sync. Pi and OMP skill directories contain managed relative symlinks; user files with conflicting names are preserved.
 
 ## Skills
 
-Two kinds of skills:
-
-### Built-in (38 skills)
+### Built-in Skills (38 top-level packages, 49 skill files)
 Shipped with devkit inside `.leedevkit/.agent/skills/`. During `init` and `update`,
-LeeDevKit bridges built-in skills and specialist agents into `.claude/skills/` and
-`.claude/agents/` as relative symlinks. User-owned files in `.claude/` are never
-overwritten or removed. Workflows (`.agent/workflows/*.md`) remain LeeDevKit-specific.
-
-```
-api-patterns  app-builder  architecture  bash-linux  clean-code
-database-design  frontend-design  game-development  mobile-design
-nextjs-react-expert  python-patterns  rust-pro  tailwind-patterns
-... (38 total)
-```
+LeeDevKit recursively discovers skills and syncs them across active harness adapters.
+Pi and OMP consume the standard `SKILL.md` layout directly; Claude receives
+additional symlink projections for plugin compatibility.
+User-owned files in destination directories are never overwritten or removed.
 
 ### Community Catalog
-Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skills.d/` per-project. Catalog at `.agent/skills-catalog.toml`.
+Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skills.d/` per-project. Catalog at `.agent/skills-catalog.toml`. Includes UI/UX Pro Max, Claude Code Model Router, and Superpowers Methodology.
 
 ```bash
-leedevkit skills list              # show built-in + catalog + installed
-leedevkit skills install <name>    # install from catalog by name
-leedevkit skills add <git-url>     # install external (not in catalog)
-leedevkit skills update            # git pull all installed skills
-leedevkit skills remove <name>     # remove
+./leedevkit skills list              # show built-in + catalog + installed
+./leedevkit skills install <name>    # install from catalog by name
+./leedevkit skills add <git-url>     # install external (not in catalog)
+./leedevkit skills update            # git pull all installed skills
+./leedevkit skills remove <name>     # remove
 ```
 
 ## Python Project (dogfooding devkit itself)

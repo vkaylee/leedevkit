@@ -64,6 +64,11 @@ all = ["apiserver", "agent-main", "webdashboard"]
 # The devkit provides base rules; add project-specific ones here.
 extra_rules = []
 
+# Harness adapters refreshed during init/update and skill install/update.
+# "claude" is historical default; add other targets when used.
+# Supported: claude, codex, cursor, gemini, pi, omp.
+harnesses = ["claude"]
+
 # Directory for AI rule files (default: ".agent/rules")
 rules_dir = ".agent/rules"
 # Override manifest: which devkit rules to replace/extend.

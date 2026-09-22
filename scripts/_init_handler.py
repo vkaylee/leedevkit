@@ -17,126 +17,21 @@ from _download import download_and_extract_tarball
 from _handler_base import HandlerBase
 from _logging import log_info, log_success, log_warn
 
-
-def _link_target(source: Path, link: Path) -> str:
-    """Return a stable link target for a project-local or external devkit."""
-    source = source.resolve()
-    project_root = link.parents[2] if len(link.parents) > 2 else link.parent
-    if source == project_root or project_root in source.parents:
-        return os.path.relpath(source, link.parent)
-    return str(source)
-
-
-def _is_managed(link: Path, devkit: Path) -> bool:
-    """Check whether a symlink resolves into the devkit root."""
-    if not link.is_symlink():
-        return False
-    try:
-        target = (link.parent / os.readlink(link)).resolve()
-        devkit = devkit.resolve()
-        return target == devkit or devkit in target.parents
-    except OSError:
-        return False
-
-
-def _bridge(source: Path, link: Path, devkit: Path) -> bool:
-    """Create or repair one managed bridge without touching user resources."""
-    expected = source.resolve()
-    if link.is_symlink():
-        try:
-            if link.resolve() == expected:
-                return False
-        except OSError:
-            pass
-        if not _is_managed(link, devkit):
-            return False
-        link.unlink()
-    elif link.exists():
-        return False
-
-    link.parent.mkdir(parents=True, exist_ok=True)
-    target = _link_target(source, link)
-    try:
-        link.symlink_to(target, target_is_directory=source.is_dir())
-    except (NotImplementedError, OSError):
-        # ponytail: filesystems without symlink support use a non-managed copy;
-        # add metadata only if copy-based ownership must later be synchronized.
-        import shutil
-
-        if source.is_dir():
-            shutil.copytree(source, link)
-        else:
-            shutil.copy2(source, link)
-    return True
-
-
-def _prune_stale(dest_dir: Path, keep: set[str], devkit: Path) -> None:
-    """Remove stale managed bridges while preserving user-owned entries."""
-    if not dest_dir.exists():
-        return
-    for item in dest_dir.iterdir():
-        if item.name not in keep and _is_managed(item, devkit):
-            item.unlink()
-
-
-def discover_skill_sources(*source_dirs: Path) -> dict[str, Path]:
-    """Return Claude-discoverable skill IDs and their package directories."""
-    sources: dict[str, Path] = {}
-    for source_dir in source_dirs:
-        if not source_dir.is_dir():
-            continue
-        for package in sorted(source_dir.iterdir()):
-            if package.is_dir() and not package.name.startswith("."):
-                root_skill = package / "SKILL.md"
-                if root_skill.is_file():
-                    _register_skill_source(sources, package.name, package)
-
-                plugin_skills = package / ".claude" / "skills"
-                if plugin_skills.is_dir():
-                    for skill in sorted(plugin_skills.iterdir()):
-                        if (
-                            skill.is_dir()
-                            and not skill.name.startswith(".")
-                            and (skill / "SKILL.md").is_file()
-                        ):
-                            _register_skill_source(sources, skill.name, skill)
-    return sources
-
-
-def _register_skill_source(sources: dict[str, Path], name: str, path: Path) -> None:
-    """Record a skill ID, warning when a later source collides with an earlier one."""
-    if name in sources:
-        log_warn(
-            f"Skill ID '{name}' is defined in multiple locations: "
-            f"{sources[name]} and {path}. Using the first one."
-        )
-    else:
-        sources[name] = path
+from _harness_engine import discover_skill_sources, sync_harnesses  # noqa: F401
 
 
 def sync_claude_resources(root: Path, devkit: Path) -> tuple[int, int]:
-    """Bridge agents and built-in/community skills into Claude Code paths."""
-    agent_source = devkit / ".agent" / "agents"
-    agent_dest = root / ".claude" / "agents"
-    skill_dest = root / ".claude" / "skills"
-    agents = 0
-    skills = 0
+    """Bridge agents and skills into historical Claude discovery paths."""
+    from _harness_engine import ClaudeCodeAdapter
 
-    agent_sources = sorted(agent_source.glob("*.md")) if agent_source.is_dir() else []
-    for source in agent_sources:
-        if _bridge(source, agent_dest / source.name, devkit):
-            agents += 1
-    _prune_stale(agent_dest, {source.name for source in agent_sources}, devkit)
-
-    skill_sources = discover_skill_sources(
-        devkit / ".agent" / "skills", devkit / "skills.d"
+    adapter = ClaudeCodeAdapter(root, devkit)
+    agent_count = adapter.bridge_tree(
+        adapter.agent_sources, root / ".claude" / "agents"
     )
-    for name, source in sorted(skill_sources.items()):
-        if _bridge(source, skill_dest / name, devkit):
-            skills += 1
-    _prune_stale(skill_dest, set(skill_sources), devkit)
-
-    return agents, skills
+    skill_count = adapter.bridge_tree(
+        adapter.skill_sources, root / ".claude" / "skills"
+    )
+    return agent_count, skill_count
 
 
 CLAUDE_BASE_CONTEXT = """## LeeDevKit base context
@@ -149,7 +44,7 @@ The rules below add specific constraints. Apply both.
 
 
 def ensure_claude_md_base_context(project_root: Path) -> bool:
-    """Ensure CLAUDE.md references the project-local LeeDevKit base context."""
+    """Backward-compatible helper for callers managing Claude context directly."""
     claude_md = project_root / "CLAUDE.md"
     if claude_md.exists():
         content = claude_md.read_text()
@@ -187,9 +82,6 @@ class InitHandler(HandlerBase):
         root = Path.cwd()
         config_toml = root / "leedevkit.toml"
         cfg = _load_toml(config_toml) if config_toml.exists() else {}
-        if ensure_claude_md_base_context(root):
-            log_success("Configured CLAUDE.md LeeDevKit base context")
-
         try:
             devkit = get_devkit_root()
         except FileNotFoundError:
@@ -228,22 +120,31 @@ class InitHandler(HandlerBase):
                 override_path.write_text(devkit_override.read_text())
                 log_success(f"Created {override_manifest}")
 
-        agents, skills = sync_claude_resources(root, devkit)
-        if agents or skills:
+        harness_report = sync_harnesses(root, devkit, cfg)
+        changed = sum(harness_report.values())
+        if changed:
             log_success(
-                f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
+                "Synchronized AI context for "
+                + ", ".join(
+                    f"{name} ({count} changed)"
+                    for name, count in sorted(harness_report.items())
+                    if count
+                )
             )
 
-        from _claude_config import install_ai_integrations
+        if "claude" in harness_report:
+            from _claude_config import install_ai_integrations
 
-        try:
-            settings_ok, mcp_ok = install_ai_integrations(root)
-            if settings_ok:
-                log_success("Configured model routing hook in .claude/settings.json")
-            if mcp_ok:
-                log_success("Registered task assessor MCP server in .mcp.json")
-        except Exception as e:
-            log_warn(f"⚠️  AI integration sync failed: {e}")
+            try:
+                settings_ok, mcp_ok = install_ai_integrations(root)
+                if settings_ok:
+                    log_success(
+                        "Configured model routing hook in .claude/settings.json"
+                    )
+                if mcp_ok:
+                    log_success("Registered task assessor MCP server in .mcp.json")
+            except Exception as e:
+                log_warn(f"⚠️  Claude integration sync failed: {e}")
 
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install.
@@ -376,26 +277,17 @@ class InitHandler(HandlerBase):
                 override_path.write_text(devkit_override.read_text())
                 log_success(f"Created {override_manifest}")
 
-        # ── Step 3c: Bridge agents and skills into .claude/ discovery paths ──
-        agents, skills = sync_claude_resources(root, devkit)
-        if agents or skills:
+        harness_report = sync_harnesses(root, devkit, cfg)
+        changed = sum(harness_report.values())
+        if changed:
             log_success(
-                f"Bridged {agents} agent(s) and {skills} skill(s) into .claude/"
+                "Synchronized AI context for "
+                + ", ".join(
+                    f"{name} ({count} changed)"
+                    for name, count in sorted(harness_report.items())
+                    if count
+                )
             )
-
-        from _claude_config import install_ai_integrations
-
-        try:
-            settings_ok, mcp_ok = install_ai_integrations(root)
-            if settings_ok:
-                log_success("Configured model routing hook in .claude/settings.json")
-            if mcp_ok:
-                log_success("Registered task assessor MCP server in .mcp.json")
-        except Exception as e:
-            log_warn(f"⚠️  AI integration sync failed: {e}")
-
-        if ensure_claude_md_base_context(root):
-            log_success("Configured CLAUDE.md LeeDevKit base context")
 
         # ── Step 4: Create ./leedevkit wrapper (project-local, not global) ──
         wrapper = root / "leedevkit"
@@ -413,8 +305,19 @@ class InitHandler(HandlerBase):
         wrapper.write_text(wrapper_content)
         wrapper.chmod(0o755)
         log_success("Created ./leedevkit → .leedevkit/bin/leedevkit")
+        if "claude" in harness_report:
+            from _claude_config import install_ai_integrations
 
-        # ── Step 5: Pin devkit version in leedevkit.toml ──
+            try:
+                settings_ok, mcp_ok = install_ai_integrations(root)
+                if settings_ok:
+                    log_success(
+                        "Configured model routing hook in .claude/settings.json"
+                    )
+                if mcp_ok:
+                    log_success("Registered task assessor MCP server in .mcp.json")
+            except Exception as e:
+                log_warn(f"⚠️  Claude integration sync failed: {e}")
         actual_version = (devkit / "VERSION").read_text().strip()
         current = cfg.get("devkit", {}).get("version", "")
         if current != actual_version and config_toml.exists():

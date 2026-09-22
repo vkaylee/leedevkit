@@ -17,3 +17,10 @@ name = "Claude Code Model Router"
 description = "Routes unset Claude Code subagent models using lightweight keyword and complexity heuristics"
 url = "https://github.com/nedjamez/claude-code-model-router"
 tags = ["claude-code", "model-routing", "subagents", "cost-control"]
+
+[skills.superpowers]
+name = "Superpowers Methodology"
+description = "Agentic software development methodology (TDD, review focus, systematic debugging, worktrees)"
+url = "https://github.com/obra/superpowers.git"
+version = "v6.4.1"
+tags = ["methodology", "tdd", "debugging", "review", "worktree"]
