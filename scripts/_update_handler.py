@@ -7,14 +7,16 @@ with automatic backup and rollback on failure.
 
 from __future__ import annotations
 
-import json
 import shutil
-import urllib.request
+import urllib.request  # noqa: F401
 import uuid
 from pathlib import Path
 
-from _download import download_and_extract_tarball
+from _download import download_and_extract_tarball, latest_release_version
 from _logging import log_info, log_success, log_warn
+
+
+DOWNLOAD_TIMEOUT = 120
 
 
 def _devkit_root() -> Path:
@@ -43,44 +45,31 @@ def _restore_backup(root: Path, backup: Path) -> None:
 
 
 def _latest_release_version() -> str:
-    """Return the latest release tag (e.g. 'v0.2.0') from GitHub Releases."""
-    api = "https://api.github.com/repos/vkaylee/leedevkit/releases/latest"
-    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.load(r)
-    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
-        raise RuntimeError(f"Could not reach GitHub Releases: {e}") from e
-    tag = data.get("tag_name")
-    if not tag:
-        raise RuntimeError("GitHub releases/latest returned no tag_name")
-    return tag
+    """Return latest release tag with bounded network operation."""
+    return latest_release_version(
+        "https://api.github.com/repos/vkaylee/leedevkit/releases/latest",
+        timeout=DOWNLOAD_TIMEOUT,
+    )
 
 
 def handle_update(target: str | None = None) -> None:
-    """Download a release tarball and overlay it onto this devkit install.
-
-    Args:
-        target: Specific version tag (e.g. 'v0.2.0'), or None for latest.
-    """
+    """Download and atomically apply release, including project-side updates."""
     root = _devkit_root()
-    current = (root / "VERSION").read_text().strip()  # e.g. "0.1.0"
-
+    current = (root / "VERSION").read_text().strip()
     if target is None:
-        target = _latest_release_version()  # e.g. "v0.2.0"
-
-    ver = target.lstrip("v")  # tarball version, no "v"
+        target = _latest_release_version()
+    ver = target.lstrip("v")
     if ver == current:
         log_info(f"Already on latest ({current}).")
         return
 
     log_info(f"Updating {current} → {target}")
-
     backup = root.with_name(root.name + ".bak")
     tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
+    config_toml = root.parent / "leedevkit.toml"
+    original_config = config_toml.read_bytes() if config_toml.exists() else None
     url = f"https://github.com/vkaylee/leedevkit/archive/refs/tags/{target}.tar.gz"
     try:
-        log_info(f"Downloading {url} ...")
         download_and_extract_tarball(url, tmp_extract)
         version_file = tmp_extract / "VERSION"
         if not version_file.is_file():
@@ -90,20 +79,47 @@ def handle_update(target: str | None = None) -> None:
             raise RuntimeError(
                 f"Downloaded devkit version {new_ver!r} does not match requested {ver!r}"
             )
-
         if backup.exists() or backup.is_symlink():
             _remove_path(backup)
         shutil.move(str(root), str(backup))
         log_info(f"Backed up current install to {backup.name}/")
         shutil.move(str(tmp_extract), str(root))
-
         for preserved_name in ("skills.d", ".venv"):
             preserved = backup / preserved_name
             if preserved.exists() or preserved.is_symlink():
                 restored = root / preserved_name
                 _remove_path(restored)
                 shutil.move(str(preserved), str(restored))
+
+        if config_toml.exists():
+            import re
+
+            content = config_toml.read_text()
+            if "version =" in content and "[devkit]" in content:
+                updated, count = re.subn(
+                    r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
+                    f'\\1"{new_ver}"',
+                    content,
+                    count=1,
+                    flags=re.DOTALL,
+                )
+                if count:
+                    config_toml.write_text(updated)
+                    log_success(f'Updated leedevkit.toml: version = "{new_ver}"')
+
+        log_info("Syncing rules and creating symlinks...")
+        from _init_handler import InitHandler
+        from _orchestrator import Orchestrator
+
+        orch = Orchestrator.__new__(Orchestrator)
+        setattr(orch, "_devkit_root", root)
+        InitHandler(orch).handle_post_update_sync()
+        log_success("Post-update sync complete")
     except Exception:
+        if original_config is None:
+            _remove_path(config_toml)
+        else:
+            config_toml.write_bytes(original_config)
         _restore_backup(root, backup)
         log_warn("Update failed; rolled back to previous version.")
         raise
@@ -113,39 +129,3 @@ def handle_update(target: str | None = None) -> None:
 
     log_success(f"Updated leedevkit {current} → {new_ver}")
     log_info(f"Previous version kept at {backup.name}/ (safe to remove).")
-
-    # Update version pin in leedevkit.toml (project root)
-    project_root = root.parent  # .leedevkit/ is inside project root
-    config_toml = project_root / "leedevkit.toml"
-    if config_toml.exists():
-        try:
-            content = config_toml.read_text()
-            if "version =" in content and "[devkit]" in content:
-                import re
-
-                content = re.sub(
-                    r'(\[devkit\].*?version\s*=\s*)"[^"]*"',
-                    f'\\1"{new_ver}"',
-                    content,
-                    flags=re.DOTALL,
-                )
-                config_toml.write_text(content)
-                log_success(f'Updated leedevkit.toml: version = "{new_ver}"')
-        except Exception as e:
-            log_warn(f"Could not update leedevkit.toml: {e}")
-
-    # Sync rules and create symlinks (lightweight, no network/subprocess)
-    log_info("Syncing rules and creating symlinks...")
-    try:
-        from _init_handler import InitHandler
-        from _orchestrator import Orchestrator
-
-        # Create a minimal orchestrator instance for InitHandler
-        orch = Orchestrator.__new__(Orchestrator)
-        setattr(orch, "_devkit_root", root)
-        init_handler = InitHandler(orch)
-        init_handler.handle_post_update_sync()
-        log_success("Post-update sync complete")
-    except Exception as e:
-        log_warn(f"Post-update sync failed: {e}")
-        log_info("You may need to run './leedevkit init' manually")

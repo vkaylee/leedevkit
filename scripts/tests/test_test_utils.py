@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import time
 
 import psutil
 
@@ -127,6 +128,60 @@ class TestRunSingleTask:
             )
 
             assert exit_code == 124
+            assert psutil.pid_exists(unrelated.pid)
+        finally:
+            unrelated.terminate()
+            unrelated.wait()
+
+    def test_serial_timeout_terminates_descendant(self, tmp_path, monkeypatch):
+        child_pid_file = tmp_path / "serial-child.pid"
+        marker_file = tmp_path / "child-finished"
+        child_code = (
+            "import pathlib, time; "
+            f"time.sleep(2); pathlib.Path({str(marker_file)!r}).write_text('finished')"
+        )
+        parent_code = (
+            "import pathlib, subprocess, sys, time; "
+            f"p=subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+            f"pathlib.Path({str(child_pid_file)!r}).write_text(str(p.pid)); "
+            "time.sleep(1.5)"
+        )
+        monkeypatch.setattr("_test_utils.TIMEOUT_LINT", 1)
+
+        started = time.monotonic()
+        result = run_parallel_ordered(
+            "Linting",
+            "",
+            [("serial-tree-timeout", "svc", [sys.executable, "-c", parent_code])],
+            num_workers=1,
+        )
+
+        assert result is False
+        assert time.monotonic() - started < 1.8
+        child_pid = int(child_pid_file.read_text())
+        assert not psutil.pid_exists(child_pid)
+        assert not marker_file.exists()
+
+    def test_serial_timeout_preserves_unrelated_process(self, tmp_path, monkeypatch):
+        unrelated = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"]
+        )
+        try:
+            monkeypatch.setattr("_test_utils.TIMEOUT_LINT", 1)
+            result = run_parallel_ordered(
+                "Linting",
+                "",
+                [
+                    (
+                        "serial-isolated-timeout",
+                        "svc",
+                        [sys.executable, "-c", "import time; time.sleep(2)"],
+                    )
+                ],
+                num_workers=1,
+            )
+
+            assert result is False
             assert psutil.pid_exists(unrelated.pid)
         finally:
             unrelated.terminate()

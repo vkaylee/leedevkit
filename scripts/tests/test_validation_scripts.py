@@ -74,3 +74,87 @@ def test_verifier_success_report_passes():
         "category": "Test",
     }
     assert verify_all.print_final_report([result], verify_all.datetime.now()) is True
+
+
+def test_checklist_checker_failure_fails_summary():
+    assert (
+        checklist.print_summary([{"name": "broken", "passed": False, "skipped": False}])
+        is False
+    )
+
+
+def test_verifier_checker_failure_fails_report():
+    assert (
+        verify_all.print_final_report(
+            [
+                {
+                    "name": "broken",
+                    "passed": False,
+                    "skipped": False,
+                    "duration": 0,
+                    "category": "Test",
+                    "error": "checker failed",
+                }
+            ],
+            verify_all.datetime.now(),
+        )
+        is False
+    )
+
+
+def test_verifier_no_url_is_visible_skip():
+    suite = {
+        "category": "Performance",
+        "requires_url": True,
+        "checks": [("Lighthouse", "missing.py", True)],
+    }
+    reason = verify_all.suite_skip_reason(suite, Path("."), None)
+    assert reason == "URL not provided"
+
+
+def test_verifier_no_e2e_is_visible_skip():
+    suite = {
+        "category": "E2E Testing",
+        "checks": [("E2E", "missing.py", False)],
+    }
+    reason = verify_all.suite_skip_reason(suite, Path("."), "http://example.test", True)
+    assert reason == "disabled by --no-e2e"
+
+
+def test_cli_project_skips_inapplicable_ux_and_seo(tmp_path, monkeypatch):
+    security = tmp_path / "security.py"
+    lint = tmp_path / "lint.py"
+    security.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    lint.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    monkeypatch.setattr(
+        checklist,
+        "CORE_CHECKS",
+        [
+            ("Security Scan", "security.py", True),
+            ("Lint Check", "lint.py", True),
+            ("UX Audit", "ux.py", False),
+            ("SEO Check", "seo.py", False),
+        ],
+    )
+    monkeypatch.setattr(checklist, "PERFORMANCE_CHECKS", [])
+    monkeypatch.setattr("sys.argv", ["checklist.py", str(tmp_path)])
+
+    try:
+        checklist.main()
+    except SystemExit as exc:
+        assert exc.code == 0
+
+
+def test_cli_project_is_not_ux_or_seo_applicable(tmp_path):
+    assert verify_all.is_frontend_project(tmp_path) is False
+    assert verify_all.is_seo_project(tmp_path) is False
+
+
+def test_web_project_keeps_ux_and_seo_applicable(tmp_path):
+    page_dir = tmp_path / "pages"
+    page_dir.mkdir()
+    (page_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+    assert checklist.check_skip_reason("UX Audit", tmp_path) is None
+    assert checklist.check_skip_reason("SEO Check", tmp_path) is None
+    assert verify_all.is_frontend_project(tmp_path) is True
+    assert verify_all.is_seo_project(tmp_path) is True

@@ -197,6 +197,25 @@ class TestDownloadAndExtract:
         assert (target / "VERSION").read_text() == "0.3.0"
         assert not (target / "OLD").exists()
 
+    def test_download_timeout_is_explicit_and_bounded(self, tmp_path, monkeypatch):
+        """Network timeout fails before target activation."""
+        from _download import download_and_extract_tarball
+
+        target = tmp_path / "dest"
+        target.mkdir()
+        (target / "VERSION").write_text("0.1.0")
+
+        def timed_out(_request, timeout):
+            assert timeout == 0.25
+            raise TimeoutError("socket timed out")
+
+        monkeypatch.setattr("_download.urllib.request.urlopen", timed_out)
+        with pytest.raises(TimeoutError, match="socket timed out"):
+            download_and_extract_tarball(
+                "https://example.com/release.tar.gz", target, timeout=0.25
+            )
+        assert (target / "VERSION").read_text() == "0.1.0"
+
 
 class TestHandleUpdateRollback:
     """Test rollback behavior when download_and_extract_tarball fails."""
@@ -550,39 +569,34 @@ class TestAutoSyncAfterUpdate:
         ).read_text() == "# API\n"
         assert "## LeeDevKit base context" in (project_root / "CLAUDE.md").read_text()
 
-    def test_update_succeeds_even_if_sync_fails(self, tmp_path, monkeypatch, capsys):
-        """Update succeeds even if post-update sync fails."""
+    def test_sync_failure_rolls_back_release_and_config(self, tmp_path, monkeypatch):
+        """Post-activation sync failure restores release and project pin."""
         from _update_handler import handle_update
 
         project_root = tmp_path / "project"
         project_root.mkdir()
-
+        config = project_root / "leedevkit.toml"
+        config.write_text('[devkit]\nversion = "0.1.0"\n')
         devkit_root = project_root / ".leedevkit"
         devkit_root.mkdir()
         (devkit_root / "VERSION").write_text("0.1.0")
-
         monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
 
-        def fake_download(url, target_dir):
+        def fake_download(_url, target_dir):
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.3.7")
 
         monkeypatch.setattr(
             "_update_handler.download_and_extract_tarball", fake_download
         )
-
-        # Mock sync to fail
-        def failing_sync(*args, **kwargs):
-            raise RuntimeError("sync failed")
-
         monkeypatch.setattr(
-            "_init_handler.InitHandler.handle_post_update_sync", failing_sync
+            "_init_handler.InitHandler.handle_post_update_sync",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("sync failed")
+            ),
         )
 
-        # Should not raise
-        handle_update(target="v0.3.7")
-
-        captured = capsys.readouterr()
-        combined = captured.out + captured.err
-        assert "post-update sync failed" in combined.lower()
-        assert "0.3.7" in (devkit_root / "VERSION").read_text()
+        with pytest.raises(RuntimeError, match="sync failed"):
+            handle_update(target="v0.3.7")
+        assert (devkit_root / "VERSION").read_text() == "0.1.0"
+        assert 'version = "0.1.0"' in config.read_text()

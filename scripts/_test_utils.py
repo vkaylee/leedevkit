@@ -231,6 +231,8 @@ def _run_tasks_serial(
     timeout: int,
 ) -> bool:
     """Run tasks one at a time, streaming output live."""
+    import threading
+
     import sys as _sys
 
     all_passed = True
@@ -239,21 +241,34 @@ def _run_tasks_serial(
         _sys.stdout.write(f"\n  [{name}] Running...\n")
         _sys.stdout.flush()
 
-        proc = subprocess.Popen(
-            cmd,
-            cwd=PROJECT_ROOT,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        with log_file.open("w") as lf:
-            for line in proc.stdout:  # type: ignore[union-attr]
-                decoded = line.decode("utf-8", errors="replace")
-                lf.write(decoded)
-                _sys.stdout.write(f"  [{name}] {decoded}")
-                _sys.stdout.flush()
+        with log_file.open("w") as output:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=PROJECT_ROOT,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                **typing.cast(dict[str, typing.Any], _process_group_options()),
+            )
 
-        exit_code = proc.wait(timeout=timeout)
+            def stream_output() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    decoded = line.decode("utf-8", errors="replace")
+                    output.write(decoded)
+                    output.flush()
+                    _sys.stdout.write(f"  [{name}] {decoded}")
+                    _sys.stdout.flush()
+
+            reader = threading.Thread(target=stream_output)
+            reader.start()
+            try:
+                exit_code = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _terminate_process_tree(proc)
+                exit_code = 124
+            reader.join()
+
         if exit_code != 0:
             all_passed = False
             _sys.stdout.write(f"\n  [{name}] FAILED (exit={exit_code})\n")

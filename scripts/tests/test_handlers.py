@@ -616,7 +616,8 @@ class TestTestHandler:
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
         handler.handle_test_infra()
-        orch.execute_safe.assert_called_once()
+        assert orch.execute_safe.call_count == 2
+        assert "--cov=scripts" in " ".join(orch.execute_safe.call_args_list[0].args[0])
 
     def test_print_test_summary_no_logs(self):
         from _test_handler import TestHandler
@@ -753,7 +754,7 @@ class TestTestHandler:
         assert orch.execute_safe.call_count >= 4
 
     def test_handle_test_infra_unit_only_runs_tests_without_format_or_lint(self):
-        """infra --unit-only executes only the test command."""
+        """infra --unit-only executes only coverage commands, not format or lint."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
@@ -764,8 +765,29 @@ class TestTestHandler:
         args.unit_only = True
         args.e2e_only = False
         handler.handle_test(args)
-        orch.execute_safe.assert_called_once()
+        assert orch.execute_safe.call_count == 2
+        commands = [" ".join(call.args[0]) for call in orch.execute_safe.call_args_list]
+        assert all("pytest" in command for command in commands)
+        assert not any("ruff" in command or "mypy" in command for command in commands)
         assert "pytest" in orch.execute_safe.call_args.args[0][0]
+
+    def test_handle_test_infra_rejects_conflicting_phase_flags(self):
+        """infra cannot select lint and unit phases simultaneously."""
+        import pytest as _pytest
+
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = MagicMock()
+        args.target = "infra"
+        args.lint_only = True
+        args.unit_only = True
+        args.e2e_only = False
+        with _pytest.raises(SystemExit) as exc_info:
+            handler.handle_test(args)
+        assert exc_info.value.code == 2
+        orch.execute_safe.assert_not_called()
 
     def test_handle_test_infra_e2e_only_is_rejected(self):
         """infra has no e2e phase and rejects --e2e-only explicitly."""
@@ -1149,7 +1171,7 @@ class TestTestHandlerCoverageGaps:
         handler.handle_test(args)  # Should not crash
 
     def test_handle_test_infra_coverage(self, tmp_path, monkeypatch):
-        """handle_test_infra runs pytest with coverage."""
+        """handle_test_infra reports production coverage, excluding test sources."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
@@ -1164,6 +1186,13 @@ class TestTestHandlerCoverageGaps:
         monkeypatch.setattr(handler, "_execute_safe", fake_execute)
         handler.handle_test_infra()
 
-        assert len(executed) == 1
-        assert "--cov=scripts" in " ".join(executed[0])
-        assert "--cov-fail-under=80" in " ".join(executed[0])
+        assert len(executed) == 2
+        production = " ".join(executed[0])
+        test_source = " ".join(executed[1])
+        assert "--cov=scripts" in production
+        assert "--cov-config" in production
+        assert "--cov-fail-under=80" in production
+        assert "scripts/.coveragerc" in production
+        assert "coverage-production" in production
+        assert "--cov=scripts/tests" in test_source
+        assert "coverage-tests" in test_source

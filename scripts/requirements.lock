@@ -1,0 +1,28 @@
+# LeeDevKit verification/runtime dependency lock.
+# Keep every package exact; update as one reviewed change after compatibility checks.
+pip==26.1.2
+pytest==9.1.1
+pytest-cov==7.1.0
+psutil==7.2.2
+types-psutil==7.2.2.20260518
+tomli==2.4.1
+tomli-w==1.2.0
+PyYAML==6.0.3
+types-PyYAML==6.0.12.20260906
+ruff==0.15.20
+mypy==2.1.0
+coverage==7.15.2
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
+Pygments==2.20.0
+ast-serialize==0.6.0
+librt==0.13.0; sys_platform == "linux"
+mypy_extensions==1.1.0
+pathspec==1.1.1
+typing_extensions==4.16.0
+
+# Optional browser harness. Installed only when LEEDEVKIT_REQUIRE_PLAYWRIGHT=1.
+playwright==1.61.0
+pyee==13.0.1
+greenlet==3.5.3

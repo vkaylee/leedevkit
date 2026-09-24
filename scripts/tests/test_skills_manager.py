@@ -813,7 +813,7 @@ class TestSkillsManagerLockPins:
             lambda: (_ for _ in ()).throw(AssertionError("lock must not be rewritten")),
         )
 
-        mgr._install_from_toml()
+        assert mgr._install_from_toml() is False
 
         target_sha = subprocess.run(
             ["git", "-C", str(target), "rev-parse", "HEAD"],
@@ -851,7 +851,7 @@ class TestSkillsManagerLockPins:
 
         mgr = SkillsManager()
         monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
-        mgr._install_from_toml()
+        assert mgr._install_from_toml() is True
 
         target = tmp_path / "skills.d" / "source"
         actual_sha = subprocess.run(
@@ -862,3 +862,95 @@ class TestSkillsManagerLockPins:
         ).stdout.strip()
         assert actual_sha == expected_sha
         assert SkillsManager._read_lock() == {"source": expected_sha}
+
+    def test_partial_update_restores_all_repositories_and_lock(
+        self, monkeypatch, tmp_path
+    ):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        first_source = tmp_path / "first-source"
+        second_source = tmp_path / "second-source"
+        first_sha = self._create_repository(first_source, "first-old\n")
+        second_sha = self._create_repository(second_source, "second-old\n")
+        skills_d = tmp_path / "skills.d"
+        first = skills_d / "first-source"
+        second = skills_d / "second-source"
+        subprocess.run(
+            ["git", "clone", str(first_source), str(first)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "clone", str(second_source), str(second)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(first_source),
+                "config",
+                "receive.denyCurrentBranch",
+                "ignore",
+            ],
+            check=True,
+        )
+        (first_source / "SKILL.md").write_text("first-new\n")
+        subprocess.run(["git", "-C", str(first_source), "add", "SKILL.md"], check=True)
+        subprocess.run(
+            ["git", "-C", str(first_source), "commit", "-m", "new"], check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(second),
+                "remote",
+                "set-url",
+                "origin",
+                str(tmp_path / "gone"),
+            ],
+            check=True,
+        )
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_before = f'first-source = "{first_sha}"\nsecond-source = "{second_sha}"\n'
+        lock_path.write_text(lock_before)
+        mgr = SkillsManager()
+        mgr._skills_d = skills_d
+        monkeypatch.setattr(mgr, "_sync_claude_resources", lambda: None)
+
+        assert mgr._update_and_lock() is False
+        assert (first / "SKILL.md").read_text() == "first-old\n"
+        assert (second / "SKILL.md").read_text() == "second-old\n"
+        assert lock_path.read_text() == lock_before
+
+    def test_sync_failure_restores_new_install_and_lock(self, monkeypatch, tmp_path):
+        import _devkit_config
+        from _skills_manager import SkillsManager
+
+        monkeypatch.setattr("_skills_manager.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(_devkit_config, "get_devkit_root", lambda: tmp_path)
+        source = tmp_path / "sync-source"
+        self._create_repository(source, "sync\n")
+        monkeypatch.setattr(
+            _devkit_config,
+            "load_project_config",
+            lambda: {"addons": {"skills": [{"url": str(source), "version": "main"}]}},
+        )
+        lock_path = tmp_path / "leedevkit.lock"
+        lock_before = 'old = "keep"\n'
+        lock_path.write_text(lock_before)
+        mgr = SkillsManager()
+        monkeypatch.setattr(
+            mgr,
+            "_sync_claude_resources",
+            lambda: (_ for _ in ()).throw(RuntimeError("sync failed")),
+        )
+
+        assert mgr._install_from_toml() is False
+        assert not (tmp_path / "skills.d" / "sync-source").exists()
+        assert lock_path.read_text() == lock_before

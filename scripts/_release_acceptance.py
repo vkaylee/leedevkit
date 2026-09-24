@@ -19,6 +19,7 @@ from _release_build import build_release
 REQUIRED_PATHS = {
     "VERSION",
     "devkit.manifest.json",
+    "sbom.cdx.json",
     "bin/leedevkit",
     "scripts/_orchestrator.py",
     "scripts/_devkit_integrity.py",

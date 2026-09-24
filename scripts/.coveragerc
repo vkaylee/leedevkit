@@ -1,0 +1,9 @@
+[run]
+omit =
+    scripts/tests/*
+    */scripts/tests/*
+
+[report]
+omit =
+    scripts/tests/*
+    */scripts/tests/*

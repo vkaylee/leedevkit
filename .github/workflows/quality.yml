@@ -21,11 +21,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install verification dependencies
+      - name: Install locked verification dependencies
         run: |
           mkdir -p logs
-          python -m pip install --upgrade pip > logs/run_ci-install.log 2>&1 </dev/null
-          python -m pip install pytest pytest-cov psutil tomli tomli-w pyyaml types-PyYAML ruff mypy playwright > logs/run_ci-dependencies.log 2>&1 </dev/null
+          awk '/^# Optional browser harness/{exit} {print}' scripts/requirements.lock > logs/requirements-core.lock
+          python -m pip install --requirement logs/requirements-core.lock > logs/run_ci-dependencies.log 2>&1 </dev/null
+
+      - name: Generate supply-chain evidence
+        run: |
+          mkdir -p logs
+          python scripts/_supply_chain_check.py --lock scripts/requirements.lock --output logs/supply-chain.json --container-root . > logs/run_ci-supply-chain.log 2>&1 </dev/null
+          python scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" logs/sbom.cdx.json > logs/run_ci-sbom.log 2>&1 </dev/null
 
       - name: Check shell syntax
         run: |
@@ -48,13 +54,13 @@ jobs:
           mkdir -p logs
           python -m pytest scripts/tests -q --cov=scripts --cov-report=term-missing --cov-fail-under=80 > logs/run_ci-tests.log 2>&1 </dev/null
 
-      - name: Upload quality logs
+      - name: Upload quality and supply-chain evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: leedevkit-quality-logs
-          path: logs/*.log
-          if-no-files-found: ignore
+          name: leedevkit-quality-evidence
+          path: logs/*
+          if-no-files-found: error
 
   release-acceptance:
     name: Release acceptance
@@ -69,21 +75,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install acceptance dependencies
+      - name: Install locked acceptance dependencies
         run: |
           mkdir -p logs
-          python -m pip install --upgrade pip > logs/run_ci-release-install.log 2>&1 </dev/null
-          python -m pip install pytest tomli tomli-w pyyaml psutil playwright > logs/run_ci-release-dependencies.log 2>&1 </dev/null
+          awk '/^# Optional browser harness/{exit} {print}' scripts/requirements.lock > logs/requirements-core.lock
+          python -m pip install --requirement logs/requirements-core.lock > logs/run_ci-release-dependencies.log 2>&1 </dev/null
 
-      - name: Build and accept release artifact
+      - name: Build, checksum, and accept release artifact
         run: |
-          mkdir -p logs
-          python3 scripts/_release_acceptance.py --repo-root . > logs/run_ci-release-acceptance.log 2>&1 </dev/null
+          mkdir -p logs/release-dist
+          python3 scripts/_release_build.py --repo-root . --output logs/release-dist > logs/run_ci-release-build.log 2>&1 </dev/null
+          artifact="logs/release-dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz"
+          sha256sum "$artifact" > logs/release-artifact.sha256
+          python3 scripts/_release_acceptance.py --repo-root . --artifact "$artifact" > logs/run_ci-release-acceptance.log 2>&1 </dev/null
+          python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" logs/release-sbom.cdx.json > logs/run_ci-release-sbom.log 2>&1 </dev/null
+          sha256sum logs/release-sbom.cdx.json > logs/release-sbom.sha256
 
-      - name: Upload release logs
+
+      - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: leedevkit-release-logs
-          path: logs/*.log
-          if-no-files-found: ignore
+          name: leedevkit-release-evidence
+          path: logs/*
+          if-no-files-found: error

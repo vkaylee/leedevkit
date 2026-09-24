@@ -11,11 +11,41 @@ REPO="vkaylee/leedevkit"
 VERSION="${1:-latest}"
 INSTALL_DIR="${DEVKIT_HOME:-$HOME/.leedevkit}"
 RELEASE_BASE_URL="${LEEDEVKIT_RELEASE_BASE_URL:-https://github.com/$REPO/releases}"
-
-echo "🚀 Bootstrapping leedevkit $VERSION..."
+DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
 
 mkdir -p "$INSTALL_DIR"
 TMP_DIR="$(mktemp -d "${INSTALL_DIR%/}/.install.XXXXXX")"
+DOWNLOAD_HELPER=""
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
+    DOWNLOAD_HELPER="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)/scripts/_download.py"
+else
+    DOWNLOAD_HELPER="$TMP_DIR/_download.py"
+    python3 - "$DOWNLOAD_HELPER" "${LEEDEVKIT_DOWNLOADER_URL:-https://raw.githubusercontent.com/$REPO/main/scripts/_download.py}" "$DOWNLOAD_TIMEOUT" <<'PY'
+import sys
+import time
+import urllib.request
+
+destination, url, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
+deadline = time.monotonic() + timeout
+request = urllib.request.Request(url, headers={"User-Agent": "leedevkit"})
+with urllib.request.urlopen(request, timeout=timeout) as response, open(destination, "wb") as output:
+    size = 0
+    while True:
+        if time.monotonic() >= deadline:
+            raise SystemExit(f"downloader helper timed out after {timeout:g}s")
+        chunk = response.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > 8 * 1024 * 1024:
+            raise SystemExit("downloader helper exceeds maximum size")
+        output.write(chunk)
+PY
+fi
+
+echo "🚀 Bootstrapping leedevkit $VERSION..."
+
 STAGE_DIR="$TMP_DIR/stage"
 BACKUP_DIR="$TMP_DIR/previous"
 VERSION_DIR=""
@@ -65,9 +95,9 @@ finish() {
 }
 trap finish EXIT
 
-# Determine version tag before touching any existing version directory.
 if [ "$VERSION" = "latest" ]; then
-    VERSION_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+    VERSION_TAG=$(python3 "$DOWNLOAD_HELPER" latest \
+        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")
 else
     VERSION_TAG="$VERSION"
 fi
@@ -76,50 +106,14 @@ VERSION_DIR="$INSTALL_DIR/$VERSION_TAG"
 echo "   Version: $VERSION_TAG"
 echo "   Target:  $VERSION_DIR"
 
-# Download and validate the complete release in staging. No existing install
-# is touched until every archive and integrity check succeeds.
+# Download and validate complete release in staging. Existing install untouched.
 mkdir -p "$STAGE_DIR"
 VER="${VERSION_TAG#v}"
 TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
-if command -v curl &>/dev/null; then
-    curl -fsSL "$TARBALL_URL" -o "$TMP_DIR/leedevkit.tar.gz"
-elif command -v wget &>/dev/null; then
-    wget -q "$TARBALL_URL" -O "$TMP_DIR/leedevkit.tar.gz"
-else
-    echo "❌ Need curl or wget to download release tarball"
-    exit 1
-fi
-
-python3 - "$TMP_DIR/leedevkit.tar.gz" "$STAGE_DIR" <<'PY'
-import sys
-import tarfile
-from pathlib import Path, PurePosixPath
-
-archive_path = Path(sys.argv[1])
-destination = Path(sys.argv[2]).resolve()
-with tarfile.open(archive_path, "r:gz") as archive:
-    members = archive.getmembers()
-    for member in members:
-        path = PurePosixPath(member.name)
-        if not member.name or path.is_absolute() or ".." in path.parts:
-            raise SystemExit(f"Unsafe archive path: {member.name}")
-        if member.issym() or member.islnk():
-            raise SystemExit(f"Unsafe archive link: {member.name}")
-        if not (member.isfile() or member.isdir()):
-            raise SystemExit(f"Unsupported archive member: {member.name}")
-    archive.extractall(destination, members=members)
-PY
-EXTRACTED=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'leedevkit-*' -print -quit)
-ENTRY_COUNT=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 | wc -l)
-if [ "$ENTRY_COUNT" -ne 1 ] || [ -z "$EXTRACTED" ]; then
-    echo "❌ Unexpected tarball structure"
-    exit 1
-fi
-if [ ! -f "$EXTRACTED/VERSION" ] || [ "$(tr -d '\r\n' < "$EXTRACTED/VERSION")" != "$VER" ]; then
-    echo "❌ Release VERSION does not match $VER"
-    exit 1
-fi
+python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
+    "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
+EXTRACTED="$STAGE_DIR"
 for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
@@ -127,6 +121,7 @@ for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity
     fi
 done
 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
+
 
 # Prepare the PATH change before activation so a shell startup-file failure
 # can still restore the previous install and symlink.

@@ -410,61 +410,85 @@ class InitHandler(HandlerBase):
     def _install_devkit(
         self, project_root: Path, target_dir: Path, version: str, force: bool = False
     ) -> None:
-        """Download and install devkit into target_dir (.leedevkit/).
-
-        ``skills.d`` contains project-owned repositories, so preserve it while
-        replacing the otherwise disposable devkit installation.
-        """
+        """Stage release, then atomically replace target while preserving state."""
         import shutil as _shutil
         import tempfile
 
-        skills_dir = target_dir / "skills.d"
-        backup_root: Path | None = None
-        backup_skills: Path | None = None
-        if skills_dir.exists() or skills_dir.is_symlink():
-            backup_root = Path(
-                tempfile.mkdtemp(prefix=".leedevkit-skills-", dir=project_root)
-            )
-            backup_skills = backup_root / "skills.d"
-            _shutil.move(str(skills_dir), str(backup_skills))
-
+        stage_root = Path(
+            tempfile.mkdtemp(prefix=".leedevkit-stage-", dir=project_root)
+        )
+        staged_target = stage_root / "devkit"
+        backup_root = project_root / ".leedevkit.previous"
+        activated = False
+        preserved: dict[str, bool] = {}
+        for name in ("skills.d", ".venv"):
+            path = target_dir / name
+            preserved[name] = path.exists() or path.is_symlink()
         try:
-            self._install_devkit_contents(target_dir, version, force=force)
-        finally:
-            if backup_skills is not None and backup_skills.exists():
-                target_dir.mkdir(parents=True, exist_ok=True)
-                restored_skills = target_dir / "skills.d"
-                if restored_skills.is_symlink() or restored_skills.is_file():
-                    restored_skills.unlink()
-                elif restored_skills.exists():
-                    _shutil.rmtree(restored_skills)
-                _shutil.move(str(backup_skills), str(restored_skills))
-            if backup_root is not None:
+            self._install_devkit_contents(staged_target, version, force=False)
+            if backup_root.exists() or backup_root.is_symlink():
                 _shutil.rmtree(backup_root, ignore_errors=True)
+            if target_dir.exists() or target_dir.is_symlink():
+                _shutil.move(str(target_dir), str(backup_root))
+            _shutil.move(str(staged_target), str(target_dir))
+            activated = True
+            for name, had_state in preserved.items():
+                if not had_state:
+                    continue
+                old = backup_root / name
+                new = target_dir / name
+                if old.exists() or old.is_symlink():
+                    if new.exists() or new.is_symlink():
+                        self._remove_path(new)
+                    _shutil.move(str(old), str(new))
+        except Exception:
+            if activated and backup_root.exists():
+                for name in preserved:
+                    moved = target_dir / name
+                    old = backup_root / name
+                    if (moved.exists() or moved.is_symlink()) and not (
+                        old.exists() or old.is_symlink()
+                    ):
+                        _shutil.move(str(moved), str(old))
+            if activated:
+                self._remove_path(target_dir)
+            if backup_root.exists() or backup_root.is_symlink():
+                _shutil.move(str(backup_root), str(target_dir))
+            raise
+        finally:
+            _shutil.rmtree(stage_root, ignore_errors=True)
+            if backup_root.exists() or backup_root.is_symlink():
+                _shutil.rmtree(backup_root, ignore_errors=True)
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.exists():
+            import shutil
+
+            shutil.rmtree(path)
 
     def _install_devkit_contents(
         self, target_dir: Path, version: str, force: bool = False
     ) -> None:
-        """Replace the devkit's managed files using the requested source.
-
-        Strategy (in order):
-          1. Local path override (DEVKIT_LOCAL_PATH env) — for development
-          2. GitHub release tarball — for production
-          3. Copy from current devkit source — fallback for dogfooding
-        """
+        """Populate target from explicit local source or bounded release download."""
         import shutil as _shutil
 
         if target_dir.exists() and force:
             _shutil.rmtree(target_dir)
 
-        # Strategy 1: local path override
         local_path = os.environ.get("DEVKIT_LOCAL_PATH")
-        if local_path and Path(local_path).exists():
-            log_info(f"Installing from local path: {local_path}")
-            self._extract_from_source(Path(local_path), target_dir)
+        if local_path:
+            source = Path(local_path)
+            if not source.is_dir():
+                raise RuntimeError(
+                    f"DEVKIT_LOCAL_PATH is not a directory: {local_path}"
+                )
+            log_info(f"Installing from explicit local source: {source}")
+            self._extract_from_source(source, target_dir)
             return
 
-        # Strategy 2: GitHub release tarball
         ver = version.lstrip("v") if version else version
         if ver and version != "latest":
             tag = version if version.startswith("v") else f"v{version}"
@@ -472,20 +496,27 @@ class InitHandler(HandlerBase):
             log_info(f"Downloading {url} ...")
             try:
                 download_and_extract_tarball(url, target_dir)
+                actual = (target_dir / "VERSION").read_text().strip()
+                if actual != ver:
+                    raise RuntimeError(
+                        f"Downloaded devkit version {actual!r} does not match requested {ver!r}"
+                    )
                 return
             except Exception as e:
                 log_warn(f"Download failed: {e}")
 
-        # Strategy 3: copy from current devkit source (dogfooding)
         source_root = Path(__file__).resolve().parent.parent
-        if (source_root / "scripts" / "_orchestrator.py").exists():
-            log_info("Installing from local devkit source ...")
+        explicit_source = os.environ.get("DEVKIT_ALLOW_LOCAL_FALLBACK") == "1"
+        explicit_home = os.environ.get("DEVKIT_HOME")
+        if explicit_home and Path(explicit_home).resolve() == source_root:
+            explicit_source = True
+        if explicit_source and (source_root / "scripts" / "_orchestrator.py").exists():
+            log_info(f"Installing from explicit local fallback: {source_root}")
             self._extract_from_source(source_root, target_dir)
             return
-
         raise RuntimeError(
-            f"Cannot install devkit {version}. Set DEVKIT_LOCAL_PATH or "
-            "ensure GitHub release exists."
+            f"Cannot install devkit {version}. Set DEVKIT_LOCAL_PATH for a local "
+            "source or ensure GitHub release exists. Existing install preserved."
         )
 
     def _extract_from_source(self, source_root: Path, target_dir: Path) -> None:

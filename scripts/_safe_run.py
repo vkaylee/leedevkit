@@ -165,8 +165,8 @@ def execute_command(cmd_args: list[str], timeout_sec: float) -> int:
     ) -> None:  # pragma: no cover
         print("\n⚠️ Interrupted. Killing process tree...", file=sys.stderr)
         kill_process_tree(proc.pid)
-        stop_read_event.set()
-        read_thread.join()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait()
         os.close(master_fd)
         sys.exit(130)
 
@@ -183,6 +183,8 @@ def execute_command(cmd_args: list[str], timeout_sec: float) -> int:
             file=sys.stderr,
         )
         kill_process_tree(proc.pid)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait()
         exit_code = 124  # standard timeout exit code
     finally:
         # ── CRITICAL: Kill remaining children to release PTY slave FD ──

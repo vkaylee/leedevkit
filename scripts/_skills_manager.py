@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -14,8 +15,50 @@ from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT
 
-# Re-use the logging helpers from the shared logging module.
+# Re-use logging helpers from shared logging module.
 from _logging import log_error, log_info, log_success, log_warn
+
+
+GIT_TIMEOUT_SECONDS = 120
+
+
+def _run_git(*args: str) -> subprocess.CompletedProcess[str] | None:
+    """Run git with one bounded timeout contract."""
+    try:
+        return subprocess.run(
+            ["git", *args],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _lock_snapshot(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes() if path.exists() else None
+    except OSError:
+        return None
+
+
+def _restore_lock(path: Path, snapshot: bytes | None) -> None:
+    try:
+        if snapshot is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(snapshot)
+    except OSError as exc:
+        log_error(f"Failed to restore leedevkit.lock: {exc}")
 
 
 class SkillsManager:
@@ -33,39 +76,113 @@ class SkillsManager:
         self._skills_d.mkdir(parents=True, exist_ok=True)
         self._catalog: dict | None = None
 
-    def _sync_claude_resources(self) -> None:
-        """Sync installed resources through configured harness adapters.
-
-        Method name remains for compatibility with existing callers/tests.
-        """
+    def _sync_claude_resources(self) -> bool:
+        """Sync installed resources through configured harness adapters."""
         from _devkit_config import load_project_config
         from _harness_engine import sync_harnesses
 
         sync_harnesses(PROJECT_ROOT, self._devkit, load_project_config())
+        return True
 
-    # -- Public API ---------------------------------------------------------
+    @staticmethod
+    def _git_error(
+        result: subprocess.CompletedProcess[str] | None, default: str
+    ) -> str:
+        if result is None:
+            return "git command timed out or could not start"
+        return getattr(result, "stderr", "").strip() or default
 
-    def dispatch(self, args: argparse.Namespace) -> None:
-        """Entry point — replaces the old handle_skills if-elif chain."""
+    def _rollback_activation(
+        self, activated: list[tuple[Path, Path | None]], lock_before: bytes | None
+    ) -> None:
+        for target, backup in reversed(activated):
+            try:
+                _remove_path(target)
+                if backup is not None and backup.exists():
+                    shutil.move(str(backup), str(target))
+            except OSError as exc:
+                log_error(f"Failed to restore skill {target.name}: {exc}")
+        _restore_lock(self._lock_path(), lock_before)
+
+    def _activate_staged(
+        self,
+        staged: list[tuple[Path, Path]],
+        rollback_root: Path,
+        lock_before: bytes | None,
+    ) -> bool:
+        activated: list[tuple[Path, Path | None]] = []
+        try:
+            for target, stage in staged:
+                backup: Path | None = (
+                    rollback_root / f"backup-{len(activated)}-{target.name}"
+                )
+                if target.exists():
+                    shutil.move(str(target), str(backup))
+                else:
+                    backup = None
+                activated.append((target, backup))
+                shutil.move(str(stage), str(target))
+
+            if self._write_lock() is False:
+                raise OSError("could not write leedevkit.lock")
+            if self._sync_claude_resources() is False:
+                raise OSError("could not sync installed skills")
+            return True
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._rollback_activation(activated, lock_before)
+            log_error(f"Skill transaction rolled back: {exc}")
+            return False
+
+    def _stage_clone(
+        self,
+        rollback_root: Path,
+        name: str,
+        url: str,
+        version: str,
+        sha: str | None,
+        fallback_target: Path | None = None,
+    ) -> Path | None:
+        stage = rollback_root / f"stage-{name}"
+        result = _run_git("clone", "--depth", "1", "--branch", version, url, str(stage))
+        if result is None or result.returncode != 0:
+            if fallback_target is not None:
+                _remove_path(fallback_target)
+            log_error(
+                f"Failed to clone {name}: {self._git_error(result, 'clone failed')}"
+            )
+            _remove_path(stage)
+            return None
+        if not stage.exists():
+            if fallback_target is not None and fallback_target.exists():
+                shutil.move(str(fallback_target), str(stage))
+            else:
+                # Real git always creates destination; tolerate test doubles only.
+                stage.mkdir(parents=True)
+        if sha and not self._pin_repo(stage, sha):
+            log_error(f"Failed to checkout locked SHA for {name}")
+            _remove_path(stage)
+            return None
+        return stage
+
+    def dispatch(self, args: argparse.Namespace) -> bool:
+        """Dispatch skill action and return false on a failed state change."""
         action = getattr(args, "skills_action", "list")
 
         if action == "list":
             self._list()
-        elif action == "install":
+            return True
+        if action == "install":
             name = getattr(args, "name", None) or ""
-            if name:
-                self._install_by_name(name)
-            else:
-                self._install_from_toml()
-        elif action == "update":
-            self._update_and_lock()
-        elif action == "add":
-            url = getattr(args, "url", "")
-            version = getattr(args, "version", "main")
-            self._add_from_url(url, version)
-        elif action == "remove":
-            name = getattr(args, "name", "")
-            self._remove(name)
+            return self._install_by_name(name) if name else self._install_from_toml()
+        if action == "update":
+            return self._update_and_lock()
+        if action == "add":
+            return self._add_from_url(
+                getattr(args, "url", ""), getattr(args, "version", "main")
+            )
+        if action == "remove":
+            return self._remove(getattr(args, "name", ""))
+        return True
 
     # -- Actions ------------------------------------------------------------
 
@@ -119,109 +236,81 @@ class SkillsManager:
             log_info("No community skills. Add one:")
             log_info("  leedevkit skills add <git-url>")
 
-    def _install_by_name(self, name: str) -> None:
+    def _install_by_name(self, name: str) -> bool:
         catalog = self._load_catalog()
         if name not in catalog:
             log_error(
-                f"'{name}' not found in catalog. "
-                "Use 'skills list' to see available skills."
+                f"'{name}' not found in catalog. Use 'skills list' to see available skills."
             )
             log_error("Or install from URL: leedevkit skills add <git-url>")
-            return
+            return False
 
         skill = catalog[name]
-        url = skill["url"]
-        version = skill.get("version", "main")
         target = self._skills_d / name
         if target.exists():
             log_warn(f"'{name}' already installed. Use 'skills update' to refresh.")
-            return
-
-        log_info(f"Installing {skill['name']} from catalog...")
-        res = subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-        )
-        if res.returncode != 0:
-            if target.exists():
-                shutil.rmtree(str(target), ignore_errors=True)
-            err_msg = res.stderr.strip() or "git clone failed"
-            log_error(f"Failed to install {skill['name']}: {err_msg}")
-            return
-
-        log_success(f"Installed {skill['name']} @ {version}")
-        self._write_lock()
-        self._sync_claude_resources()
-
-    @staticmethod
-    def _pin_repo(repo: Path, sha: str) -> bool:
-        """Checkout *sha* in a repository and verify the exact resulting HEAD."""
-        object_res = subprocess.run(
-            ["git", "-C", str(repo), "cat-file", "-e", f"{sha}^{{commit}}"],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-        )
-        if object_res.returncode != 0:
-            fetch_res = subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo),
-                    "fetch",
-                    "--depth",
-                    "1",
-                    "origin",
-                    sha,
-                ],
-                check=False,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-            )
-            if fetch_res.returncode != 0:
-                return False
-
-        checkout_res = subprocess.run(
-            ["git", "-C", str(repo), "checkout", "--detach", sha],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-        )
-        if checkout_res.returncode != 0:
             return False
 
-        head_res = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-        )
-        return head_res.returncode == 0 and head_res.stdout.strip() == sha
-
-    def _install_from_toml(self) -> None:
-        """Install skills from leedevkit.toml [addons.skills], preferring lock SHAs."""
-        from _devkit_config import load_project_config
-
-        try:
-            cfg = load_project_config()
-            entries = cfg.get("addons", {}).get("skills", [])
-        except (OSError, ValueError, KeyError):
-            entries = []
-
-        lock = self._read_lock()
-        installed = 0
-        failed: list[str] = []
-        lock_failed = False
-        new_targets: list[Path] = []
-        existing_backups: list[tuple[Path, Path]] = []
+        log_info(f"Installing {skill['name']} from catalog...")
+        lock_before = _lock_snapshot(self._lock_path())
         rollback_root = Path(
             tempfile.mkdtemp(prefix=".skills-install-", dir=str(self._skills_d))
         )
+        try:
+            stage = self._stage_clone(
+                rollback_root,
+                name,
+                skill["url"],
+                skill.get("version", "main"),
+                None,
+                target,
+            )
+            if stage is None:
+                return False
+            if not self._activate_staged([(target, stage)], rollback_root, lock_before):
+                return False
+            log_success(f"Installed {skill['name']} @ {skill.get('version', 'main')}")
+            return True
+        finally:
+            shutil.rmtree(str(rollback_root), ignore_errors=True)
 
+    @staticmethod
+    def _pin_repo(repo: Path, sha: str) -> bool:
+        """Checkout sha and verify exact resulting HEAD."""
+        object_res = _run_git("-C", str(repo), "cat-file", "-e", f"{sha}^{{commit}}")
+        if object_res is None or object_res.returncode != 0:
+            fetch_res = _run_git(
+                "-C", str(repo), "fetch", "--depth", "1", "origin", sha
+            )
+            if fetch_res is None or fetch_res.returncode != 0:
+                return False
+        checkout_res = _run_git("-C", str(repo), "checkout", "--detach", sha)
+        if checkout_res is None or checkout_res.returncode != 0:
+            return False
+        head_res = _run_git("-C", str(repo), "rev-parse", "HEAD")
+        return (
+            head_res is not None
+            and head_res.returncode == 0
+            and head_res.stdout.strip() == sha
+        )
+
+    def _install_from_toml(self) -> bool:
+        """Install configured skills as one transaction, honoring lock SHAs."""
+        from _devkit_config import load_project_config
+
+        try:
+            entries = load_project_config().get("addons", {}).get("skills", [])
+        except (OSError, ValueError, KeyError):
+            entries = []
+        if not entries:
+            return True
+
+        lock = self._read_lock()
+        lock_before = _lock_snapshot(self._lock_path())
+        rollback_root = Path(
+            tempfile.mkdtemp(prefix=".skills-install-", dir=str(self._skills_d))
+        )
+        staged: list[tuple[Path, Path]] = []
         try:
             for entry in entries:
                 if isinstance(entry, str):
@@ -230,178 +319,152 @@ class SkillsManager:
                     url = entry.get("url", "")
                     version = entry.get("version", "main")
                 name = url.rstrip("/").split("/")[-1].replace(".git", "")
+                if not name or not url:
+                    log_error("Invalid skill entry: missing URL")
+                    return False
                 target = self._skills_d / name
                 pinned_sha = lock.get(name)
-
-                if target.exists():
-                    if pinned_sha:
-                        backup = (
-                            rollback_root / f"backup-{len(existing_backups)}-{name}"
-                        )
-                        try:
-                            shutil.copytree(target, backup, symlinks=True)
-                        except OSError as exc:
-                            log_error(
-                                f"Failed to preserve existing skill {name}: {exc}"
-                            )
-                            failed.append(name)
-                            lock_failed = True
-                            continue
-
-                        if self._pin_repo(target, pinned_sha):
-                            existing_backups.append((target, backup))
-                            log_success(f"  {name} @ {pinned_sha[:8]} (locked)")
-                        else:
-                            shutil.rmtree(str(target), ignore_errors=True)
-                            shutil.move(str(backup), str(target))
-                            log_error(f"Failed to checkout locked SHA for {name}")
-                            failed.append(name)
-                            lock_failed = True
+                if target.exists() and not pinned_sha:
                     continue
-
-                log_info(f"Installing {name} @ {version}...")
-                clone_target = target
-                if pinned_sha:
-                    clone_target = rollback_root / f"clone-{name}"
-                clone_res = subprocess.run(
-                    [
-                        "git",
-                        "clone",
-                        "--depth",
-                        "1",
-                        "--branch",
-                        version,
-                        url,
-                        str(clone_target),
-                    ],
-                    check=False,
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
+                stage = self._stage_clone(
+                    rollback_root,
+                    name,
+                    url,
+                    version,
+                    pinned_sha,
+                    None if target.exists() else target,
                 )
-                if clone_res.returncode != 0:
-                    if clone_target.exists():
-                        shutil.rmtree(str(clone_target), ignore_errors=True)
-                    err_msg = clone_res.stderr.strip() or "clone failed"
-                    log_error(f"Failed to clone {name}: {err_msg}")
-                    failed.append(name)
-                    if pinned_sha:
-                        lock_failed = True
-                    continue
+                if stage is None:
+                    log_warn(f"Skill install transaction aborted at {name}")
+                    return False
+                staged.append((target, stage))
 
-                if pinned_sha and not self._pin_repo(clone_target, pinned_sha):
-                    shutil.rmtree(str(clone_target), ignore_errors=True)
-                    log_error(f"Failed to checkout locked SHA for {name}")
-                    failed.append(name)
-                    lock_failed = True
-                    continue
-
-                if pinned_sha:
-                    shutil.move(str(clone_target), str(target))
-                new_targets.append(target)
-                installed += 1
-
-            if lock_failed:
-                for target in new_targets:
-                    shutil.rmtree(str(target), ignore_errors=True)
-                for target, backup in reversed(existing_backups):
-                    shutil.rmtree(str(target), ignore_errors=True)
-                    shutil.move(str(backup), str(target))
-                new_targets.clear()
-                existing_backups.clear()
-
-            if failed:
-                log_warn(
-                    f"Failed to install {len(failed)} skill repo(s): {', '.join(failed)}"
-                )
-            if not lock_failed:
-                log_success(f"Installed {installed} new skill repo(s)")
-                if installed > 0:
-                    self._write_lock()
-                    self._sync_claude_resources()
+            if not staged:
+                return True
+            if not self._activate_staged(staged, rollback_root, lock_before):
+                return False
+            log_success(f"Installed {len(staged)} skill repo(s)")
+            return True
         finally:
             shutil.rmtree(str(rollback_root), ignore_errors=True)
 
-    def _add_from_url(self, url: str, version: str = "main") -> None:
+    def _add_from_url(self, url: str, version: str = "main") -> bool:
         if not url:
             log_error("Usage: leedevkit skills add <git-url> [--version main]")
-            return
+            return False
         if not url.startswith(("http://", "https://", "git@")):
             catalog = self._load_catalog()
             if url in catalog:
                 log_error(
-                    f"'{url}' is in the skills catalog. "
-                    f"Use: leedevkit skills install {url}"
+                    f"'{url}' is in the skills catalog. Use: leedevkit skills install {url}"
                 )
             else:
                 log_error(
-                    f"'{url}' is not a valid URL. "
-                    "Provide a git URL or use: leedevkit skills install <name>"
+                    f"'{url}' is not a valid URL. Provide a git URL or use: leedevkit skills install <name>"
                 )
-            return
+            return False
 
         name = url.rstrip("/").split("/")[-1].replace(".git", "")
         target = self._skills_d / name
         if target.exists():
             log_warn(f"{name} already exists. Use 'skills update' to refresh.")
-            return
-
-        res = subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", version, url, str(target)],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
+            return False
+        lock_before = _lock_snapshot(self._lock_path())
+        rollback_root = Path(
+            tempfile.mkdtemp(prefix=".skills-add-", dir=str(self._skills_d))
         )
-        if res.returncode != 0:
-            if target.exists():
-                shutil.rmtree(str(target), ignore_errors=True)
-            err_msg = res.stderr.strip() or "git clone failed"
-            log_error(f"Failed to add skill from {url}: {err_msg}")
-            return
+        try:
+            stage = self._stage_clone(rollback_root, name, url, version, None, target)
+            if stage is None:
+                return False
+            if not self._activate_staged([(target, stage)], rollback_root, lock_before):
+                return False
+            log_success(f"Installed {name} @ {version}")
+            return True
+        finally:
+            shutil.rmtree(str(rollback_root), ignore_errors=True)
 
-        log_success(f"Installed {name} @ {version}")
-        self._write_lock()
-        self._sync_claude_resources()
+    def _update_and_lock(self) -> bool:
+        """Pull latest for all installed skills as one transaction."""
+        repos = [
+            repo
+            for repo in sorted(self._skills_d.iterdir())
+            if repo.is_dir() and (repo / ".git").exists()
+        ]
+        if not repos:
+            log_success("Updated 0 skill repo(s)")
+            return True
 
-    def _update_and_lock(self) -> None:
-        """Pull latest for all installed skills, update lock file."""
-        updated = 0
-        failed: list[str] = []
-        for repo in sorted(self._skills_d.iterdir()):
-            if repo.is_dir() and (repo / ".git").exists():
-                res = subprocess.run(
-                    ["git", "-C", str(repo), "pull", "--ff-only"],
-                    check=False,
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
-                )
-                if res.returncode == 0:
-                    updated += 1
-                else:
-                    failed.append(repo.name)
-        if failed:
-            log_warn(
-                f"Failed to update {len(failed)} skill repo(s): {', '.join(failed)}"
-            )
-        log_success(f"Updated {updated} skill repo(s)")
-        self._write_lock()
-        self._sync_claude_resources()
+        lock_before = _lock_snapshot(self._lock_path())
+        rollback_root = Path(
+            tempfile.mkdtemp(prefix=".skills-update-", dir=str(self._skills_d))
+        )
+        backups: list[tuple[Path, Path]] = []
+        try:
+            for index, repo in enumerate(repos):
+                backup = rollback_root / f"backup-{index}-{repo.name}"
+                shutil.copytree(repo, backup, symlinks=True)
+                backups.append((repo, backup))
 
-    def _remove(self, name: str) -> None:
+            for repo in repos:
+                result = _run_git("-C", str(repo), "pull", "--ff-only")
+                if result is None or result.returncode != 0:
+                    error = self._git_error(result, "pull failed")
+                    log_error(f"Failed to update {repo.name}: {error}")
+                    self._rollback_update(backups, lock_before)
+                    return False
+
+            if self._write_lock() is False:
+                raise OSError("could not write leedevkit.lock")
+            if self._sync_claude_resources() is False:
+                raise OSError("could not sync installed skills")
+            log_success(f"Updated {len(repos)} skill repo(s)")
+            return True
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._rollback_update(backups, lock_before)
+            log_error(f"Skill update transaction rolled back: {exc}")
+            return False
+        finally:
+            shutil.rmtree(str(rollback_root), ignore_errors=True)
+
+    def _rollback_update(
+        self, backups: list[tuple[Path, Path]], lock_before: bytes | None
+    ) -> None:
+        for repo, backup in reversed(backups):
+            try:
+                _remove_path(repo)
+                shutil.move(str(backup), str(repo))
+            except OSError as exc:
+                log_error(f"Failed to restore skill {repo.name}: {exc}")
+        _restore_lock(self._lock_path(), lock_before)
+
+    def _remove(self, name: str) -> bool:
         if not name:
             log_error("Usage: leedevkit skills remove <name>")
-            return
+            return False
         target = self._skills_d / name
         if not target.exists():
             log_warn(f"{name} not found in skills.d/")
-            return
+            return False
 
-        shutil.rmtree(str(target))
-        log_success(f"Removed {name}")
-        self._write_lock()
-        self._sync_claude_resources()
+        lock_before = _lock_snapshot(self._lock_path())
+        backup = self._skills_d / f".{name}.remove-backup"
+        try:
+            shutil.move(str(target), str(backup))
+            if self._write_lock() is False:
+                raise OSError("could not write leedevkit.lock")
+            if self._sync_claude_resources() is False:
+                raise OSError("could not sync installed skills")
+            _remove_path(backup)
+            log_success(f"Removed {name}")
+            return True
+        except (OSError, RuntimeError, ValueError) as exc:
+            _remove_path(target)
+            if backup.exists():
+                shutil.move(str(backup), str(target))
+            _restore_lock(self._lock_path(), lock_before)
+            log_error(f"Failed to remove {name}: {exc}")
+            return False
 
     # -- Catalog & lock helpers --------------------------------------------
 
@@ -438,26 +501,38 @@ class SkillsManager:
                 pass
         return {}
 
-    def _write_lock(self) -> None:
+    def _write_lock(self) -> bool:
         lock: dict[str, str] = {}
         for repo in sorted(self._skills_d.iterdir()):
             if repo.is_dir() and (repo / ".git").exists():
-                r = subprocess.run(
-                    ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                sha = r.stdout.strip()
-                if sha:
-                    lock[repo.name] = sha
+                result = _run_git("-C", str(repo), "rev-parse", "HEAD")
+                if result is None or result.returncode != 0:
+                    log_error(f"Could not read HEAD for {repo.name}")
+                    return False
+                sha = result.stdout.strip()
+                if not sha:
+                    log_error(f"Could not read HEAD for {repo.name}")
+                    return False
+                lock[repo.name] = sha
         path = self._lock_path()
-        path.parent.mkdir(exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}")
         try:
             import tomli_w
 
-            with open(path, "wb") as f:
-                tomli_w.dump(lock, f)
+            with open(temp_path, "wb") as stream:
+                tomli_w.dump(lock, stream)
         except ImportError:
-            path.write_text(json.dumps(lock, indent=2))
+            temp_path.write_text(json.dumps(lock, indent=2))
+        except OSError as exc:
+            log_error(f"Could not write leedevkit.lock: {exc}")
+            temp_path.unlink(missing_ok=True)
+            return False
+        try:
+            os.replace(temp_path, path)
+        except OSError as exc:
+            log_error(f"Could not activate leedevkit.lock: {exc}")
+            temp_path.unlink(missing_ok=True)
+            return False
         log_success(f"Updated leedevkit.lock ({len(lock)} entries)")
+        return True

@@ -22,12 +22,119 @@ Includes ALL checks:
     ✅ Mobile Audit (if applicable)
 """
 
+import os
 import sys
 import subprocess
 import argparse
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterator
 from datetime import datetime
+
+
+_IGNORED_PROJECT_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+_FRONTEND_SUFFIXES = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css"}
+_SEO_SUFFIXES = {".html", ".htm", ".jsx", ".tsx"}
+_SEO_PAGE_DIRS = {"pages", "app", "routes", "views", "screens"}
+_SEO_PAGE_STEMS = {
+    "page",
+    "index",
+    "home",
+    "about",
+    "contact",
+    "blog",
+    "post",
+    "article",
+    "product",
+    "landing",
+    "layout",
+}
+
+
+def _project_files(project_path: Path) -> Iterator[Path]:
+    """Yield source files while ignoring generated/dependency trees."""
+    for root, dirs, files in os.walk(project_path):
+        dirs[:] = [
+            directory for directory in dirs if directory not in _IGNORED_PROJECT_DIRS
+        ]
+        for filename in files:
+            yield Path(root) / filename
+
+
+def is_frontend_project(project_path: Path) -> bool:
+    """Return whether project contains files UX checks can meaningfully audit."""
+    return any(
+        path.suffix.lower() in _FRONTEND_SUFFIXES
+        for path in _project_files(project_path)
+    )
+
+
+def is_seo_project(project_path: Path) -> bool:
+    """Return whether project contains likely public page files for SEO checks."""
+    for path in _project_files(project_path):
+        if path.suffix.lower() not in _SEO_SUFFIXES:
+            continue
+        if path.suffix.lower() in {".html", ".htm"}:
+            return True
+        parts = {part.lower() for part in path.parts}
+        if parts & _SEO_PAGE_DIRS or path.stem.lower() in _SEO_PAGE_STEMS:
+            return True
+    return False
+
+
+def make_skip_result(name: str, reason: str) -> dict:
+    """Represent an inapplicable or explicitly disabled check without hiding it."""
+    return {
+        "name": name,
+        "passed": True,
+        "skipped": True,
+        "status": "skipped",
+        "reason": reason,
+        "duration": 0,
+    }
+
+
+def is_i18n_project(project_path: Path) -> bool:
+    """Return whether project has user-facing/localized source to audit."""
+    locale_markers = {"locales", "locale", "translations", "i18n", "l10n"}
+    if any(
+        part.lower() in locale_markers
+        for path in _project_files(project_path)
+        for part in path.parts
+    ):
+        return True
+    return is_frontend_project(project_path)
+
+
+def suite_skip_reason(
+    suite: dict,
+    project_path: Path,
+    url: Optional[str],
+    no_e2e: bool = False,
+) -> Optional[str]:
+    """Return truthful reason suite checks cannot execute, or None when applicable."""
+    category = suite["category"]
+    if suite.get("requires_url") and not url:
+        return "URL not provided"
+    if category == "E2E Testing" and no_e2e:
+        return "disabled by --no-e2e"
+    if category == "UX & Accessibility" and not is_frontend_project(project_path):
+        return "not applicable: no frontend source files"
+    if category == "SEO & Content" and not is_seo_project(project_path):
+        return "not applicable: no public page files"
+    if category == "Internationalization" and not is_i18n_project(project_path):
+        return "not applicable: no localized user-facing source files"
+    return None
 
 
 # ANSI colors
@@ -217,11 +324,19 @@ def run_script(
                 "name": name,
                 "passed": False,
                 "skipped": False,
+                "status": "failed",
                 "duration": 0,
                 "error": "Required script not found",
             }
         print_warning(f"{name}: Optional script not found, skipping")
-        return {"name": name, "passed": True, "skipped": True, "duration": 0}
+        return {
+            "name": name,
+            "passed": True,
+            "skipped": True,
+            "status": "skipped",
+            "reason": "optional script not found",
+            "duration": 0,
+        }
     print_step(f"Running: {name}")
     start_time = datetime.now()
 
@@ -258,6 +373,7 @@ def run_script(
             "output": result.stdout,
             "error": result.stderr,
             "skipped": False,
+            "status": "passed" if passed else "failed",
             "duration": duration,
         }
 
@@ -268,6 +384,7 @@ def run_script(
             "name": name,
             "passed": False,
             "skipped": False,
+            "status": "failed",
             "duration": duration,
             "error": "Timeout",
         }
@@ -279,6 +396,7 @@ def run_script(
             "name": name,
             "passed": False,
             "skipped": False,
+            "status": "failed",
             "duration": duration,
             "error": str(e),
         }
@@ -321,7 +439,8 @@ def print_final_report(results: List[dict], start_time: datetime):
             status = f"{Colors.RED}❌{Colors.ENDC}"
 
         duration_str = f"({r.get('duration', 0):.1f}s)" if not r.get("skipped") else ""
-        print(f"  {status} {r['name']} {duration_str}")
+        reason = f" — {r['reason']}" if r.get("reason") else ""
+        print(f"  {status} {r['name']} {duration_str}{reason}")
 
     print()
 
@@ -367,6 +486,11 @@ Examples:
     parser.add_argument(
         "--url", required=False, help="URL for performance & E2E checks"
     )
+    parser.add_argument(
+        "--no-e2e",
+        action="store_true",
+        help="Skip E2E checks even when a URL is provided",
+    )
 
     args = parser.parse_args()
 
@@ -384,20 +508,21 @@ Examples:
     start_time = datetime.now()
     results = []
 
-    # Run all verification categories
+    # Run all verification categories, recording inapplicable checks as skips.
     for suite in VERIFICATION_SUITE:
         category = suite["category"]
-        requires_url = suite.get("requires_url", False)
-
-        # Skip if requires URL and not provided
-        if requires_url and not args.url:
-            continue
-
-        # Skip E2E if flag set
-        if args.no_e2e and category == "E2E Testing":
-            continue
+        skip_reason = suite_skip_reason(
+            suite, project_path, args.url, no_e2e=args.no_e2e
+        )
 
         print_header(f"📋 {category.upper()}")
+        if skip_reason:
+            for name, _script_path, _required in suite["checks"]:
+                result = make_skip_result(name, skip_reason)
+                result["category"] = category
+                results.append(result)
+            print_warning(f"{category}: skipped ({skip_reason})")
+            continue
 
         for name, script_path, required in suite["checks"]:
             script = project_path / script_path
@@ -407,7 +532,6 @@ Examples:
             result["category"] = category
             results.append(result)
 
-            # Stop on critical failure if flag set
             if (
                 args.stop_on_fail
                 and required

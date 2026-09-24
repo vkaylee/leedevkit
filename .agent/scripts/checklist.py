@@ -20,11 +20,88 @@ Priority Order:
     P6: Performance (lighthouse - requires URL)
 """
 
+import os
 import sys
 import subprocess
 import argparse
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional, Iterator
+
+
+_IGNORED_PROJECT_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+_FRONTEND_SUFFIXES = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css"}
+_SEO_SUFFIXES = {".html", ".htm", ".jsx", ".tsx"}
+_SEO_PAGE_DIRS = {"pages", "app", "routes", "views", "screens"}
+_SEO_PAGE_STEMS = {
+    "page",
+    "index",
+    "home",
+    "about",
+    "contact",
+    "blog",
+    "post",
+    "article",
+    "product",
+    "landing",
+    "layout",
+}
+
+
+def _project_files(project_path: Path) -> Iterator[Path]:
+    for root, dirs, files in os.walk(project_path):
+        dirs[:] = [
+            directory for directory in dirs if directory not in _IGNORED_PROJECT_DIRS
+        ]
+        for filename in files:
+            yield Path(root) / filename
+
+
+def is_frontend_project(project_path: Path) -> bool:
+    return any(
+        path.suffix.lower() in _FRONTEND_SUFFIXES
+        for path in _project_files(project_path)
+    )
+
+
+def is_seo_project(project_path: Path) -> bool:
+    for path in _project_files(project_path):
+        if path.suffix.lower() not in _SEO_SUFFIXES:
+            continue
+        if path.suffix.lower() in {".html", ".htm"}:
+            return True
+        parts = {part.lower() for part in path.parts}
+        if parts & _SEO_PAGE_DIRS or path.stem.lower() in _SEO_PAGE_STEMS:
+            return True
+    return False
+
+
+def make_skip_result(name: str, reason: str) -> dict:
+    return {
+        "name": name,
+        "passed": True,
+        "skipped": True,
+        "status": "skipped",
+        "reason": reason,
+    }
+
+
+def check_skip_reason(name: str, project_path: Path) -> Optional[str]:
+    if name == "UX Audit" and not is_frontend_project(project_path):
+        return "not applicable: no frontend source files"
+    if name == "SEO Check" and not is_seo_project(project_path):
+        return "not applicable: no public page files"
+    return None
 
 
 # ANSI colors for terminal output
@@ -115,6 +192,7 @@ def run_script(
                 "output": "",
                 "error": "Required script not found",
                 "skipped": False,
+                "status": "failed",
             }
         print_warning(f"{name}: Optional script not found, skipping")
         return {
@@ -123,6 +201,8 @@ def run_script(
             "output": "",
             "error": "",
             "skipped": True,
+            "status": "skipped",
+            "reason": "optional script not found",
         }
     print_step(f"Running: {name}")
     cmd = ["python3", str(script_path), project_path]
@@ -146,6 +226,7 @@ def run_script(
             "output": result.stdout,
             "error": result.stderr,
             "skipped": False,
+            "status": "passed" if passed else "failed",
         }
     except subprocess.TimeoutExpired:
         print_error(f"{name}: TIMEOUT (>5 minutes)")
@@ -155,6 +236,7 @@ def run_script(
             "output": "",
             "error": "Timeout",
             "skipped": False,
+            "status": "failed",
         }
     except Exception as e:
         print_error(f"{name}: ERROR - {str(e)}")
@@ -164,6 +246,7 @@ def run_script(
             "output": "",
             "error": str(e),
             "skipped": False,
+            "status": "failed",
         }
 
 
@@ -190,7 +273,8 @@ def print_summary(results: List[dict]):
         else:
             status = f"{Colors.RED}❌{Colors.ENDC}"
 
-        print(f"{status} {r['name']}")
+        reason = f" — {r['reason']}" if r.get("reason") else ""
+        print(f"{status} {r['name']}{reason}")
 
     print()
 
@@ -239,21 +323,35 @@ Examples:
     results = []
     print_header("📋 CORE CHECKS")
     for name, script_path, required in CORE_CHECKS:
-        script = project_path / script_path
-        result = run_script(name, script, str(project_path), required=required)
+        reason = check_skip_reason(name, project_path)
+        if reason:
+            result = make_skip_result(name, reason)
+        else:
+            script = project_path / script_path
+            result = run_script(name, script, str(project_path), required=required)
         results.append(result)
         if required and not result["passed"] and not result.get("skipped"):
             print_error(f"CRITICAL: {name} failed. Stopping checklist.")
             print_summary(results)
             sys.exit(1)
-    if args.url and not args.skip_performance:
-        print_header("⚡ PERFORMANCE CHECKS")
-        for name, script_path, required in PERFORMANCE_CHECKS:
+
+    performance_reason = (
+        "performance disabled by --skip-performance"
+        if args.skip_performance
+        else "URL not provided"
+        if not args.url
+        else None
+    )
+    print_header("⚡ PERFORMANCE CHECKS")
+    for name, script_path, required in PERFORMANCE_CHECKS:
+        if performance_reason:
+            result = make_skip_result(name, performance_reason)
+        else:
             script = project_path / script_path
             result = run_script(
                 name, script, str(project_path), args.url, required=required
             )
-            results.append(result)
+        results.append(result)
     all_passed = print_summary(results)
     sys.exit(0 if all_passed else 1)
 

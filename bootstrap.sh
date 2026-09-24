@@ -23,16 +23,45 @@ if [ ! -d .git ] && [ ! -f leedevkit.toml ]; then
 fi
 
 echo "🚀 Installing leedevkit into .leedevkit/ (per-project, no global)..."
+DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
+TMP_DIR="$(mktemp -d)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
+    DOWNLOAD_HELPER="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)/scripts/_download.py"
+else
+    DOWNLOAD_HELPER="$TMP_DIR/_download.py"
+    python3 - "$DOWNLOAD_HELPER" "${LEEDEVKIT_DOWNLOADER_URL:-https://raw.githubusercontent.com/$REPO/main/scripts/_download.py}" "$DOWNLOAD_TIMEOUT" <<'PY'
+import sys
+import time
+import urllib.request
+
+destination, url, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
+deadline = time.monotonic() + timeout
+request = urllib.request.Request(url, headers={"User-Agent": "leedevkit"})
+with urllib.request.urlopen(request, timeout=timeout) as response, open(destination, "wb") as output:
+    size = 0
+    while True:
+        if time.monotonic() >= deadline:
+            raise SystemExit(f"downloader helper timed out after {timeout:g}s")
+        chunk = response.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > 8 * 1024 * 1024:
+            raise SystemExit("downloader helper exceeds maximum size")
+        output.write(chunk)
+PY
+fi
 
 if [ "$VERSION" = "latest" ]; then
-    VERSION_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+    VERSION_TAG=$(python3 "$DOWNLOAD_HELPER" latest \
+        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")
 else
     VERSION_TAG="$VERSION"
 fi
 
 echo "   Version: $VERSION_TAG"
 
-TMP_DIR=$(mktemp -d)
 STAGE_DIR="$TMP_DIR/stage"
 BACKUP_DIR="$TMP_DIR/previous"
 WRAPPER_STAGE="$TMP_DIR/leedevkit-wrapper"
@@ -87,52 +116,14 @@ finish() {
 }
 trap finish EXIT
 
-# Strip "v" prefix for tarball name (v0.1.0 → leedevkit-0.1.0.tar.gz)
+# Download and validate complete release in staging. Existing install untouched.
 VER="${VERSION_TAG#v}"
 TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
-
-if command -v curl &>/dev/null; then
-    curl -fsSL "$TARBALL_URL" -o "$TMP_DIR/leedevkit.tar.gz"
-elif command -v wget &>/dev/null; then
-    wget -q "$TARBALL_URL" -O "$TMP_DIR/leedevkit.tar.gz"
-else
-    echo "❌ Need curl or wget"
-    exit 1
-fi
-
-# Extract and validate in a staging directory. Link members are rejected so
-# even a valid-looking archive cannot redirect extraction outside staging.
 mkdir -p "$STAGE_DIR"
-python3 - "$TMP_DIR/leedevkit.tar.gz" "$STAGE_DIR" <<'PY'
-import sys
-import tarfile
-from pathlib import Path, PurePosixPath
-
-archive_path = Path(sys.argv[1])
-destination = Path(sys.argv[2]).resolve()
-with tarfile.open(archive_path, "r:gz") as archive:
-    members = archive.getmembers()
-    for member in members:
-        path = PurePosixPath(member.name)
-        if not member.name or path.is_absolute() or ".." in path.parts:
-            raise SystemExit(f"Unsafe archive path: {member.name}")
-        if member.issym() or member.islnk():
-            raise SystemExit(f"Unsafe archive link: {member.name}")
-        if not (member.isfile() or member.isdir()):
-            raise SystemExit(f"Unsupported archive member: {member.name}")
-    archive.extractall(destination, members=members)
-PY
-EXTRACTED=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 -type d -name 'leedevkit-*' -print -quit)
-ENTRY_COUNT=$(find "$STAGE_DIR" -mindepth 1 -maxdepth 1 | wc -l)
-if [ "$ENTRY_COUNT" -ne 1 ] || [ -z "$EXTRACTED" ]; then
-    echo "❌ Unexpected tarball structure"
-    exit 1
-fi
-if [ ! -f "$EXTRACTED/VERSION" ] || [ "$(tr -d '\r\n' < "$EXTRACTED/VERSION")" != "$VER" ]; then
-    echo "❌ Release VERSION does not match $VER"
-    exit 1
-fi
+python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
+    "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
+EXTRACTED="$STAGE_DIR"
 for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"

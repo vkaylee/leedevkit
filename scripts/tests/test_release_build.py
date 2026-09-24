@@ -128,6 +128,7 @@ class TestBuildRelease:
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
+        (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
 
         out_dir = tmp_path / "dist"
         result = build_release(repo, out_dir)
@@ -136,11 +137,16 @@ class TestBuildRelease:
         assert result.name == "leedevkit-0.4.0.tar.gz"
         assert result.stat().st_size > 0
 
-        # Verify it's a valid tar.gz
+        # Verify it's a valid tar.gz and carries deterministic dependency evidence.
         with tarfile.open(result, "r:gz") as tf:
             names = tf.getnames()
             assert any("leedevkit-0.4.0/scripts" in n for n in names)
             assert any("leedevkit-0.4.0/VERSION" in n for n in names)
+            sbom_file = tf.extractfile("leedevkit-0.4.0/sbom.cdx.json")
+            assert sbom_file is not None
+            sbom = json.load(sbom_file)
+            assert sbom["bomFormat"] == "CycloneDX"
+            assert sbom["components"][0]["name"] == "pytest"
             manifest_file = tf.extractfile("leedevkit-0.4.0/devkit.manifest.json")
             assert manifest_file is not None
             manifest = json.load(manifest_file)
@@ -173,6 +179,7 @@ class TestBuildRelease:
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
+        (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
 
         out_dir = tmp_path / "nested" / "dist"
         result = build_release(repo, out_dir)
@@ -193,6 +200,7 @@ class TestBuildRelease:
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
+        (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
 
         # Create a pycache file that should be excluded
         pycache_dir = repo / "scripts" / "__pycache__"
@@ -249,6 +257,7 @@ class TestMain:
                 fpath.write_text("dummy")
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
+        (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
 
         out_dir = tmp_path / "custom-dist"
         main_args = [

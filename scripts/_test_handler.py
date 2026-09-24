@@ -56,13 +56,11 @@ class TestHandler(HandlerBase):
         target = getattr(args, "target", None)
 
         if target == "infra":
-            if getattr(args, "lint_only", False):
+            phase = self._select_infra_phase(args)
+            if phase == "lint":
                 self.handle_lint_infra()
-            elif getattr(args, "unit_only", False):
+            elif phase == "unit":
                 self.handle_test_infra()
-            elif getattr(args, "e2e_only", False):
-                log_error("The infra target does not support --e2e-only")
-                sys.exit(2)
             else:
                 self.handle_verify_infra()
             return
@@ -150,6 +148,39 @@ class TestHandler(HandlerBase):
                 "\n💡 Tip: Isolated phase completed successfully! Run the full suite to verify everything:"
             )
             log_success(f"   leedevkit test {target_name}\n")
+
+    @staticmethod
+    def _flag(args: argparse.Namespace, name: str) -> bool:
+        """Read parser booleans without treating missing mock attributes as true."""
+        return getattr(args, name, False) is True
+
+    def _select_infra_phase(self, args: argparse.Namespace) -> str:
+        """Select infra phase and reject flags that cannot be combined."""
+        lint_only = self._flag(args, "lint_only")
+        unit_only = self._flag(args, "unit_only")
+        e2e_only = self._flag(args, "e2e_only")
+        coverage = self._flag(args, "coverage")
+        skip_lint = self._flag(args, "skip_lint")
+
+        if e2e_only:
+            log_error("The infra target does not support --e2e-only")
+            sys.exit(2)
+        if lint_only and unit_only:
+            log_error("The infra target cannot combine --lint-only and --unit-only")
+            sys.exit(2)
+        if coverage and (lint_only or unit_only):
+            log_error(
+                "The infra target cannot combine --coverage with an isolated phase"
+            )
+            sys.exit(2)
+        if skip_lint:
+            log_error("The infra target does not support --skip-lint")
+            sys.exit(2)
+        if lint_only:
+            return "lint"
+        if unit_only:
+            return "unit"
+        return "full"
 
     def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
         """Execute a single test phase (lint, unit, integration, coverage, db setup)."""
@@ -262,7 +293,7 @@ class TestHandler(HandlerBase):
             sys.exit(1)
 
     def handle_test_infra(self) -> None:
-        """Run all test files with coverage enforcement."""
+        """Run infra tests with production and non-gating test-source reports."""
         import os
 
         env = os.environ.copy()
@@ -270,13 +301,26 @@ class TestHandler(HandlerBase):
         tests_dir = SCRIPTS_DIR / "tests"
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
         venv_pytest = DEVKIT_ROOT / ".venv" / "bin" / "pytest"
-        cmd = [
+        production_cmd = [
             str(venv_pytest),
             "--cov=scripts",
+            "--cov-config",
+            str(SCRIPTS_DIR / ".coveragerc"),
             "--cov-report=term-missing",
+            "--cov-report=html:.test_logs/coverage-production",
             "--cov-fail-under=80",
         ] + test_files
-        self._execute_safe(cmd, env=env)
+        self._execute_safe(production_cmd, env=env)
+
+        test_source_cmd = [
+            str(venv_pytest),
+            "--cov=scripts/tests",
+            "--cov-config",
+            "/dev/null",
+            "--cov-report=term-missing",
+            "--cov-report=html:.test_logs/coverage-tests",
+        ] + test_files
+        self._execute_safe(test_source_cmd, env=env)
 
     def handle_lint_infra(self) -> None:
         """Run ruff + mypy on infra scripts, plus shellcheck on shell scripts."""

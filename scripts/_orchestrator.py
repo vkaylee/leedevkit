@@ -200,7 +200,8 @@ class Orchestrator:
         if args.command == "test":
             self.handle_test(args)
         elif args.command == "manage":
-            self.handle_manage(args)
+            if self.handle_manage(args) is False:
+                sys.exit(1)
         elif args.command == "run":
             self.handle_run(args)
         elif args.command == "update":
@@ -214,7 +215,7 @@ class Orchestrator:
     def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
         self._test_handler.run_phase(phase_name, mode, args)
 
-    def handle_manage(self, args: argparse.Namespace) -> None:
+    def handle_manage(self, args: argparse.Namespace) -> bool | None:
         """Handle 'manage' commands using a dispatch map for simplicity."""
         sub = args.subcommand
 
@@ -235,12 +236,15 @@ class Orchestrator:
         }
 
         if sub == "skills":
-            self.handle_skills(args)
-            return
+            result = self.handle_skills(args)
+            if result is False:
+                log_error("❌ Skill operation failed; previous state was preserved.")
+                sys.exit(1)
+            return True
 
         if sub in simple_dispatch:
             simple_dispatch[sub]()
-            return
+            return True
 
         if sub == "db:query":
             self.handle_db_query(args)
@@ -251,7 +255,7 @@ class Orchestrator:
                 cmd = self.compose_engine + files + ["down", "-v"]
             elif sub == "up" and self.engine == "podman":
                 self.execute_podman_up(self.compose_engine + files)
-                return
+                return True
             else:
                 cmd = self.compose_engine + files + [sub]
                 if sub == "up":
@@ -272,6 +276,7 @@ class Orchestrator:
             self.execute_safe(cmd)
         else:  # pragma: no cover
             self.parser.error(f"Unknown subcommand: {sub}")
+        return True
 
     def handle_test_infra(self) -> None:
         """Run all test files with coverage enforcement."""
@@ -295,11 +300,11 @@ class Orchestrator:
         """Set up project with per-project devkit install."""
         self._init_handler.handle_init(force=force)
 
-    def handle_skills(self, args: argparse.Namespace) -> None:
-        """Manage community add-on skills (delegated to SkillsManager)."""
+    def handle_skills(self, args: argparse.Namespace) -> bool:
+        """Manage community add-on skills and return transaction status."""
         from _skills_manager import SkillsManager
 
-        SkillsManager().dispatch(args)
+        return bool(SkillsManager().dispatch(args))
 
     def handle_doctor(self) -> None:
         """Run system health check (delegated to _doctor module)."""

@@ -22,6 +22,7 @@ from pathlib import Path
 
 from _devkit_integrity import verify_devkit, write_manifest
 from _logging import log_error, log_info, log_success
+from _sbom import write_sbom
 
 
 # ── Items to include in the release tarball ──
@@ -32,6 +33,7 @@ REQUIRED_FILES = [
     "bin/leedevkit",
     "scripts/_orchestrator.py",
     "scripts/_devkit_integrity.py",
+    "scripts/requirements.lock",
 ]
 
 # ── Patterns to exclude — always filtered ──
@@ -85,6 +87,11 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
         stage_root = Path(temp_dir) / f"leedevkit-{version}"
         stage_root.mkdir()
         _copy_release_payload(repo_root, stage_root)
+        write_sbom(
+            repo_root / "scripts" / "requirements.lock",
+            version,
+            stage_root / "sbom.cdx.json",
+        )
         write_manifest(stage_root)
 
         verification = verify_devkit(stage_root)
