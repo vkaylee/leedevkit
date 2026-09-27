@@ -592,7 +592,7 @@ class TestHandler(HandlerBase):
         import os
 
         env = os.environ.copy()
-        env.pop("LEEDEVKIT_QUIET", None)
+        env["LEEDEVKIT_QUIET"] = "0"
         tests_dir = SCRIPTS_DIR / "tests"
         env["PYTHONPATH"] = str(SCRIPTS_DIR)
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
