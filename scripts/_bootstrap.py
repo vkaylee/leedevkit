@@ -56,7 +56,12 @@ def detect_compose_cmd() -> list[str]:
         return ["podman-compose"]
     if _which("docker"):
         return ["docker", "compose"]
-    return ["podman-compose"]
+    if _which("podman"):
+        return ["podman", "compose"]
+    raise RuntimeError(
+        "No container Compose implementation found; install Docker Compose "
+        "or Podman with a Compose provider."
+    )
 
 
 PROFILES: dict[str, list[str]] = {

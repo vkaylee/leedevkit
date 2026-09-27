@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT / "scripts"))
@@ -54,15 +55,23 @@ class TestDetectEngine:
 class TestDetectCompose:
     def test_podman_compose_when_podman(self) -> None:
         with patch("shutil.which", side_effect=lambda cmd: cmd in ("podman",)):
+            assert detect_compose_cmd() == ["podman", "compose"]
+
+    def test_podman_compose_binary_preferred(self) -> None:
+        with patch(
+            "shutil.which",
+            side_effect=lambda cmd: cmd in ("podman", "podman-compose"),
+        ):
             assert detect_compose_cmd() == ["podman-compose"]
 
     def test_docker_compose_when_docker_only(self) -> None:
         with patch("shutil.which", side_effect=lambda cmd: cmd in ("docker",)):
             assert detect_compose_cmd() == ["docker", "compose"]
 
-    def test_default_podman_compose(self) -> None:
+    def test_missing_compose_engine_is_explicit(self) -> None:
         with patch("shutil.which", return_value=None):
-            assert detect_compose_cmd() == ["podman-compose"]
+            with pytest.raises(RuntimeError, match="No container Compose"):
+                detect_compose_cmd()
 
 
 class TestResolveProfiles:
