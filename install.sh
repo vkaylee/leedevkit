@@ -153,9 +153,10 @@ CURRENT_ACTIVATED=1
 chmod +x "$VERSION_DIR"/scripts/*.py 2>/dev/null || true
 chmod +x "$VERSION_DIR"/scripts/*.sh 2>/dev/null || true
 chmod +x "$VERSION_DIR"/bin/* 2>/dev/null || true
-
 if [ -n "$SHELL_RC" ] && [ -f "$PATH_RC_BACKUP" ]; then
-    echo 'export PATH="$HOME/.leedevkit/current/bin:$PATH"' >> "$SHELL_RC"
+    cat >> "$SHELL_RC" <<'PATH_ENTRY'
+export PATH="$HOME/.leedevkit/current/bin:$PATH"
+PATH_ENTRY
     PATH_RC_CHANGED=1
 fi
 
