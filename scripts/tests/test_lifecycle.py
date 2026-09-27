@@ -146,12 +146,14 @@ class TestLifecycleUp:
             assert "--remove-orphans" in all_call_str
 
     def test_force_kill_pod(self) -> None:
-        """Force-kill aggressively removes the pod since it is isolated per run."""
-        with patch("_lifecycle._run") as mock_run:
+        """Podman cleanup force-removes the isolated pod."""
+        with (
+            patch("_lifecycle._get_engine", return_value="podman"),
+            patch("_lifecycle._run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(stdout="", returncode=0)
             lifecycle_down("web")
             all_call_str = str(mock_run.call_args_list)
-            # Must remove the pod
             assert "pod" in all_call_str and "rm" in all_call_str
 
     def test_no_volume_cleanup(self) -> None:
