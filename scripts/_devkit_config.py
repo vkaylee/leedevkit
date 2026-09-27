@@ -60,10 +60,10 @@ def _find_devkit_root() -> Path:
     if env and Path(env).exists():
         return Path(env)
 
-    # 4. ~/.leedevkit/current symlink (legacy global install)
-    home = Path.home() / ".leedevkit" / "current"
-    if home.exists():
-        return home
+    # 5. Source checkout: only when invoked from repository root.
+    source_checkout = Path(__file__).resolve().parent.parent
+    if Path.cwd().resolve() == source_checkout:
+        return source_checkout
 
     raise FileNotFoundError(
         "Cannot locate leedevkit. Run 'leedevkit init' or set DEVKIT_HOME"
