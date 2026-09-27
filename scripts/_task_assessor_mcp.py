@@ -8,6 +8,7 @@ import sys
 from typing import Any
 
 from _model_router import assess_task
+from _runtime import enforce_project_venv
 
 TOOL_NAME = "assess_task"
 TOOL_SCHEMA = {
@@ -123,4 +124,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    enforce_project_venv()
     raise SystemExit(main())

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+VENV_PYTHON = str(Path(__file__).resolve().parents[2] / ".venv" / "bin" / "python3")
 
 
 class TestCliFastPaths:
@@ -62,17 +63,24 @@ class TestCliHelp:
     def test_test_help(self):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
         r = subprocess.run(
-            [sys.executable, str(orch), "test", "--help"],
+            [VENV_PYTHON, str(orch), "test", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
         )
         assert r.returncode == 0
 
+    def test_test_parser_machine_output_flags(self):
+        parser = __import__("_cli_parser", fromlist=["CliParser"]).CliParser({}).build()
+        args = parser.parse_args(["test", "all", "--json", "--json-stream", "--quiet"])
+        assert args.json_output is True
+        assert args.json_stream is True
+        assert args.quiet is True
+
     def test_manage_help(self):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
         r = subprocess.run(
-            [sys.executable, str(orch), "manage", "--help"],
+            [VENV_PYTHON, str(orch), "manage", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -86,7 +94,7 @@ class TestInitFlow:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         r = subprocess.run(
-            [sys.executable, str(orch), "manage", "init", "--dry-run"],
+            [VENV_PYTHON, str(orch), "manage", "init", "--dry-run"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -100,7 +108,7 @@ class TestInitFlow:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         subprocess.run(
-            [sys.executable, str(orch), "manage", "init"],
+            [VENV_PYTHON, str(orch), "manage", "init"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -116,7 +124,7 @@ class TestDoctor:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         r = subprocess.run(
-            [sys.executable, str(orch), "manage", "doctor"],
+            [VENV_PYTHON, str(orch), "manage", "doctor"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -202,7 +210,7 @@ class TestSafeRunIntegration:
     def test_echo(self):
         sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
         r = subprocess.run(
-            [sys.executable, str(sr), "10", "echo", "hello"],
+            [VENV_PYTHON, str(sr), "10", "echo", "hello"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -212,7 +220,7 @@ class TestSafeRunIntegration:
     def test_false(self):
         sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
         r = subprocess.run(
-            [sys.executable, str(sr), "10", "false"],
+            [VENV_PYTHON, str(sr), "10", "false"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -222,7 +230,7 @@ class TestSafeRunIntegration:
     def test_timeout(self):
         sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
         r = subprocess.run(
-            [sys.executable, str(sr), "1", "sleep", "30"],
+            [VENV_PYTHON, str(sr), "1", "sleep", "30"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -232,6 +240,18 @@ class TestSafeRunIntegration:
     def test_requires_timeout_arg(self):
         sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
         r = subprocess.run(
-            [sys.executable, str(sr)], capture_output=True, text=True, timeout=5
+            [VENV_PYTHON, str(sr)], capture_output=True, text=True, timeout=5
         )
         assert r.returncode == 1
+
+    def test_host_python_is_rejected(self):
+        sr = Path(__file__).resolve().parent.parent / "_safe_run.py"
+        host_python = str(Path(sys.base_prefix) / "bin" / "python3")
+        r = subprocess.run(
+            [host_python, str(sr), "10", "true"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert r.returncode == 125
+        assert "project-local interpreter" in r.stderr

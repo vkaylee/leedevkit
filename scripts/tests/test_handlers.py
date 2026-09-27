@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import json
 import pytest
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +30,30 @@ def _mock_orchestrator(**overrides):
     for k, v in overrides.items():
         setattr(orch, k, v)
     return orch
+
+
+def _test_args(**overrides):
+    import argparse
+
+    values = {
+        "target": "api",
+        "lint_only": False,
+        "unit_only": False,
+        "e2e_only": False,
+        "skip_lint": False,
+        "skip_e2e": False,
+        "skip_build": False,
+        "coverage": False,
+        "timeout": None,
+        "pattern": "",
+        "fix": False,
+        "json_output": False,
+        "json_stream": False,
+        "quiet": False,
+        "component": "",
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
 
 
 # ── DbHandler ────────────────────────────────────────────────────────────────
@@ -74,6 +98,22 @@ class TestDbHandler:
         result = handler.handle_prebuild_phase()
         assert result is True
         orch.execute_safe.assert_called_once()
+
+    def test_handle_prebuild_phase_builds_current_profiles_without_cache(self):
+        from _db_handler import DbHandler
+
+        orch = _mock_orchestrator()
+        handler = DbHandler(orch)
+        env = {
+            "DOCKER_COMPOSE_CMD": "docker compose -p test -f current.yml --profile api --profile web",
+        }
+        with patch("_db_handler.bootstrap_env", return_value=env):
+            assert handler.handle_prebuild_phase() is True
+        command = orch.execute_safe.call_args.args[0]
+        assert command[:5] == ["docker", "compose", "-p", "test", "-f"]
+        assert command[5] == "current.yml"
+        assert command[6:10] == ["--profile", "api", "--profile", "web"]
+        assert command[-3:] == ["build", "--pull", "--no-cache"]
 
     def test_handle_db_query(self):
         from _db_handler import DbHandler
@@ -632,16 +672,11 @@ class TestTestHandler:
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
-        orch.results = {"Linting": {"status": "fail", "duration_s": 1.0}}
+        orch.results = {"Linting": {"status": "failed", "duration_s": 1.0}}
         handler = TestHandler(orch)
-        with (
-            patch("_test_handler.log_error") as mock_err,
-            patch("_test_handler.log_success") as mock_ok,
-        ):
-            handler.print_test_summary("api")
+        with patch("_test_handler.log_error") as mock_err:
+            handler.print_test_summary("api", "failed")
         mock_err.assert_called_once()
-        # The green "All selected tests passed successfully!" line must not fire
-        assert not any("passed successfully" in str(c) for c in mock_ok.call_args_list)
 
     def test_print_test_summary_all_pass_still_green(self):
         """All-passed phases still print the green summary."""
@@ -649,18 +684,16 @@ class TestTestHandler:
 
         orch = _mock_orchestrator()
         orch.results = {
-            "Unit Tests": {"status": "pass", "duration_s": 1.0},
-            "Linting": {"status": "pass", "duration_s": 1.0},
+            "Unit Tests": {"status": "passed", "duration_s": 1.0},
+            "Linting": {"status": "passed", "duration_s": 1.0},
         }
         handler = TestHandler(orch)
         with patch("_test_handler.log_error") as mock_err:
-            handler.print_test_summary("api")
+            handler.print_test_summary("api", "passed")
         mock_err.assert_not_called()
 
-    def test_run_phase_linting_failure_exits_nonzero(self):
-        """A failed Linting phase must sys.exit(1), not silently continue."""
-        import pytest as _pytest
-
+    def test_run_phase_linting_failure_records_nonzero_result(self):
+        """A failed focused phase exits non-zero and preserves phase details."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
@@ -679,12 +712,15 @@ class TestTestHandler:
         args.target = "api"
         with (
             patch("_test_handler._lifecycle_up"),
-            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.lifecycle_down") as mock_down,
             patch("_test_handler.leedevkit_run_lint", return_value=False),
-            _pytest.raises(SystemExit) as exc_info,
+            pytest.raises(SystemExit) as exc,
         ):
             handler.run_phase("Linting", "api", args)
-        assert exc_info.value.code == 1
+        assert exc.value.code == 1
+        assert orch.results["Linting"]["status"] == "failed"
+        assert orch.results["Linting"]["exit_code"] == 1
+        mock_down.assert_called_once_with("all")
 
     def test_run_phase_linting_success_no_exit(self):
         """A passing Linting phase must not exit."""
@@ -709,10 +745,9 @@ class TestTestHandler:
             patch("_test_handler.lifecycle_down"),
             patch("_test_handler.leedevkit_run_lint", return_value=True),
         ):
-            # Should return without raising SystemExit
             handler.run_phase("Linting", "api", args)
         assert "Linting" in orch.results
-        assert orch.results["Linting"]["status"] == "pass"
+        assert orch.results["Linting"]["status"] == "passed"
 
     def test_run_phase_dry_run(self):
         from _test_handler import TestHandler
@@ -916,16 +951,260 @@ class TestTestHandler:
             handler.handle_test(args)
             assert orch.env_vars.get("TIMEOUT_LINT") == "600"
 
-    def test_run_phase_unknown_phase(self):
-        """run_phase with unknown phase name exits with error."""
-        import pytest
+    def test_run_phase_unknown_phase_records_failure(self):
+        """Unknown phase remains a hard failure with recorded details."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
-        args = MagicMock()
-        with pytest.raises(SystemExit):
-            handler.run_phase("BogusPhase", "api", args)
+        with pytest.raises(SystemExit) as exc:
+            handler.run_phase("BogusPhase", "api", _test_args())
+        assert exc.value.code == 1
+        assert orch.results["BogusPhase"]["status"] == "failed"
+        assert orch.results["BogusPhase"]["exit_code"] == 1
+
+    def test_handle_test_all_expands_server_and_web_targets(self):
+        """Full regression expands configured server and web targets separately."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        calls = []
+
+        def record_phase(phase, mode, args, target_name=None):
+            calls.append((phase, mode, target_name))
+            handler._record_result(
+                phase, target_name or args.target, phase, "passed", 0
+            )
+
+        args = _test_args(target="all")
+        with (
+            patch("_devkit_config.resolve_test_targets", return_value=["api", "web"]),
+            patch(
+                "_test_handler.build_mode_map",
+                return_value={"all": "all", "api": "api", "web": "web"},
+            ),
+            patch("_test_handler.inject_rust_version_env"),
+            patch.object(handler, "run_phase", side_effect=record_phase),
+            patch.object(handler, "print_test_summary"),
+        ):
+            handler.handle_test(args)
+
+        assert ("Prebuild", "all", "all") in calls
+        assert ("Unit Tests", "api", "api") in calls
+        assert ("Integration Tests", "web", "web") in calls
+        assert ("Linting", "web", "web") in calls
+
+    def test_e2e_focused_web_uses_web_profile_and_teardown(self):
+        """Focused E2E target selects e2e-web profile and remains compatible."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(target="web", e2e_only=True)
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True) as mock_up,
+            patch("_test_handler.lifecycle_down") as mock_down,
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+            patch.object(handler, "print_test_summary"),
+        ):
+            handler.handle_test(args)
+
+        mock_up.assert_called_once_with("e2e-web")
+        mock_down.assert_called_once_with("all")
+        assert orch.results["Integration Tests"]["status"] == "passed"
+
+    def test_lifecycle_startup_failure_blocks_phase_and_tears_down(self):
+        """Compose startup false blocks phase execution and still tears down."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        with (
+            patch("_test_handler._lifecycle_up", return_value=False) as mock_up,
+            patch("_test_handler.lifecycle_down") as mock_down,
+            patch("_test_handler.leedevkit_run_integration") as mock_integration,
+        ):
+            handler.run_phase(
+                "Integration Tests",
+                "web",
+                _test_args(target="web"),
+                target_name="web",
+            )
+
+        mock_up.assert_called_once_with("e2e-web")
+        mock_integration.assert_not_called()
+        mock_down.assert_called_once_with("all")
+        assert orch.results["Integration Tests"]["status"] == "blocked"
+        assert orch.results["Integration Tests"]["exit_code"] == 1
+
+    def test_blocked_phase_report_has_diagnostic_and_rerun(self, capsys):
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        handler._record_result(
+            "Integration Tests",
+            "web",
+            "./leedevkit test web --e2e-only",
+            "blocked",
+            1,
+            error="Lifecycle readiness failed",
+        )
+        with patch.object(handler, "print_test_summary"):
+            with pytest.raises(SystemExit):
+                handler._finish_test(_test_args(json_output=True), "web")
+        report = json.loads(capsys.readouterr().out)
+        phase = report["phases"]["Integration Tests"]
+        assert report["status"] == "blocked"
+        assert phase["error"] == "Lifecycle readiness failed"
+        assert phase["rerun"] == "./leedevkit test web --e2e-only"
+
+    def test_phase_timeout_records_124_and_tears_down(self):
+        """Timeout remains failed with conventional 124 exit code."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True),
+            patch("_test_handler.lifecycle_down") as mock_down,
+            patch("_test_handler.leedevkit_run_unit", side_effect=TimeoutError),
+        ):
+            handler.run_phase("Unit Tests", "api", _test_args(), target_name="api")
+
+        mock_down.assert_called_once_with("all")
+        assert orch.results["Unit Tests"]["status"] == "failed"
+        assert orch.results["Unit Tests"]["exit_code"] == 124
+
+    def test_skip_e2e_records_non_required_skipped_phase(self):
+        """Skipping E2E is explicit partial verification, not an unrecorded phase."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(skip_e2e=True)
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True),
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+            patch("_test_handler.leedevkit_run_lint", return_value=True),
+            patch.object(handler, "print_test_summary"),
+        ):
+            handler.handle_test(args)
+
+        assert orch.results["Integration Tests"]["status"] == "skipped"
+        assert orch.results["Integration Tests"]["required"] is False
+
+    def test_json_report_has_phase_contract_and_full_regression_status(self, capsys):
+        """JSON report exposes status, target, full-regression marker, and phase fields."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        handler._record_result("Unit Tests", "api", "unit-api", "passed", 0)
+        with patch.object(handler, "print_test_summary"):
+            handler._finish_test(_test_args(json_output=True), "api")
+
+        import json
+
+        report = json.loads(capsys.readouterr().out)
+        assert report["status"] == "passed"
+        assert report["full_regression"] is True
+        assert report["target"] == "api"
+        phase = report["phases"]["Unit Tests"]
+        assert {
+            "phase",
+            "target",
+            "command",
+            "start_time",
+            "end_time",
+            "duration_s",
+            "exit_code",
+            "status",
+            "required",
+        } <= set(phase)
+
+    def test_json_report_failure_has_exit_log_and_rerun(self, capsys):
+        """Failed phase exposes truthful exit, log, rerun, and next action."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        handler._record_result(
+            "Unit Tests", "api", "./leedevkit test api --unit-only", "failed", 7
+        )
+        with patch.object(handler, "print_test_summary"):
+            with pytest.raises(SystemExit) as exc:
+                handler._finish_test(_test_args(json_output=True), "api")
+
+        assert exc.value.code == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["status"] == "failed"
+        assert report["exit_code"] == 7
+        assert report["full_regression"] is False
+        phase = report["phases"]["Unit Tests"]
+        assert phase["rerun"] == "./leedevkit test api --unit-only"
+        assert phase["log"].endswith("Unit_Tests.log")
+        assert report["next_action"]
+
+    def test_json_stream_emits_ordered_lifecycle_events(self, capsys):
+        """JSONL mode emits run and phase events with stable sequence fields."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(json_stream=True)
+        handler.handle_test = handler.handle_test
+        handler._event_args = args
+        handler._run_id = "run-test"
+        handler._emit_event("phase_started", phase="Unit Tests", target="api")
+        handler._emit_event("phase_finished", phase="Unit Tests", target="api")
+        events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+        assert [event["event"] for event in events] == [
+            "phase_started",
+            "phase_finished",
+        ]
+        assert [event["sequence"] for event in events] == [1, 2]
+        assert all(event["run_id"] == "run-test" for event in events)
+
+    def test_pattern_yields_partial_result(self):
+        """Focused pattern is partial even when selected phase passes."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        handler._record_result("Unit Tests", "api", "unit-api", "passed", 0)
+        with patch.object(handler, "print_test_summary") as summary:
+            handler._finish_test(_test_args(pattern="auth"), "api")
+        summary.assert_called_once_with("api", "partial")
+
+    def test_skip_build_records_skipped_prebuild(self):
+        """--skip-build records non-required prebuild instead of running it."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(target="all", skip_build=True)
+        with (
+            patch("_devkit_config.resolve_test_targets", return_value=["api"]),
+            patch(
+                "_test_handler.build_mode_map",
+                return_value={"all": "all", "api": "api"},
+            ),
+            patch("_test_handler.inject_rust_version_env"),
+            patch.object(handler, "run_phase") as run_phase,
+            patch.object(handler, "print_test_summary"),
+        ):
+            handler.handle_test(args)
+
+        assert all(
+            call.kwargs.get("target_name") != "all" or call.args[0] != "Prebuild"
+            for call in run_phase.call_args_list
+        )
+        assert any(call.args[0] == "Unit Tests" for call in run_phase.call_args_list)
+        assert orch.results["all:Prebuild"]["status"] == "skipped"
+        assert orch.results["all:Prebuild"]["required"] is False
 
     def test_run_phase_startup(self):
         """run_phase 'Startup' brings up lifecycle."""
@@ -1087,7 +1366,7 @@ class TestTestHandlerCoverageGaps:
         orch = _mock_orchestrator()
         orch.start_time = 0
         orch.results = {
-            "Linting": {"status": "pass", "duration_s": 1.0},
+            "Linting": {"status": "passed", "duration_s": 1.0},
         }
         handler = TestHandler(orch)
 
@@ -1110,21 +1389,17 @@ class TestTestHandlerCoverageGaps:
         # Should not crash — json output goes to stderr
         handler.handle_test(args)
 
-    def test_run_phase_unknown_phase(self):
-        """run_phase exits with error for unknown phase."""
+    def test_run_phase_unknown_phase_records_failure_in_coverage_gap(self):
+        """Unknown phase records failure before hard exit."""
         from _test_handler import TestHandler
-        import argparse
 
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
-        orch.dry_run = False
-
-        args = argparse.Namespace(
-            target="all", component="", fix=False, pattern="", unit_only=False
-        )
         with pytest.raises(SystemExit) as exc:
-            handler.run_phase("UnknownPhase", "all", args)
+            handler.run_phase("UnknownPhase", "all", _test_args(target="all"))
         assert exc.value.code == 1
+        assert orch.results["all:UnknownPhase"]["status"] == "failed"
+        assert orch.results["all:UnknownPhase"]["exit_code"] == 1
 
     def test_run_phase_dry_run(self):
         """run_phase in dry_run mode logs and returns."""

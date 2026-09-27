@@ -17,11 +17,13 @@ import psutil
 from _bootstrap import PROJECT_ROOT, bootstrap_env
 
 LOG_DIR = PROJECT_ROOT / ".test_logs"
-
 TIMEOUT_LINT = int(os.environ.get("TIMEOUT_LINT", "900"))
 TIMEOUT_UNIT = int(os.environ.get("TIMEOUT_UNIT", "900"))
 TIMEOUT_INTEGRATION = int(os.environ.get("TIMEOUT_INTEGRATION", "1200"))
 TIMEOUT_BUILD = int(os.environ.get("TIMEOUT_BUILD", "600"))
+LAST_PHASE_EXIT_CODE: int | None = None
+LAST_PHASE_COMMANDS: dict[str, list[str]] = {}
+QUIET_OUTPUT = False
 
 _PROCESS_TREE_WAIT_TIMEOUT = 3.0
 
@@ -37,6 +39,28 @@ def get_phase_timeout(phase_name: str) -> int:
     if "Coverage" in phase_name:
         return TIMEOUT_INTEGRATION
     return TIMEOUT_UNIT
+
+
+def get_last_phase_exit_code() -> int | None:
+    """Return last task exit code, including 124 for timeout."""
+    return LAST_PHASE_EXIT_CODE
+
+
+def set_quiet_output(enabled: bool) -> None:
+    """Suppress task progress while preserving logs and exit status."""
+    global QUIET_OUTPUT
+    QUIET_OUTPUT = enabled
+
+
+def get_last_phase_commands() -> dict[str, list[str]]:
+    """Return filtered task commands from most recent phase."""
+    return dict(LAST_PHASE_COMMANDS)
+
+
+def clear_last_phase_commands() -> None:
+    """Clear task metadata before a phase starts."""
+    global LAST_PHASE_COMMANDS
+    LAST_PHASE_COMMANDS = {}
 
 
 def _process_group_options() -> dict[str, int | bool]:
@@ -181,11 +205,9 @@ def run_parallel_ordered(
     tasks: list[tuple[str, str, list[str]]],
     num_workers: int | None = None,
 ) -> bool:
-    """Run tasks in parallel (or serial if num_workers <= 1).
-
-    Each task is a tuple of (name, service, command_list).
-    Returns True if all tasks pass.
-    """
+    global LAST_PHASE_EXIT_CODE, LAST_PHASE_COMMANDS
+    LAST_PHASE_EXIT_CODE = None
+    LAST_PHASE_COMMANDS = {}
     _ensure_log_dir()
 
     if num_workers is None:
@@ -215,13 +237,12 @@ def run_parallel_ordered(
     if not filtered:
         return True
 
+    LAST_PHASE_COMMANDS = {name: list(cmd) for name, _service, cmd in filtered}
     task_timeout = get_phase_timeout(phase_name)
 
     if num_workers <= 1:
-        # Serial execution
         return _run_tasks_serial(filtered, phase_name, task_timeout)
 
-    # Parallel execution
     return _run_tasks_parallel(filtered, phase_name, task_timeout, num_workers)
 
 
@@ -231,15 +252,16 @@ def _run_tasks_serial(
     timeout: int,
 ) -> bool:
     """Run tasks one at a time, streaming output live."""
+    global LAST_PHASE_EXIT_CODE
     import threading
-
     import sys as _sys
 
     all_passed = True
     for name, _service, cmd in tasks:
         log_file = LOG_DIR / _safe_log_name(phase_name, name)
-        _sys.stdout.write(f"\n  [{name}] Running...\n")
-        _sys.stdout.flush()
+        if not QUIET_OUTPUT:
+            _sys.stdout.write(f"\n  [{name}] Running...\n")
+            _sys.stdout.flush()
 
         with log_file.open("w") as output:
             proc = subprocess.Popen(
@@ -257,8 +279,9 @@ def _run_tasks_serial(
                     decoded = line.decode("utf-8", errors="replace")
                     output.write(decoded)
                     output.flush()
-                    _sys.stdout.write(f"  [{name}] {decoded}")
-                    _sys.stdout.flush()
+                    if not QUIET_OUTPUT:
+                        _sys.stdout.write(f"  [{name}] {decoded}")
+                        _sys.stdout.flush()
 
             reader = threading.Thread(target=stream_output)
             reader.start()
@@ -270,10 +293,9 @@ def _run_tasks_serial(
             reader.join()
 
         if exit_code != 0:
+            LAST_PHASE_EXIT_CODE = exit_code
             all_passed = False
-            _sys.stdout.write(f"\n  [{name}] FAILED (exit={exit_code})\n")
-            _sys.stdout.flush()
-        else:
+        elif not QUIET_OUTPUT:
             _sys.stdout.write(f"\n  [{name}] PASSED\n")
             _sys.stdout.flush()
 
@@ -287,6 +309,7 @@ def _run_tasks_parallel(
     num_workers: int,
 ) -> bool:
     """Run tasks in parallel with a worker pool."""
+    global LAST_PHASE_EXIT_CODE
     import threading
     from collections import deque
 
@@ -322,6 +345,7 @@ def _run_tasks_parallel(
     # Check results
     for name, exit_code in results.items():
         if exit_code != 0:
+            LAST_PHASE_EXIT_CODE = exit_code
             log_file = LOG_DIR / _safe_log_name(phase_name, name)
             _print_failure(name, log_file, exit_code)
             return False
@@ -332,7 +356,9 @@ def _run_tasks_parallel(
 
 
 def _print_success(name: str, log_file: Path) -> None:
-    """Print success message with last few lines of log."""
+    """Print task success unless quiet output is enabled."""
+    if QUIET_OUTPUT:
+        return
     import sys as _sys
 
     _sys.stdout.write(f"\n  [{name}] PASSED\n")
@@ -340,13 +366,14 @@ def _print_success(name: str, log_file: Path) -> None:
 
 
 def _print_failure(name: str, log_file: Path, exit_code: int) -> None:
-    """Print the complete failure log, preserving every diagnostic line."""
+    """Print compact failure in quiet mode, full log otherwise."""
     import sys as _sys
 
     _sys.stdout.write(f"\n  [{name}] FAILED (exit={exit_code})\n")
     _sys.stdout.flush()
-    if log_file.exists():
-        lines = log_file.read_text(errors="replace").splitlines()
-        for line in lines:
-            _sys.stdout.write(f"  [{name}] {line}\n")
-        _sys.stdout.flush()
+    if QUIET_OUTPUT or not log_file.exists():
+        return
+    lines = log_file.read_text(errors="replace").splitlines()
+    for line in lines:
+        _sys.stdout.write(f"  [{name}] {line}\n")
+    _sys.stdout.flush()

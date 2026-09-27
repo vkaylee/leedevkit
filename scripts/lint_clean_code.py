@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from _runtime import enforce_project_venv
+
 
 def extract_structs(content: str) -> list[dict[str, Any]]:
     structs = []
@@ -184,4 +186,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    enforce_project_venv()
     main()

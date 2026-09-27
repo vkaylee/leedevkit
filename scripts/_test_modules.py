@@ -53,6 +53,27 @@ def _resolve_rust_service(component_filter: str = "") -> str:
     return "apiserver"
 
 
+def _resolve_web_service() -> str:
+    """Return configured TypeScript/JavaScript service, with compatibility fallback."""
+    try:
+        from _bootstrap import PROJECT_ROOT
+        from _devkit_config import _load_toml
+
+        config_toml = PROJECT_ROOT / "leedevkit.toml"
+        if config_toml.exists():
+            cfg = _load_toml(config_toml)
+            for name, service in cfg.get("services", {}).items():
+                if isinstance(service, dict) and service.get("lang") in (
+                    "typescript",
+                    "javascript",
+                    "web",
+                ):
+                    return str(name)
+    except (OSError, ValueError, KeyError):
+        pass
+    return "webdashboard"
+
+
 def _has_go_service() -> bool:
     """Return whether project config or manifest declares Go."""
     try:
@@ -252,20 +273,19 @@ def leedevkit_run_lint(
         )
 
     if mode in ("all", "web") and _has_web_service():
+        web_service = _resolve_web_service()
         lint_cmd = build_compose_exec(
-            "webdashboard",
-            "bun run lint:fix" if fix else "bun run lint",
-            mode="web",
+            web_service, "bun run lint:fix" if fix else "bun run lint", mode="web"
         )
-        tasks.append(("webdashboard-lint", "webdashboard", lint_cmd))
+        tasks.append((f"{web_service}-lint", web_service, lint_cmd))
 
         typecheck_cmd = build_compose_exec(
-            "webdashboard", "bun run type-check", mode="web"
+            web_service, "bun run type-check", mode="web"
         )
-        tasks.append(("webdashboard-typecheck", "webdashboard", typecheck_cmd))
+        tasks.append((f"{web_service}-typecheck", web_service, typecheck_cmd))
 
-        i18n_cmd = build_compose_exec("webdashboard", "bun run check-i18n", mode="web")
-        tasks.append(("webdashboard-i18n", "webdashboard", i18n_cmd))
+        i18n_cmd = build_compose_exec(web_service, "bun run check-i18n", mode="web")
+        tasks.append((f"{web_service}-i18n", web_service, i18n_cmd))
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
@@ -340,9 +360,10 @@ def leedevkit_run_unit(
         tasks.append((task_name, rust_svc, backend_cmd))
 
     if mode in ("web",) or (mode == "all" and _has_web_service()):
+        web_service = _resolve_web_service()
         web = f"bun run test -- {_safe_pattern(test_pattern)} {shard_flag} --passWithNoTests"
-        web_cmd = build_compose_exec("webdashboard", web, mode="web")
-        tasks.append(("webdashboard", "webdashboard", web_cmd))
+        web_cmd = build_compose_exec(web_service, web, mode="web")
+        tasks.append((web_service, web_service, web_cmd))
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
@@ -399,10 +420,11 @@ def leedevkit_run_integration(
         tasks.append((task_name, rust_svc, backend_cmd))
 
     if mode == "web" or (mode == "all" and _has_web_service()):
+        web_service = _resolve_web_service()
         pw_args = f"-g {_safe_pattern(test_pattern)}" if test_pattern else ""
         pw = f"bunx playwright test {pw_args} --workers 2"
-        pw_cmd = build_compose_exec("webdashboard", pw, mode="web")
-        tasks.append(("playwright-e2e", "webdashboard", pw_cmd))
+        pw_cmd = build_compose_exec(web_service, pw, mode="web")
+        tasks.append(("playwright-e2e", web_service, pw_cmd))
 
     return run_parallel_ordered("Integration & E2E", component_filter, tasks)
 
@@ -457,11 +479,12 @@ def leedevkit_run_coverage(
         )
 
     if mode == "web" or (mode == "all" and _has_web_service()):
+        web_service = _resolve_web_service()
         tasks.append(
             (
-                "webdashboard-coverage",
-                "webdashboard",
-                build_compose_exec("webdashboard", "bun run test:coverage", mode="web"),
+                f"{web_service}-coverage",
+                web_service,
+                build_compose_exec(web_service, "bun run test:coverage", mode="web"),
             )
         )
 

@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from _runtime import enforce_project_venv
+
 TIERS = ("haiku", "sonnet", "opus", "fable")
 EFFORTS = ("low", "medium", "high", "xhigh")
 _TARGET_TOOLS = {"Agent", "Task"}
@@ -224,4 +226,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    enforce_project_venv()
     raise SystemExit(main())

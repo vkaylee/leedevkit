@@ -8,6 +8,8 @@ replacement is atomic so a failed release cannot destroy an existing install.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import argparse
 import json
 import os
@@ -21,6 +23,14 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path, PurePosixPath
+
+_enforce_project_venv: Callable[..., None] | None = None
+try:
+    from _runtime import enforce_project_venv
+except ImportError:  # Standalone bootstrap helper has no sibling modules.
+    pass
+else:
+    _enforce_project_venv = enforce_project_venv
 
 DEFAULT_TIMEOUT = 120.0
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
@@ -244,4 +254,6 @@ def _main() -> int:
 
 
 if __name__ == "__main__":
+    if _enforce_project_venv is not None:
+        _enforce_project_venv(allow_bootstrap=True)
     raise SystemExit(_main())

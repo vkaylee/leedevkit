@@ -58,12 +58,13 @@ class CliParser:
             description="LeeDevKit Enterprise Test Orchestrator - Automatically handles environments, mocking, and parallel execution.",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples for AI Agents:\n"
-            "  leedevkit test all                 # Full suite\n"
-            "  leedevkit test infra --lint-only   # Quick format + lint\n"
-            "  leedevkit test infra --lint-only --fix # Auto-fix formatting\n"
-            "  leedevkit test all --json          # Machine-readable output\n"
+            "  leedevkit test all                         # Required full regression gate\n"
+            "  leedevkit test all --json                  # Final machine-readable report\n"
+            "  leedevkit test all --json-stream --quiet   # JSONL events, compact output\n"
+            "  leedevkit test infra --lint-only           # Focused fast feedback (partial)\n"
+            "  leedevkit test infra --lint-only --fix    # Auto-fix formatting\n"
             "\n"
-            "Tips: prefer specific targets for faster feedback.",
+            "Focused flags and --pattern never prove full regression; skipped build/E2E phases are partial/unverified.",
         )
         targets = resolve_targets()
         test_parser.add_argument(
@@ -87,7 +88,17 @@ class CliParser:
         test_parser.add_argument(
             "--skip-lint",
             action="store_true",
-            help="Skip linting phase (useful for faster iterative TDD)",
+            help="Skip linting; result is partial/unverified",
+        )
+        test_parser.add_argument(
+            "--skip-e2e",
+            action="store_true",
+            help="Skip integration/E2E; result is partial/unverified",
+        )
+        test_parser.add_argument(
+            "--skip-build",
+            action="store_true",
+            help="Skip image build; result is partial/unverified",
         )
         test_parser.add_argument(
             "--pattern",
@@ -114,7 +125,17 @@ class CliParser:
             "--json",
             action="store_true",
             dest="json_output",
-            help="Output machine-readable JSON summary at the end (for AI agents)",
+            help="Output one machine-readable JSON summary at the end",
+        )
+        test_parser.add_argument(
+            "--json-stream",
+            action="store_true",
+            help="Output machine-readable JSONL lifecycle events",
+        )
+        test_parser.add_argument(
+            "--quiet",
+            action="store_true",
+            help="Suppress task logs; keep compact failures and summary",
         )
 
     def _setup_manage_parser(

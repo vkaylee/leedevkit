@@ -85,6 +85,14 @@ class TestLifecycleUp:
             result = lifecycle_up("api")
             assert result is False
 
+    def test_compose_start_failure_returns_false(self) -> None:
+        """Compose non-zero startup must block dependent test phases."""
+        with patch("_lifecycle._run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stdout="", stderr="build failed"
+            )
+            assert lifecycle_up("e2e-web") is False
+
     def test_no_pre_cleanup_on_up(self) -> None:
         """lifecycle_up must NOT do a pre-down — concurrent agents share containers."""
         with (

@@ -20,13 +20,16 @@ This is a **meta-tool factory**. Changes here ship to ALL downstream projects vi
 
 ## Key Commands
 
-```bash
-./leedevkit test infra --lint-only   # ruff + mypy
-./leedevkit test infra               # format --check + lint + pytest
-./leedevkit test all                 # full suite
-./leedevkit doctor                   # health check
-./leedevkit version                  # show version (offline; no venv)
-```
+./leedevkit test infra --lint-only   # focused feedback only
+./leedevkit test infra --unit-only    # focused feedback only
+./leedevkit test infra                # infra verification
+./leedevkit test all                  # completion gate: configured server/web/build/integration/E2E phases
+./leedevkit test all --json           # stable final JSON report
+./leedevkit test all --json-stream --quiet  # JSONL events for AI agents
+
+Machine contract: parse JSON/JSONL, not human log text. Each phase carries `phase`, `target`, `command`, timestamps, duration, exit code, status, and required flag. Failed/blocked phases carry `log`, `rerun`, and diagnostic fields. `passed`, `failed`, `blocked`, and `skipped` are distinct; focused or skipped runs report `partial` and `full_regression=false`.
+
+Focused flags, `--pattern`, `--skip-e2e`, and `--skip-build` produce partial/unverified results; they cannot replace `test all` for runtime/build/API/DB/config/dependency changes.
 
 ## Release Packaging Gate (MANDATORY for packaging changes)
 
@@ -39,8 +42,8 @@ Trigger this gate after changes to any of:
 - `scripts/_devkit_integrity.py`, `VERSION`, release layout/manifest behavior
 
 ```bash
-python3 scripts/_release_build.py --repo-root . --output /tmp/dist
-python3 scripts/_release_acceptance.py \
+.venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/dist
+.venv/bin/python3 scripts/_release_acceptance.py \
   --repo-root . \
   --artifact /tmp/dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz
 ```

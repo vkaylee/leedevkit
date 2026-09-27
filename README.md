@@ -50,13 +50,12 @@ downloads the devkit into `.leedevkit/` inside your project.
 cd my-project && git init
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 
-# Always use ./leedevkit (project-local), NOT leedevkit (global)
-./leedevkit test infra --lint-only  # ruff + mypy (Python) / cargo fmt + clippy (Rust)
-./leedevkit test infra --unit-only  # pytest / cargo nextest / bun test
-./leedevkit test infra              # format check + lint + test + coverage
-./leedevkit test all                # full suite across all targets
-
-# For Rust-only projects (library, CLI, tool):
+# Focused commands provide fast feedback only; never completion gates.
+./leedevkit test infra --lint-only  # focused lint (partial/unverified)
+./leedevkit test infra --unit-only  # focused unit (partial/unverified)
+./leedevkit test all                # required full regression: server + web + build + integration/E2E
+./leedevkit test all --json         # stable final JSON report
+./leedevkit test all --json-stream --quiet  # JSONL events for AI agents; logs stay in .test_logs/
 # ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
 ./leedevkit test all                # cargo fmt + clippy + nextest + coverage
 

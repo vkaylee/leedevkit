@@ -64,7 +64,7 @@ fi
 echo "   4/6 Generating manifest ..."
 (
     cd "$STAGED"
-    DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py checksum
+    LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py checksum
 )
 
 # Step 5: Verify
@@ -75,7 +75,7 @@ if [ ! -f "$STAGED/devkit.manifest.json" ]; then
 fi
 if ! (
     cd "$STAGED"
-    DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py verify
+    LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py verify
 ); then
     echo "❌ Integrity check failed"
     exit 1

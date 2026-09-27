@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from _runtime import enforce_project_venv
+
 # ── Bootstrap: locate devkit root ──────────────────────────────────────────
 
 _DEVKIT_ROOT: Path | None = None
@@ -308,6 +310,31 @@ def resolve_targets() -> list[str]:
     ]
 
 
+def resolve_test_targets(target: str = "all") -> list[str]:
+    """Expand a logical target into configured target names without losing services."""
+    config = load_project_config()
+    targets = config.get("targets", {})
+    if not isinstance(targets, dict):
+        return [target]
+    if target != "all":
+        return [target]
+
+    all_services = targets.get("all", [])
+    if not isinstance(all_services, list):
+        return ["all"]
+    selected: list[str] = []
+    for name, services in targets.items():
+        if name == "all" or not isinstance(services, list):
+            continue
+        if any(service in all_services for service in services):
+            selected.append(str(name))
+    for service in all_services:
+        service_name = str(service)
+        if service_name not in selected and service_name not in targets:
+            selected.append(service_name)
+    return selected or ["all"]
+
+
 # ── Mode map & Rust version injection (extracted from Orchestrator) ────────
 
 
@@ -376,6 +403,7 @@ def inject_rust_version_env(project_root: Path | None = None) -> None:
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":  # pragma: no cover
+    enforce_project_venv()
     action = sys.argv[1] if len(sys.argv) > 1 else "config"
     if action == "config":
         import json

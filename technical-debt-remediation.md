@@ -11,7 +11,7 @@ Restore trustworthy verification, reproducible acquisition, and release evidence
 - Source `VERSION`: `0.7.13`; local `.leedevkit/VERSION`: `0.3.8`. Source/local identity drift remains unresolved.
 - `./leedevkit test infra`: 814 passed, 1 skipped, 86.59% coverage.
 - `./leedevkit test infra --lint-only`: Ruff and Mypy pass.
-- `python3 scripts/_release_acceptance.py --repo-root .`: pass.
+- `.venv/bin/python3 scripts/_release_acceptance.py --repo-root .`: pass.
 - `.agent/scripts/verify_all.py .` crashes at line 397 because parser omits `no_e2e`.
 - `.agent/scripts/checklist.py .` reports UX and SEO failures for this CLI repository; applicability model is wrong.
 - CI and `_ensure-venv.sh` install unpinned dependencies. `leedevkit.lock` is empty.

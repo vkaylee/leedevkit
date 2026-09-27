@@ -14,6 +14,7 @@ import os
 import sys
 from pathlib import Path
 
+from _runtime import enforce_project_venv
 # ── Bootstrap ──────────────────────────────────────────────────────────────
 
 try:
@@ -226,6 +227,7 @@ def verify_devkit(devkit_root: Path | None = None) -> VerificationResult:
 # ── CLI ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":  # pragma: no cover
+    enforce_project_venv(allow_bootstrap=True)
     action = sys.argv[1] if len(sys.argv) > 1 else "verify"
     devkit_root = _find_devkit_root()
 

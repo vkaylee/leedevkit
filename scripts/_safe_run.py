@@ -19,27 +19,34 @@ import threading
 import time as _time
 from types import FrameType
 
+from _runtime import enforce_project_venv
+
+if __name__ == "__main__":
+    enforce_project_venv()
+
 import psutil
 from _arg_sanitizer import ArgSanitizeError, sanitize
 
 
 def read_from_pty(master_fd: int, stop_event: threading.Event) -> None:
-    """Reads from the PTY master until stop_event is set and no more data is available."""
+    """Stream PTY output unless caller requests machine-mode quiet output."""
+    quiet = os.environ.get("LEEDEVKIT_QUIET") == "1"
     while not stop_event.is_set():
         try:
-            # Wait up to 0.1s for data to become available
             r, _, _ = select.select([master_fd], [], [], 0.1)
             if master_fd in r:
                 data = os.read(master_fd, 4096)
                 if not data:
                     break  # EOF  # pragma: no cover
-                # Write directly to sys.stdout's underlying buffer to avoid encoding issues
-                sys.stdout.buffer.write(data)
-                sys.stdout.buffer.flush()
+                if not quiet:
+                    sys.stdout.buffer.write(data)
+                    sys.stdout.buffer.flush()
         except (OSError, ValueError):
             break  # EIO or closed FD
 
     # One last non-blocking read to drain buffer
+    if quiet:
+        return
     while True:  # pragma: no cover
         try:
             r, _, _ = select.select([master_fd], [], [], 0.0)

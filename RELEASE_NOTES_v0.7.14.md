@@ -14,7 +14,7 @@
 ## Verification
 
 - `./leedevkit test infra`: 831 passed, 1 skipped; 83.87% production coverage.
-- `python3 scripts/_release_acceptance.py --repo-root .`: passed.
+- `.venv/bin/python3 scripts/_release_acceptance.py --repo-root .`: passed.
 - `python3 .agent/scripts/checklist.py .`: passed; inapplicable checks reported as skips.
 - `python3 .agent/scripts/verify_all.py . --no-e2e`: passed; inapplicable checks reported as skips.
 - Shell syntax and `git diff --check`: passed.

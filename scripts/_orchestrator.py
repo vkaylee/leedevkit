@@ -10,6 +10,10 @@ import typing
 import uuid
 from types import FrameType
 
+from _runtime import enforce_project_venv
+
+if __name__ == "__main__":
+    enforce_project_venv()
 from _bootstrap import (
     PROJECT_ROOT,
     SCRIPTS_DIR,

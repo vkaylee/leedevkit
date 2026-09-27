@@ -78,8 +78,8 @@ If active harness exposes `mcp__leedevkit-task-assessor__assess_task`, call it f
 When changing packaging, install, bootstrap, update, versioning, or release layout of LeeDevKit itself, source tests alone are NOT enough. Also run:
 
 ```bash
-python3 scripts/_release_build.py --repo-root . --output /tmp/dist
-python3 scripts/_release_acceptance.py \
+.venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/dist
+.venv/bin/python3 scripts/_release_acceptance.py \
   --repo-root . \
   --artifact /tmp/dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz
 ```

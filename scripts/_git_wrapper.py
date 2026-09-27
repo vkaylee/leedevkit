@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from _arg_sanitizer import ArgSanitizeError, sanitize
+from _runtime import enforce_project_venv
 
 
 def main() -> None:  # noqa: PLR0912
@@ -92,4 +93,5 @@ def main() -> None:  # noqa: PLR0912
 
 
 if __name__ == "__main__":  # pragma: no cover
+    enforce_project_venv()
     main()

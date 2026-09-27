@@ -6,13 +6,16 @@ and test result summary parsing. Depends on an Orchestrator-like object for
 shared state and lifecycle management.
 """
 
-from __future__ import annotations
-
+import datetime
+import json
 import re
+import shlex
 import sys
 import time
 import typing
+import uuid
 from typing import TYPE_CHECKING
+
 
 from _bootstrap import DEVKIT_ROOT, PROJECT_ROOT, SCRIPTS_DIR
 from _devkit_config import build_mode_map, inject_rust_version_env
@@ -25,6 +28,12 @@ from _test_modules import (
     leedevkit_run_integration,
     leedevkit_run_lint,
     leedevkit_run_unit,
+)
+from _test_utils import (
+    clear_last_phase_commands,
+    get_last_phase_commands,
+    get_last_phase_exit_code,
+    set_quiet_output,
 )
 
 if TYPE_CHECKING:
@@ -52,102 +61,319 @@ class TestHandler(HandlerBase):
     # ── public API ──
 
     def handle_test(self, args: argparse.Namespace) -> None:
-        """Orchestrate a full test run: resolve target → run phases → summarize."""
+        """Run configured phases and emit a truthful quality-gate result."""
+        nested = bool(getattr(args, "_nested_test", False))
+        self._event_args = args
+        machine_output = self._flag(args, "json_output") or self._flag(
+            args, "json_stream"
+        )
+        set_quiet_output(self._flag(args, "quiet") or machine_output)
+        if machine_output or self._flag(args, "quiet"):
+            self._orch.env_vars["LEEDEVKIT_QUIET"] = "1"
+        else:
+            self._orch.env_vars.pop("LEEDEVKIT_QUIET", None)
+        if not nested:
+            self._run_id = uuid.uuid4().hex
+            self._run_started = time.time()
+            self._event_sequence = 0
+            self._emit_event("run_started", target=getattr(args, "target", "all"))
         target = getattr(args, "target", None)
-
         if target == "infra":
-            phase = self._select_infra_phase(args)
-            if phase == "lint":
-                self.handle_lint_infra()
-            elif phase == "unit":
-                self.handle_test_infra()
-            else:
-                self.handle_verify_infra()
+            self._run_infra_target(args)
+            if not nested:
+                self._finish_test(args, "infra")
             return
 
         mode_map = build_mode_map()
         service_names = [k for k in mode_map if k not in ("all", "api", "web")]
-
         mode = mode_map.get(target or "all", "all")
-        component_filter = target if target in service_names else ""
-        args.component = component_filter
-
+        args.component = target if target in service_names else ""
         self._orch.active_mode = mode
         if mode != "go":
             inject_rust_version_env()
-        log_info(f"🚀 Starting LeeDevKit Test Suite for [{target}] in mode [{mode}]")
 
-        if getattr(args, "timeout", None):
+        timeout = getattr(args, "timeout", None)
+        if timeout:
             import os
 
-            timeout_str = str(args.timeout)
             for key in (
                 "TIMEOUT_LINT",
                 "TIMEOUT_UNIT",
                 "TIMEOUT_INTEGRATION",
                 "TIMEOUT_BUILD",
             ):
-                os.environ[key] = timeout_str
-                self._orch.env_vars[key] = timeout_str
+                os.environ[key] = str(timeout)
+                self._orch.env_vars[key] = str(timeout)
 
-        if target == "all" and not (args.lint_only or args.unit_only or args.e2e_only):
-            from _devkit_config import resolve_targets
+        if target == "all" and not nested:
+            from _devkit_config import resolve_test_targets
 
-            resolved = resolve_targets()
-            sub_targets = [t for t in resolved if t != "all"] or ["infra"]
+            sub_targets = resolve_test_targets("all")
+            if any(t != "infra" for t in sub_targets) and not self._flag(
+                args, "skip_build"
+            ):
+                self.run_phase("Prebuild", "all", args, target_name="all")
+            elif any(t != "infra" for t in sub_targets):
+                self._record_result("Prebuild", "all", "compose build", "skipped", None)
             for sub_target in sub_targets:
                 args.target = sub_target
+                args._nested_test = True
                 self.handle_test(args)
-                if self._orch.needs_cleanup and not self._dry_run:
-                    lifecycle_down("all")
-                    self._orch.needs_cleanup = False
             args.target = "all"
-            self.print_test_summary("all")
+            args._nested_test = False
+            self._finish_test(args, "all")
             return
 
+        if self._flag(args, "e2e_only") and not nested:
+            if self._flag(args, "skip_build"):
+                self._record_result(
+                    "Prebuild", target or "all", "compose build", "skipped", None
+                )
+            else:
+                self.run_phase("Prebuild", mode, args, target_name=target or "all")
+
         self._orch.needs_cleanup = True
-
-        run_lint = not args.skip_lint and not (args.unit_only or args.e2e_only)
-        run_unit = not (args.lint_only or args.e2e_only)
-        run_e2e = not (args.lint_only or args.unit_only)
-
-        if args.lint_only:
-            run_lint = True
-
-        if args.coverage:
+        run_lint = not self._flag(args, "skip_lint") and not (
+            self._flag(args, "unit_only") or self._flag(args, "e2e_only")
+        )
+        run_unit = not (self._flag(args, "lint_only") or self._flag(args, "e2e_only"))
+        run_e2e = not (self._flag(args, "lint_only") or self._flag(args, "unit_only"))
+        if self._flag(args, "skip_e2e"):
+            run_e2e = False
+        if self._flag(args, "coverage"):
             run_unit = False
             run_e2e = False
 
-        if run_unit:
-            self.run_phase("Unit Tests", mode, args)
+        selected = [
+            ("Unit Tests", run_unit),
+            ("Integration Tests", run_e2e),
+            ("Linting", run_lint),
+        ]
+        for phase, enabled in selected:
+            if enabled:
+                self.run_phase(phase, mode, args, target_name=target or "all")
+            else:
+                self._record_result(phase, target or "all", phase, "skipped", None)
+        if self._flag(args, "coverage"):
+            self.run_phase("Coverage", mode, args, target_name=target or "all")
 
-        if run_e2e:
-            self.run_phase("Integration Tests", mode, args)
+        if not nested:
+            self._finish_test(args, target or "all")
 
-        if run_lint:
-            self.run_phase("Linting", mode, args)
-
-        if args.coverage:
-            self.run_phase("Coverage", mode, args)
-
-        self.print_test_summary(target or "all")
-
-        if getattr(args, "json_output", False) and self._results:
-            import json
-
-            print(json.dumps(self._results, indent=2), file=sys.stderr, flush=True)
-
-        is_single_phase = (
-            getattr(args, "lint_only", False)
-            or getattr(args, "unit_only", False)
-            or getattr(args, "e2e_only", False)
+    def _run_infra_target(self, args: argparse.Namespace) -> None:
+        phase = self._select_infra_phase(args)
+        start = time.time()
+        status = "passed"
+        exit_code = 0
+        command = (
+            f"leedevkit test infra --{phase}-only"
+            if phase != "full"
+            else "leedevkit test infra"
         )
-        if is_single_phase:
-            target_name = target or "all"
-            log_success(
-                "\n💡 Tip: Isolated phase completed successfully! Run the full suite to verify everything:"
+        try:
+            if phase == "lint":
+                self.handle_lint_infra()
+            elif phase == "unit":
+                self.handle_test_infra()
+            else:
+                self.handle_verify_infra()
+        except SystemExit as exc:
+            status = "failed"
+            exit_code = int(exc.code) if isinstance(exc.code, int) else 1
+        except Exception:
+            status = "failed"
+            exit_code = 1
+        self._record_result(
+            "Infrastructure",
+            getattr(args, "target", "infra"),
+            command,
+            status,
+            exit_code,
+            start,
+        )
+
+    def _record_result(
+        self,
+        phase: str,
+        target: str,
+        command: str,
+        status: str,
+        exit_code: int | None,
+        started: float | None = None,
+        error: str | None = None,
+    ) -> None:
+        start = started or time.time()
+        end = time.time()
+        key = (
+            phase
+            if target in ("infra", "api", "web", "go") and phase not in self._results
+            else f"{target}:{phase}"
+        )
+        result: dict[str, typing.Any] = {
+            "phase": phase,
+            "target": target,
+            "command": command,
+            "start_time": datetime.datetime.fromtimestamp(
+                start, datetime.timezone.utc
+            ).isoformat(),
+            "end_time": datetime.datetime.fromtimestamp(
+                end, datetime.timezone.utc
+            ).isoformat(),
+            "duration_s": round(end - start, 3),
+            "exit_code": exit_code,
+            "status": status,
+            "required": status not in ("skipped",),
+        }
+        if phase in ("Linting", "Unit Tests", "Integration Tests", "Coverage"):
+            commands = get_last_phase_commands()
+            if commands:
+                result["commands"] = {
+                    name: shlex.join(cmd) for name, cmd in sorted(commands.items())
+                }
+        if error:
+            result["error"] = error
+        if status in ("failed", "blocked"):
+            result["log"] = f".test_logs/{phase.replace(' ', '_')}.log"
+            result["rerun"] = command
+        self._results[key] = result
+        if status in ("failed", "blocked"):
+            log_path = PROJECT_ROOT / ".test_logs" / f"{phase.replace(' ', '_')}.log"
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                if not log_path.exists():
+                    log_path.write_text(
+                        f"phase={phase}\nstatus={status}\nexit_code={exit_code}\n"
+                        f"command={command}\nerror={error or ''}\n"
+                    )
+            except OSError:
+                pass
+        self._emit_event("phase_finished", **result)
+
+    def _finish_test(self, args: argparse.Namespace, target: str) -> None:
+        statuses = [result.get("status") for result in self._results.values()]
+        failed = any(status == "failed" for status in statuses)
+        blocked = any(status == "blocked" for status in statuses)
+        partial = any(status == "skipped" for status in statuses) or bool(
+            getattr(args, "pattern", "")
+        )
+        focused = any(
+            self._flag(args, name) for name in ("lint_only", "unit_only", "e2e_only")
+        )
+        partial = (
+            partial
+            or focused
+            or self._flag(args, "skip_lint")
+            or self._flag(args, "skip_e2e")
+            or self._flag(args, "skip_build")
+        )
+        overall = (
+            "failed"
+            if failed
+            else "blocked"
+            if blocked
+            else "partial"
+            if partial
+            else "passed"
+        )
+        self.print_test_summary(target, overall)
+        report = self._build_report(target, overall)
+        if self._flag(args, "json_output") and not self._flag(args, "json_stream"):
+            print(json.dumps(report, indent=2, sort_keys=True), flush=True)
+        self._emit_event("run_finished", **report)
+        if overall in ("failed", "blocked"):
+            sys.exit(1)
+
+        if overall == "partial":
+            log_warn(
+                "Focused or incomplete verification: result is partial/unverified, not a full regression pass."
             )
-            log_success(f"   leedevkit test {target_name}\n")
+
+    def _build_report(self, target: str, overall: str) -> dict[str, typing.Any]:
+        phases = dict(sorted(self._results.items()))
+        counts = {
+            status: sum(
+                1 for result in phases.values() if result.get("status") == status
+            )
+            for status in ("passed", "failed", "skipped", "blocked")
+        }
+        failures = [
+            result for result in phases.values() if result.get("status") == "failed"
+        ]
+        blocked = [
+            result for result in phases.values() if result.get("status") == "blocked"
+        ]
+        skipped = [
+            result for result in phases.values() if result.get("status") == "skipped"
+        ]
+        next_action = self._next_action(failures, blocked, skipped)
+        first_failure = failures[0] if failures else blocked[0] if blocked else None
+        exit_code = (
+            int(first_failure["exit_code"])
+            if first_failure and first_failure.get("exit_code") is not None
+            else 0
+        )
+        return {
+            "schema_version": 1,
+            "run_id": getattr(self, "_run_id", ""),
+            "status": overall,
+            "full_regression": overall == "passed",
+            "exit_code": exit_code,
+            "target": target,
+            "started_at": self._iso_time(getattr(self, "_run_started", time.time())),
+            "finished_at": self._iso_time(time.time()),
+            "duration_s": round(
+                time.time() - getattr(self, "_run_started", time.time()), 3
+            ),
+            "counts": counts,
+            "phases": phases,
+            "failed": failures,
+            "blocked": blocked,
+            "skipped": skipped,
+            "next_action": next_action,
+        }
+
+    @staticmethod
+    def _iso_time(value: float) -> str:
+        return datetime.datetime.fromtimestamp(value, datetime.timezone.utc).isoformat()
+
+    @staticmethod
+    def _next_action(
+        failures: list[dict[str, typing.Any]],
+        blocked: list[dict[str, typing.Any]],
+        skipped: list[dict[str, typing.Any]],
+    ) -> str | None:
+        result: dict[str, typing.Any] | None = (
+            failures[0]
+            if failures
+            else blocked[0]
+            if blocked
+            else skipped[0]
+            if skipped
+            else None
+        )
+        if result is None:
+            return None
+        if result.get("status") == "blocked":
+            return "Fix dependency, setup, or readiness failure, then rerun the phase."
+        if result.get("status") == "skipped":
+            return "Run without focused or skip flags for full regression verification."
+        return "Inspect phase log and rerun the reported command."
+
+    def _emit_event(self, event: str, **payload: typing.Any) -> None:
+        args = getattr(self, "_event_args", None)
+        if args is None or not self._flag(args, "json_stream"):
+            return
+        sequence = getattr(self, "_event_sequence", 0) + 1
+        self._event_sequence = sequence
+        record = {
+            "schema_version": 1,
+            "run_id": getattr(self, "_run_id", ""),
+            "sequence": sequence,
+            "event": event,
+            "timestamp": self._iso_time(time.time()),
+            **payload,
+        }
+        print(json.dumps(record, sort_keys=True), flush=True)
 
     @staticmethod
     def _flag(args: argparse.Namespace, name: str) -> bool:
@@ -173,18 +399,50 @@ class TestHandler(HandlerBase):
                 "The infra target cannot combine --coverage with an isolated phase"
             )
             sys.exit(2)
-        if skip_lint:
+        if skip_lint and not unit_only:
             log_error("The infra target does not support --skip-lint")
             sys.exit(2)
+        if skip_lint and unit_only:
+            return "unit"
         if lint_only:
             return "lint"
         if unit_only:
             return "unit"
         return "full"
 
-    def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
-        """Execute a single test phase (lint, unit, integration, coverage, db setup)."""
+    @staticmethod
+    def _phase_command(args: argparse.Namespace, phase: str, target: str) -> str:
+        command = f"./leedevkit test {target}"
+        if phase == "Linting":
+            command += " --lint-only"
+        elif phase == "Unit Tests":
+            command += " --unit-only"
+        elif phase == "Integration Tests":
+            command += " --e2e-only"
+        for name, flag in (
+            ("skip_lint", "--skip-lint"),
+            ("skip_e2e", "--skip-e2e"),
+            ("skip_build", "--skip-build"),
+        ):
+            if TestHandler._flag(args, name):
+                command += f" {flag}"
+        pattern = getattr(args, "pattern", "") or ""
+        if pattern:
+            command += f" --pattern {shlex.quote(pattern)}"
+        return command
+
+    def run_phase(
+        self,
+        phase_name: str,
+        mode: str,
+        args: argparse.Namespace,
+        target_name: str | None = None,
+    ) -> None:
+        """Execute phase, retain failure details, and always tear down its environment."""
+        target = str(target_name or getattr(args, "target", "all") or "all")
+        clear_last_phase_commands()
         if self._dry_run:
+            self._record_result(phase_name, target, phase_name, "skipped", None)
             log_info(f"🔍 Dry-run: Phase [{phase_name}] for [{mode}]")
             return
 
@@ -203,102 +461,139 @@ class TestHandler(HandlerBase):
             ("Coverage", "go"): "go",
         }
         granular_mode = granular_map.get((phase_name, mode))
+        started = time.time()
+        command = self._phase_command(args, phase_name, target)
+        self._emit_event(
+            "phase_started", phase=phase_name, target=target, command=command
+        )
+        setup_ok = True
+        try:
+            if granular_mode:
+                log_info(
+                    f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
+                )
+                try:
+                    setup_ok = _lifecycle_up(granular_mode)
+                    if (
+                        setup_ok
+                        and phase_name == "Integration Tests"
+                        and granular_mode == "int-api"
+                    ):
+                        for dependency_mode in (
+                            "infra-db",
+                            "infra-redis",
+                            "infra-pooler",
+                        ):
+                            setup_ok = _lifecycle_up(dependency_mode) and setup_ok
+                except Exception as exc:
+                    log_error(f"Phase setup failed: {exc}")
+                    self._record_result(
+                        phase_name,
+                        target,
+                        command,
+                        "blocked",
+                        1,
+                        started,
+                        error=str(exc),
+                    )
+                    return
+                if not setup_ok:
+                    self._record_result(
+                        phase_name,
+                        target,
+                        command,
+                        "blocked",
+                        1,
+                        started,
+                        error="Lifecycle readiness failed",
+                    )
+                    return
 
-        if granular_mode:
-            log_info(
-                f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
+            func_map: dict[str, typing.Callable[..., typing.Any]] = {
+                "Startup": lambda: _lifecycle_up(mode),
+                "Linting": lambda: leedevkit_run_lint(
+                    getattr(args, "component", "") or "",
+                    mode,
+                    fix=getattr(args, "fix", False),
+                ),
+                "Unit Tests": lambda: leedevkit_run_unit(
+                    getattr(args, "component", "") or "",
+                    mode,
+                    test_pattern=getattr(args, "pattern", "") or "",
+                ),
+                "Integration Tests": lambda: leedevkit_run_integration(
+                    getattr(args, "component", "") or "",
+                    mode,
+                    test_pattern=getattr(args, "pattern", "") or "",
+                ),
+                "Coverage": lambda: leedevkit_run_coverage(
+                    getattr(args, "component", "") or "",
+                    mode,
+                    getattr(args, "unit_only", False),
+                    getattr(args, "pattern", "") or "",
+                ),
+                "Database Setup": self._orch.handle_db_setup_phase,
+                "Prebuild": self._orch.handle_prebuild_phase,
+            }
+            func = func_map.get(phase_name)
+            if func is None:
+                self._record_result(phase_name, target, command, "failed", 1, started)
+                log_error(f"Unknown phase: {phase_name}")
+                sys.exit(1)
+            res = func()
+            task_exit_code = get_last_phase_exit_code()
+            phase_exit_code = (
+                task_exit_code
+                if task_exit_code is not None
+                else (0 if res is not False else 1)
             )
-            _lifecycle_up(granular_mode)
-            if phase_name == "Integration Tests" and granular_mode in (
-                "int-api",
-                "api",
+            phase_status = (
+                "failed"
+                if res is False or task_exit_code not in (None, 0)
+                else "passed"
+            )
+            self._record_result(
+                phase_name, target, command, phase_status, phase_exit_code, started
+            )
+            if phase_status == "failed" and any(
+                self._flag(args, name)
+                for name in ("lint_only", "unit_only", "e2e_only")
             ):
-                _lifecycle_up("infra-db")
-                _lifecycle_up("infra-redis")
-                _lifecycle_up("infra-pooler")
-
-        log_info(f"🔹 Running {phase_name}...")
-        func_map: dict[str, typing.Callable[..., typing.Any]] = {
-            "Startup": lambda: _lifecycle_up(mode),
-            "Linting": lambda: leedevkit_run_lint(
-                getattr(args, "component", "") or "",
-                mode,
-                fix=getattr(args, "fix", False),
-            ),
-            "Unit Tests": lambda: leedevkit_run_unit(
-                getattr(args, "component", "") or "",
-                mode,
-                test_pattern=getattr(args, "pattern", "") or "",
-            ),
-            "Integration Tests": lambda: leedevkit_run_integration(
-                getattr(args, "component", "") or "",
-                mode,
-                test_pattern=getattr(args, "pattern", "") or "",
-            ),
-            "Coverage": lambda: leedevkit_run_coverage(
-                getattr(args, "component", "") or "",
-                mode,
-                getattr(args, "unit_only", False),
-                getattr(args, "pattern", "") or "",
-            ),
-            "Database Setup": self._orch.handle_db_setup_phase,
-            "Prebuild": self._orch.handle_prebuild_phase,
-        }
-
-        func = func_map.get(phase_name)
-        if func is None:
-            log_error(f"Unknown phase: {phase_name}")
-            sys.exit(1)
-
-        start = time.time()
-        res = func()
-        elapsed = time.time() - start
-
-        self._results[phase_name] = {
-            "status": "pass" if res else "fail",
-            "duration_s": round(elapsed, 1),
-        }
-
-        if granular_mode:
-            log_info(
-                f"🔹 Tearing down isolated environment for: {phase_name} ({granular_mode})"
+                sys.exit(phase_exit_code or 1)
+        except TimeoutError as exc:
+            self._record_result(
+                phase_name,
+                target,
+                command,
+                "failed",
+                124,
+                started,
+                error=str(exc) or "Phase timed out",
             )
-            lifecycle_down("all")
-
-        if res is False:
-            is_single_phase = (
-                getattr(args, "lint_only", False)
-                or getattr(args, "unit_only", False)
-                or getattr(args, "e2e_only", False)
+        except SystemExit as exc:
+            code = int(exc.code) if isinstance(exc.code, int) else 1
+            self._record_result(phase_name, target, command, "failed", code, started)
+            raise
+        except Exception as exc:
+            log_error(f"Phase {phase_name} failed: {exc}")
+            self._record_result(
+                phase_name, target, command, "failed", 1, started, error=str(exc)
             )
-            target = getattr(args, "target", "api")
-            if not is_single_phase:
-                if phase_name == "Linting":
-                    log_warn(
-                        f"\n💡 Tip: To quickly verify only linting/formatting fixes, run:\n   leedevkit test {target} --lint-only\n"
-                    )
-                elif phase_name == "Unit Tests":
-                    log_warn(
-                        f"\n💡 Tip: To focus on unit tests and skip linting/e2e, run:\n   leedevkit test {target} --unit-only\n"
-                    )
-                elif phase_name == "Integration Tests":
-                    log_warn(
-                        f"\n💡 Tip: To focus on integration/E2E tests only, run:\n   leedevkit test {target} --e2e-only\n"
-                    )
-            # Every phase is a hard gate, including Linting. Previously the
-            # Linting phase was exempted (`if phase_name != "Linting"`), so
-            # `leedevkit test api --lint-only` could exit 0 while clippy was
-            # failing unwrap_used/expect_used = deny — a false green that hid
-            # violations of the project's own linter config.
-            sys.exit(1)
+        finally:
+            if granular_mode:
+                log_info(
+                    f"🔹 Tearing down isolated environment for: {phase_name} ({granular_mode})"
+                )
+                lifecycle_down("all")
 
     def handle_test_infra(self) -> None:
         """Run infra tests with production and non-gating test-source reports."""
         import os
 
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(SCRIPTS_DIR)
+        env.pop("LEEDEVKIT_QUIET", None)
         tests_dir = SCRIPTS_DIR / "tests"
+        env["PYTHONPATH"] = str(SCRIPTS_DIR)
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
         venv_pytest = DEVKIT_ROOT / ".venv" / "bin" / "pytest"
         production_cmd = [
@@ -357,7 +652,7 @@ class TestHandler(HandlerBase):
         self.handle_lint_infra()
         self.handle_test_infra()
 
-    def print_test_summary(self, target: str) -> None:
+    def print_test_summary(self, target: str, overall: str | None = None) -> None:
         """Parse test log files and print a summary of passed/total tests.
 
         Defense-in-depth: if any phase recorded a failure in self._results
@@ -368,11 +663,11 @@ class TestHandler(HandlerBase):
         failed_phases = [
             phase
             for phase, result in self._results.items()
-            if result.get("status") == "fail"
+            if result.get("status") in ("failed", "fail", "blocked")
         ]
         if failed_phases:
             log_error(
-                f"❌ Phase(s) FAILED: {', '.join(failed_phases)}. "
+                f"❌ Phase(s) FAILED/BLOCKED: {', '.join(failed_phases)}. "
                 "Not all checks passed — see per-phase logs above."
             )
             return
@@ -422,8 +717,13 @@ class TestHandler(HandlerBase):
                 except (OSError, UnicodeDecodeError, ValueError):
                     pass
 
-        if total_tests > 0:
-            msg = f"All selected tests for [{target}] passed successfully! ({passed_tests}/{total_tests} tests)"
-            log_success(msg)
-        else:
+        if overall == "partial":
+            log_warn(
+                f"⚠️ Partial verification for [{target}]; full regression not verified."
+            )
+        elif total_tests > 0:
+            log_success(
+                f"All selected tests for [{target}] passed successfully! ({passed_tests}/{total_tests} tests)"
+            )
+        elif overall not in ("failed", "blocked"):
             log_success(f"All selected tests for [{target}] passed successfully!")

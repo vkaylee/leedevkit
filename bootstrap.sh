@@ -54,8 +54,8 @@ PY
 fi
 
 if [ "$VERSION" = "latest" ]; then
-    VERSION_TAG=$(python3 "$DOWNLOAD_HELPER" latest \
-        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")
+    LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \
+        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT"
 else
     VERSION_TAG="$VERSION"
 fi
@@ -121,7 +121,7 @@ VER="${VERSION_TAG#v}"
 TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
 mkdir -p "$STAGE_DIR"
-python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
+LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
     "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
 EXTRACTED="$STAGE_DIR"
 for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
@@ -130,7 +130,7 @@ for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity
         exit 1
     fi
 done
-DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
+LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
 
 # Prepare every project-side change before activation. Existing configuration
 # is copied and updated in staging, so malformed config fails harmlessly.

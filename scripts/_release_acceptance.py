@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 from _devkit_integrity import verify_devkit
 from _release_build import build_release
+from _runtime import enforce_project_venv
 
 REQUIRED_PATHS = {
     "VERSION",
@@ -245,6 +246,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    enforce_project_venv()
     try:
         main()
     except (OSError, RuntimeError, tarfile.TarError) as error:

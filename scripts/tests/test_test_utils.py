@@ -13,6 +13,7 @@ from _test_utils import (
     _ensure_log_dir,
     _safe_log_name,
     build_compose_exec,
+    get_last_phase_commands,
     get_phase_timeout,
     run_parallel_ordered,
     run_single_task,
@@ -212,6 +213,14 @@ class TestRunParallelOrdered:
         result = run_parallel_ordered("Unit Tests", "api", tasks, num_workers=1)
         assert result is True
 
+    def test_phase_commands_capture_filtered_commands(self):
+        tasks = [
+            ("api-test", "apiserver", ["echo", "api"]),
+            ("web-test", "webdashboard", ["echo", "web"]),
+        ]
+        assert run_parallel_ordered("Unit Tests", "api", tasks, num_workers=1)
+        assert get_last_phase_commands() == {"api-test": ["echo", "api"]}
+
     def test_parallel_execution(self):
         tasks = [
             ("task-a", "srv", ["echo", "a"]),
@@ -284,6 +293,19 @@ class TestPrintSuccessFailure:
         captured = capsys.readouterr()
         assert "FAILED" in captured.out
 
+    def test_quiet_failure_keeps_status_without_log_dump(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        from _test_utils import _print_failure
+
+        monkeypatch.setattr("_test_utils.QUIET_OUTPUT", True)
+        log = tmp_path / "quiet.log"
+        log.write_text("secret diagnostic")
+        _print_failure("quiet-task", log, 1)
+        captured = capsys.readouterr()
+        assert "FAILED (exit=1)" in captured.out
+        assert "secret diagnostic" not in captured.out
+
 
 class TestBuildComposeExecEdgeCases:
     def test_no_workdir(self, monkeypatch):
@@ -301,6 +323,13 @@ class TestParallelEdgeCases:
         ]
         result = run_parallel_ordered("Linting", "srv", tasks, num_workers=1)
         assert result is True
+
+    def test_quiet_success_suppresses_progress(self, capsys, monkeypatch, tmp_path):
+        from _test_utils import _print_success
+
+        monkeypatch.setattr("_test_utils.QUIET_OUTPUT", True)
+        _print_success("quiet-task", tmp_path / "quiet.log")
+        assert capsys.readouterr().out == ""
 
     def test_no_matching_component(self):
         tasks = [("a", "srv", ["echo", "hi"])]

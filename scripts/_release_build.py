@@ -22,6 +22,7 @@ from pathlib import Path
 
 from _devkit_integrity import verify_devkit, write_manifest
 from _logging import log_error, log_info, log_success
+from _runtime import enforce_project_venv
 from _sbom import write_sbom
 
 
@@ -134,4 +135,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    enforce_project_venv()
     main()

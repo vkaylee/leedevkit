@@ -122,22 +122,33 @@ def lifecycle_up(mode: str = "all") -> bool:
                     "Unknown lifecycle dependency service(s) "
                     f"{', '.join(unknown)} for mode {mode!r} in {env['DOCKER_COMPOSE_BASE']}"
                 )
-
-    # Bring services up (idempotent — no pre-cleanup needed)
-    # CRITICAL: We must use silent=True (which sets stdout/stderr to DEVNULL)
-    # to prevent podman system service and conmon daemons from inheriting the PTY!
-    # Inheriting the PTY causes the terminal to hang indefinitely after the script exits.
     up_cmd = ["up", "-d"]
     if not dependencies and (mode.startswith("lint-") or mode.startswith("unit-")):
         up_cmd.append("--no-deps")
-    _run(compose_base + profiles + up_cmd, silent=True, capture=False)
+    up_result = _run(compose_base + profiles + up_cmd, silent=True, capture=False)
+    if isinstance(up_result.returncode, int) and up_result.returncode != 0:
+        print(
+            f"Compose startup failed: mode={mode!r}, exit={up_result.returncode}",
+            file=sys.stderr if os.environ.get("LEEDEVKIT_QUIET") == "1" else sys.stdout,
+        )
+        return False
     if dependencies:
-        _run(
+        dependency_result = _run(
             compose_base + profiles + ["up", "-d", *dependencies],
             silent=True,
             capture=False,
         )
-
+        if (
+            isinstance(dependency_result.returncode, int)
+            and dependency_result.returncode != 0
+        ):
+            print(
+                f"Compose dependency startup failed: mode={mode!r}, exit={dependency_result.returncode}",
+                file=sys.stderr
+                if os.environ.get("LEEDEVKIT_QUIET") == "1"
+                else sys.stdout,
+            )
+            return False
     health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
         health_services.append(
@@ -219,12 +230,14 @@ def lifecycle_up(mode: str = "all") -> bool:
             details = (
                 diagnostic.stdout.strip() if isinstance(diagnostic.stdout, str) else ""
             )
+            output = sys.stdout
             print(
                 f"Healthcheck timeout: mode={mode!r}, {label}, "
-                f"container={container!r}, project={project_name!r}"
+                f"container={container!r}, project={project_name!r}",
+                file=output,
             )
             if details:
-                print(details)
+                print(details, file=output)
             return False  # pragma: no cover
 
     return True
