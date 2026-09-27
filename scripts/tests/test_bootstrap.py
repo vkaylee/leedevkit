@@ -110,6 +110,7 @@ class TestResolveProfiles:
             profiles = resolve_profiles("all")
             assert self._has_profile(profiles, "api")
             assert self._has_profile(profiles, "web")
+            assert self._has_profile(profiles, "e2e-web")
 
     def test_unknown_mode_returns_mode(self) -> None:
         with patch.dict(os.environ, {"PROFILES": ""}):
@@ -155,6 +156,10 @@ class TestResolveLifecycleProfiles:
             "--profile",
             "infra-pooler",
         ]
+
+    def test_e2e_web_mode_uses_e2e_profile(self) -> None:
+        profiles = resolve_lifecycle_profiles("e2e-web")
+        assert profiles == ["--profile", "e2e-web"]
 
     def test_web_mode_frontend_only(self) -> None:
         profiles = resolve_lifecycle_profiles("web")

@@ -423,7 +423,7 @@ def leedevkit_run_integration(
         web_service = _resolve_web_service()
         pw_args = f"-g {_safe_pattern(test_pattern)}" if test_pattern else ""
         pw = f"bunx playwright test {pw_args} --workers 2"
-        pw_cmd = build_compose_exec(web_service, pw, mode="web")
+        pw_cmd = build_compose_exec(web_service, pw, mode="e2e-web")
         tasks.append(("playwright-e2e", web_service, pw_cmd))
 
     return run_parallel_ordered("Integration & E2E", component_filter, tasks)

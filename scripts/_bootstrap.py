@@ -69,7 +69,16 @@ PROFILES: dict[str, list[str]] = {
     "integration": ["--profile", "api"],
     "web": ["--profile", "web"],
     "go": ["--profile", "go"],
-    "all": ["--profile", "api", "--profile", "web", "--profile", "go"],
+    "all": [
+        "--profile",
+        "api",
+        "--profile",
+        "web",
+        "--profile",
+        "go",
+        "--profile",
+        "e2e-web",
+    ],
 }
 
 
@@ -104,7 +113,7 @@ LIFECYCLE_PROFILES: dict[str, list[str]] = {
         "--profile",
         "infra-pooler",
     ],
-    "e2e-web": ["--profile", "web"],
+    "e2e-web": ["--profile", "e2e-web"],
     "lint-web": ["--profile", "web"],
     "unit-web": ["--profile", "web"],
     "web": ["--profile", "web"],
