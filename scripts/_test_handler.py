@@ -6,6 +6,7 @@ and test result summary parsing. Depends on an Orchestrator-like object for
 shared state and lifecycle management.
 """
 
+import argparse
 import datetime
 import json
 import re
