@@ -593,6 +593,7 @@ class TestHandler(HandlerBase):
 
         env = os.environ.copy()
         env["LEEDEVKIT_QUIET"] = "0"
+        self._orch.env_vars["LEEDEVKIT_QUIET"] = "0"
         tests_dir = SCRIPTS_DIR / "tests"
         env["PYTHONPATH"] = str(SCRIPTS_DIR)
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))

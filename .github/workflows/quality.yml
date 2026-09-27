@@ -66,9 +66,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leedevkit-quality-evidence
-          path: |
-            logs/**
-            .test_logs/**
+          path: logs/*
           if-no-files-found: error
 
   release-acceptance:

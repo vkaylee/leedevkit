@@ -476,7 +476,8 @@ class TestLifecycleDependencies:
         ):
             assert lifecycle_up("int-go") is False
 
-        output = capsys.readouterr().out
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
         assert "dependency service 'postgres'" in output
         assert "postgres-container-id" in output
 
