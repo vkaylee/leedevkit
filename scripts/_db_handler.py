@@ -157,7 +157,6 @@ class DbHandler(HandlerBase):
         build_cmd = env["DOCKER_COMPOSE_CMD"].split() + [
             "build",
             "--pull",
-            "--no-cache",
         ]
         self._execute_safe(build_cmd, env=env)
         log_success("✅ Prebuild complete.")

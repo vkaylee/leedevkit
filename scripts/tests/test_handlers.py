@@ -99,7 +99,7 @@ class TestDbHandler:
         assert result is True
         orch.execute_safe.assert_called_once()
 
-    def test_handle_prebuild_phase_builds_current_profiles_without_cache(self):
+    def test_handle_prebuild_phase_builds_current_profiles_with_cache(self):
         from _db_handler import DbHandler
 
         orch = _mock_orchestrator()
@@ -113,7 +113,7 @@ class TestDbHandler:
         assert command[:5] == ["docker", "compose", "-p", "test", "-f"]
         assert command[5] == "current.yml"
         assert command[6:10] == ["--profile", "api", "--profile", "web"]
-        assert command[-3:] == ["build", "--pull", "--no-cache"]
+        assert command[-2:] == ["build", "--pull"]
 
     def test_handle_db_query(self):
         from _db_handler import DbHandler
