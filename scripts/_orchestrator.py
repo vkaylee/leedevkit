@@ -345,9 +345,10 @@ class Orchestrator:
 
         safe_run = SCRIPTS_DIR / "_safe_run.py"
         full_cmd = [sys.executable, str(safe_run), str(timeout)] + cmd
-        current_env = env if env else os.environ.copy()
+        current_env = os.environ.copy()
+        if env:
+            current_env.update(env)
         current_env.update(self.env_vars)
-
         result = subprocess.run(
             full_cmd, cwd=PROJECT_ROOT, env=current_env, check=False
         )

@@ -1556,6 +1556,28 @@ class TestOrchestratorCoverageGaps:
         cmd = fake_run_called[0][0]
         assert "_safe_run.py" in str(cmd)
 
+    def test_execute_safe_merges_custom_env_with_process_environment(self, monkeypatch):
+        """Custom variables must not hide PATH from executable lookup."""
+        from _orchestrator import Orchestrator
+
+        captured = {}
+
+        def fake_run(*args, **kwargs):
+            captured["env"] = kwargs["env"]
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        original_path = os.environ["PATH"]
+        monkeypatch.setenv("PATH", f"/custom/bin:{original_path}")
+        with (
+            patch.object(Orchestrator, "register_traps", return_value=None),
+            patch("_orchestrator.detect_compose_cmd", return_value=["compose"]),
+        ):
+            orch = Orchestrator()
+            orch.execute_safe(["echo", "hello"], env={"MODE": "all"})
+        assert captured["env"]["PATH"] == f"/custom/bin:{original_path}"
+        assert captured["env"]["MODE"] == "all"
+
     def test_execute_safe_command_fails(self, monkeypatch):
         """execute_safe exits when command returns non-zero."""
         from _orchestrator import Orchestrator
