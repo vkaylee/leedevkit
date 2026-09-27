@@ -54,12 +54,12 @@ jobs:
       - name: Run full LeeDevKit regression gate
         run: |
           mkdir -p logs
-          ./leedevkit test all --json > logs/run_ci-full-regression.json 2> logs/run_ci-full-regression.log </dev/null
+          ./bin/leedevkit test all --json > logs/run_ci-full-regression.json 2> logs/run_ci-full-regression.log </dev/null
       - name: Emit AI-readable regression events
         if: always()
         run: |
           mkdir -p logs
-          ./leedevkit test all --json-stream --quiet > logs/run_ci-full-regression.jsonl 2> logs/run_ci-full-regression-stream.log </dev/null
+          ./bin/leedevkit test all --json-stream --quiet > logs/run_ci-full-regression.jsonl 2> logs/run_ci-full-regression-stream.log </dev/null
 
       - name: Upload quality and supply-chain evidence
         if: always()
