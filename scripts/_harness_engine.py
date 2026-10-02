@@ -171,8 +171,10 @@ def _register_skill_source(sources: dict[str, Path], name: str, path: Path) -> N
 
 
 def _is_skill_source_path(relative_parts: tuple[str, ...]) -> bool:
-    """Reject hidden directories while allowing the ``.claude/skills`` layout."""
+    """Reject hidden dirs and generated asset copies from skill discovery."""
     for index, part in enumerate(relative_parts):
+        if part == "cli" and index + 2 < len(relative_parts) and relative_parts[index + 1 : index + 3] == ("assets", "skills"):
+            return False
         if not part.startswith("."):
             continue
         following = relative_parts[index + 1] if index + 1 < len(relative_parts) else ""
