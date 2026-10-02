@@ -235,7 +235,7 @@ class Orchestrator:
             "db:setup": lambda: self.run_phase("Database Setup", "all", args),
             "prebuild": lambda: self.run_phase("Prebuild", "all", args),
             "fmt:infra": self.handle_fmt_infra,
-            "doctor": self.handle_doctor,
+            "doctor": lambda: self.handle_doctor(getattr(args, "fix", False)) if getattr(args, "fix", False) else self.handle_doctor(),
             "verify:infra": self.handle_verify_infra,
         }
 
@@ -310,11 +310,11 @@ class Orchestrator:
 
         return bool(SkillsManager().dispatch(args))
 
-    def handle_doctor(self) -> None:
-        """Run system health check (delegated to _doctor module)."""
+    def handle_doctor(self, fix: bool = False) -> None:
+        """Run system health check and optionally repair common project issues."""
         from _doctor import run_doctor
 
-        run_doctor(self.engine)
+        run_doctor(self.engine, fix=fix)
 
     def handle_db_query(self, args: argparse.Namespace) -> None:
         self._db_handler.handle_db_query(args)

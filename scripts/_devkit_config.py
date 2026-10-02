@@ -14,7 +14,7 @@ Also resolves the AI rule override manifest (`.agent/overrides.yaml`).
 from __future__ import annotations
 
 import os
-import sys
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,42 +25,51 @@ from _runtime import enforce_project_venv
 _DEVKIT_ROOT: Path | None = None
 
 
-def _find_devkit_root() -> Path:
-    """Resolve the installed devkit directory.
+def _git_main_repo() -> Path | None:
+    """Return main checkout root when running inside a Git worktree."""
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    if not common:
+        return None
+    common_path = Path(common).resolve()
+    return common_path.parent if common_path.name == ".git" else None
 
-    Priority chain (per-project first, then global fallbacks):
-      1. .leedevkit/ in project root (per-project install, preferred)
-      2. DEVKIT_HOME env var (opt-in override)
-      3. ~/.leedevkit/current symlink (legacy global install, deprecated)
-      4. Bundled: ./leedevkit/ relative to project root (legacy)
-    """
+
+def _find_devkit_root() -> Path:
+    """Resolve installed devkit, including runtime shared by a Git worktree."""
     global _DEVKIT_ROOT
     if _DEVKIT_ROOT is not None:
         return _DEVKIT_ROOT
 
-    # 1. Per-project install: .leedevkit/ relative to CWD (check first — most specific)
-    #    Only cache this result (fast, idempotent, survives init creating .leedevkit/).
     cwd_leedevkit = Path.cwd() / ".leedevkit"
     if (cwd_leedevkit / "scripts" / "_orchestrator.py").exists():
         _DEVKIT_ROOT = cwd_leedevkit
         return _DEVKIT_ROOT
 
-    # 2. Per-project install: .leedevkit/ in walked-up project root
     project_root = _find_project_root()
     per_project = project_root / ".leedevkit"
     if (per_project / "scripts" / "_orchestrator.py").exists():
         _DEVKIT_ROOT = per_project
         return _DEVKIT_ROOT
 
-    # 3–5: Global fallbacks — do NOT cache, because `leedevkit init` may create
-    #       .leedevkit/ mid-flow and we want subsequent calls to pick it up.
+    main_repo = _git_main_repo()
+    if main_repo is not None:
+        worktree_runtime = main_repo / ".leedevkit"
+        if (worktree_runtime / "scripts" / "_orchestrator.py").exists():
+            _DEVKIT_ROOT = worktree_runtime
+            return _DEVKIT_ROOT
 
-    # 3. DEVKIT_HOME env var
     env = os.environ.get("DEVKIT_HOME")
     if env and Path(env).exists():
         return Path(env)
 
-    # 5. Source checkout: only when invoked from repository root.
     source_checkout = Path(__file__).resolve().parent.parent
     if Path.cwd().resolve() == source_checkout:
         return source_checkout

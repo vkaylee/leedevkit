@@ -511,8 +511,8 @@ class TestHandleInitFromSource:
             orch.handle_init(force=True)
             assert custom_rule.read_text() == "# Coding Standards\n"
 
-    def test_creates_leedevkit_wrapper_symlink(self, tmp_path, monkeypatch):
-        """Init creates ./leedevkit symlink to .leedevkit/bin/leedevkit."""
+    def test_creates_self_bootstrapping_wrapper(self, tmp_path, monkeypatch):
+        """Init creates executable committed launcher, not a runtime-only shim."""
         project = _make_project(tmp_path / "project")
         source = _make_devkit_source(tmp_path / "source")
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
@@ -530,6 +530,12 @@ class TestHandleInitFromSource:
         # Wrapper is a real executable script (not symlink) by design
         assert wrapper.is_file()
         assert "exec" in wrapper.read_text()
+        ignored = (project / ".gitignore").read_text()
+        assert "leedevkit\n" not in ignored
+        assert ".leedevkit/" in ignored
+        assert ".leedevkit.bootstrap.lock" in ignored
+        assert ".leedevkit-bootstrap-*/" in ignored
+        assert "self-bootstraps" in wrapper.read_text()
 
     def test_pins_devkit_version_in_toml(self, tmp_path, monkeypatch):
         """Init pins the actual devkit version in leedevkit.toml."""

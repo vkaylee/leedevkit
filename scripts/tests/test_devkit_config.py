@@ -129,6 +129,24 @@ class TestFindDevkitRoot:
         root = _find_devkit_root()
         assert root == tmp_path
         _devkit_config._DEVKIT_ROOT = None
+    def test_worktree_uses_main_repo_runtime(self, tmp_path, monkeypatch):
+        """A worktree resolves runtime from its main checkout's common Git dir."""
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        main = tmp_path / "main"
+        runtime = main / ".leedevkit"
+        (runtime / "scripts").mkdir(parents=True)
+        (runtime / "scripts" / "_orchestrator.py").write_text("# stub\n")
+        monkeypatch.chdir(worktree)
+        monkeypatch.delenv("DEVKIT_HOME", raising=False)
+        monkeypatch.setattr(
+            "_devkit_config.subprocess.run",
+            lambda *args, **kwargs: type("Result", (), {"stdout": str(main / ".git") + "\n"})(),
+        )
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        assert _devkit_config.get_devkit_root() == runtime
 
 
 class TestResolveAiRules:

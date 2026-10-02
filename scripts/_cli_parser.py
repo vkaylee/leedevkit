@@ -185,6 +185,10 @@ class CliParser:
         skills_rm = skills_sub.add_parser("remove", parents=[parent_parser])
         skills_rm.add_argument("name", help="Skill repo name to remove")
 
+        doctor_p = manage_cmd_sub.add_parser("doctor", parents=[parent_parser])
+        doctor_p.add_argument(
+            "--fix", action="store_true", help="Repair missing worktree runtime, venv, and AI rules"
+        )
         logs_p = manage_cmd_sub.add_parser("logs", parents=[parent_parser])
         logs_p.add_argument(
             "env", choices=["dev", "test", "prod"], default="dev", nargs="?"
@@ -200,7 +204,6 @@ class CliParser:
             "db:setup",
             "prebuild",
             "fmt:infra",
-            "doctor",
             "verify:infra",
         ]
         for cmd in manage_cmds:

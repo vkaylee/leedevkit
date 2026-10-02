@@ -41,7 +41,7 @@ downloads the devkit into `.leedevkit/` inside your project.
 - `.agent/rules/` — project's AI rulebooks (copied from devkit base)
 - `./leedevkit` → project-local wrapper script
 
-`.leedevkit/` and `./leedevkit` are gitignored. Commit `leedevkit.toml` and `leedevkit.lock` instead.
+`.leedevkit/` and bootstrap lock files are gitignored. Commit `leedevkit`, `leedevkit.toml`, and `leedevkit.lock`.
 
 ## Quick Start
 
@@ -75,10 +75,9 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 ```
 
 ### Why `./leedevkit` instead of `leedevkit`?
-
-`./leedevkit` is a project-local wrapper that delegates to `.leedevkit/bin/leedevkit`
-(inside your project). Using plain `leedevkit` would run the global bootstrap install
-at `~/.leedevkit/`, which is outside your project and breaks AI Agent permissions.
+`./leedevkit` is a committed, executable project launcher. It delegates to a matching
+`.leedevkit/bin/leedevkit`, reuses the main checkout runtime in Git worktrees, and
+self-bootstraps a pinned release when the runtime is missing.
 
 If you prefer the short form, add this alias to your `.bashrc`/`.zshrc`:
 
@@ -133,7 +132,7 @@ my-project/
 ├── AGENTS.md                 # root instructions for Codex, Copilot, Aider, Cline
 ├── GEMINI.md                 # root instructions for Gemini CLI
 ├── .cursor/rules/            # Cursor project rules (leedevkit.mdc)
-└── leedevkit → .leedevkit/bin/leedevkit   # CLI wrapper (gitignored)
+└── leedevkit                   # committed self-bootstrapping CLI launcher
 ```
 
 `.claude/settings.local.json` is for local Claude Code permissions and may contain

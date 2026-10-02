@@ -20,9 +20,9 @@ def require_project_venv() -> None:
     """Reject host Python before a direct entrypoint performs any work."""
     expected = expected_python()
     expected_root = expected.parent.parent
-    current = Path(sys.executable).absolute()
+    current = Path(sys.executable).resolve()
     current_root = Path(sys.prefix).resolve()
-    if current != expected.absolute() or current_root != expected_root.resolve():
+    if current != expected.resolve() or current_root != expected_root.resolve():
         raise RuntimeInterpreterError(
             "LeeDevKit Python scripts require project-local interpreter "
             f"{expected}; current interpreter is {current}. "

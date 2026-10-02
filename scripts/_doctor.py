@@ -7,20 +7,66 @@ container engine, port conflicts, virtual environment, and running containers.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import subprocess
+from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT
 from _devkit_config import get_devkit_root, load_project_config, resolve_ai_rules
 from _logging import log_info, log_success, log_warn
 
 
-def run_doctor(engine: str) -> None:
+def _repair_environment() -> None:
+    """Repair runtime link, devkit venv, and missing project rulebooks."""
+    runtime = PROJECT_ROOT / ".leedevkit"
+    if not runtime.exists():
+        common = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if common:
+            source = Path(common).resolve().parent / ".leedevkit"
+            if source.is_dir():
+                runtime.symlink_to(source, target_is_directory=True)
+                log_success(f"✅ Linked worktree runtime: {runtime} → {source}")
+
+    devkit = get_devkit_root()
+    ensure_venv = devkit / "scripts" / "_ensure-venv.sh"
+    if ensure_venv.is_file():
+        result = subprocess.run(["bash", str(ensure_venv)], check=False)
+        if result.returncode:
+            raise RuntimeError("DevKit virtual environment repair failed")
+        log_success("✅ Virtual environment repaired")
+
+    cfg = load_project_config()
+    rules_rel = cfg.get("ai", {}).get("rules_dir", ".agent/rules")
+    source_rules = devkit / ".agent" / "rules"
+    target_rules = PROJECT_ROOT / rules_rel
+    target_rules.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for rule in source_rules.glob("*.md"):
+        target = target_rules / rule.name
+        if not target.exists():
+            shutil.copy2(rule, target)
+            copied += 1
+    if copied:
+        log_success(f"✅ Synchronized {copied} missing AI rulebook(s)")
+
+
+def run_doctor(engine: str, fix: bool = False) -> None:
     """Run a full system health check and report findings.
 
     Args:
         engine: Container engine name ('podman' or 'docker').
     """
+    if fix:
+        try:
+            _repair_environment()
+        except (OSError, RuntimeError, ValueError) as error:
+            log_warn(f"⚠️  Repair failed: {error}")
     log_info("🩺 Running LeeDevKit System Doctor...")
 
     # ── Project config ──

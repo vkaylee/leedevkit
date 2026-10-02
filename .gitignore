@@ -25,10 +25,10 @@ devkit.manifest.json
 .test_logs/
 *.log
 
-# ── DevKit (per-project install, downloaded on init) ──
+# ── DevKit (per-project runtime) ──
 .leedevkit/
-leedevkit
-
+.leedevkit.bootstrap.lock
+.leedevkit-bootstrap-*/
 # ── IDE & Editor ──
 .vscode/
 .idea/

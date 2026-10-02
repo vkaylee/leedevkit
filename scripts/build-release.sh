@@ -37,9 +37,14 @@ mkdir -p "$WORKDIR"
 
 echo "📦 Building $TARBALL_NAME ..."
 
-# Step 1: Clone
+# Step 1: Clone, or stage an explicit local source tree for offline builds.
 echo "   1/6 Cloning $VERSION_TAG ..."
-git clone --depth 1 --branch "$VERSION_TAG" "$REPO" "$WORKDIR/src" 2>&1 | tail -1
+if git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git clone --depth 1 --branch "$VERSION_TAG" "$REPO" "$WORKDIR/src" 2>&1 | tail -1
+else
+    cp -a "$REPO" "$WORKDIR/src"
+    printf '%s\n' "$VER" > "$WORKDIR/src/VERSION"
+fi
 
 # Step 2: Rename to canonical directory name, then build tarball
 echo "   2/6 Building raw tarball ..."
