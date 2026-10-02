@@ -299,7 +299,6 @@ class TestRunDoctor:
         out = capsys.readouterr().err
         assert "Virtual Environment: Missing" in out
 
-
     # ── running containers ────────────────────────────────────────────────
 
     def test_containers_running(self, tmp_path, capsys):
@@ -356,3 +355,36 @@ class TestRunDoctor:
         capsys.readouterr()
         # subprocess.run should NOT be called for container check when engine is empty
         mock_run.assert_not_called()
+
+    def test_fix_links_matching_worktree_runtime_and_preserves_rulebook(self, tmp_path):
+        from _doctor import _repair_environment
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[ai]\nrules_dir = ".agent/rules"\n'
+        )
+        source = tmp_path / "main" / ".leedevkit"
+        (source / "scripts").mkdir(parents=True)
+        (source / "scripts" / "_orchestrator.py").write_text("# stub\n")
+        (source / "VERSION").write_text("0.1.0\n")
+        (source / ".agent" / "rules").mkdir(parents=True)
+        (source / ".agent" / "rules" / "base.md").write_text("base\n")
+        target_rules = project / ".agent" / "rules"
+        target_rules.mkdir(parents=True)
+        user_rule = target_rules / "base.md"
+        user_rule.write_text("user\n")
+        with (
+            patch("_doctor.PROJECT_ROOT", project),
+            patch(
+                "_doctor.subprocess.run",
+                return_value=MagicMock(stdout=str(source.parent / ".git") + "\n"),
+            ),
+            patch("_doctor.get_devkit_root", return_value=source),
+        ):
+            _repair_environment()
+            first_target = (project / ".leedevkit").readlink()
+            _repair_environment()
+        assert first_target == source
+        assert (project / ".leedevkit").is_symlink()
+        assert user_rule.read_text() == "user\n"

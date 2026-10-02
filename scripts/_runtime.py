@@ -32,6 +32,8 @@ def require_project_venv() -> None:
 
 def enforce_project_venv(*, allow_bootstrap: bool = False) -> None:
     """Fail cleanly unless entrypoint runs in project venv."""
+    if os.environ.get("LEEDEVKIT_DOCTOR_READ_ONLY") == "1":
+        return
     if allow_bootstrap and os.environ.get("LEEDEVKIT_BOOTSTRAP") == "1":
         return
     try:

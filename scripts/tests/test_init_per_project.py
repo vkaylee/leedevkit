@@ -252,14 +252,14 @@ class TestDevKitRootPriority:
     def test_per_project_overrides_global(self, tmp_path, monkeypatch):
         """When .leedevkit/ exists in project, it takes priority over global."""
         project = _make_project(tmp_path / "project")
-        # Create .leedevkit/ in project
         leedevkit = project / ".leedevkit"
         leedevkit.mkdir()
+        (leedevkit / "VERSION").write_text("0.1.0\n")
         (leedevkit / "scripts").mkdir()
         (leedevkit / "scripts" / "_orchestrator.py").write_text("# stub\n")
-        # Set a global install too (should be ignored)
         global_install = tmp_path / "global" / "current"
         global_install.mkdir(parents=True)
+        (global_install / "VERSION").write_text("0.2.0\n")
         (global_install / "scripts").mkdir()
         (global_install / "scripts" / "_orchestrator.py").write_text("# global stub\n")
         monkeypatch.setenv("DEVKIT_HOME", str(global_install))
@@ -275,6 +275,7 @@ class TestDevKitRootPriority:
         project = _make_project(tmp_path / "project")
         custom = tmp_path / "custom-install"
         custom.mkdir()
+        (custom / "VERSION").write_text("0.1.0\n")
         (custom / "scripts").mkdir()
         (custom / "scripts" / "_orchestrator.py").write_text("# custom\n")
         monkeypatch.setenv("DEVKIT_HOME", str(custom))
@@ -295,7 +296,7 @@ class TestDevKitRootPriority:
         import _devkit_config
 
         _devkit_config._DEVKIT_ROOT = None
-        with pytest.raises(FileNotFoundError, match="Cannot locate leedevkit"):
+        with pytest.raises(FileNotFoundError, match="No compatible LeeDevKit runtime"):
             _devkit_config.get_devkit_root()
 
 
@@ -491,8 +492,8 @@ class TestHandleInitFromSource:
             # Should still have custom content
             assert custom_rule.read_text() == "# My Custom Rules\n"
 
-    def test_force_overwrites_existing_rules(self, tmp_path, monkeypatch):
-        """Force flag overwrites existing rules."""
+    def test_force_preserves_existing_rules(self, tmp_path, monkeypatch):
+        """Force refreshes runtime without overwriting user rulebooks."""
         project = _make_project(tmp_path / "project")
         source = _make_devkit_source(tmp_path / "source")
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
@@ -507,9 +508,8 @@ class TestHandleInitFromSource:
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
 
-            orch = Orchestrator()
-            orch.handle_init(force=True)
-            assert custom_rule.read_text() == "# Coding Standards\n"
+            Orchestrator().handle_init(force=True)
+        assert custom_rule.read_text() == "# My Custom Rules\n"
 
     def test_creates_self_bootstrapping_wrapper(self, tmp_path, monkeypatch):
         """Init creates executable committed launcher, not a runtime-only shim."""
@@ -527,15 +527,21 @@ class TestHandleInitFromSource:
             orch.handle_init(force=False)
         wrapper = project / "leedevkit"
         assert wrapper.exists()
-        # Wrapper is a real executable script (not symlink) by design
         assert wrapper.is_file()
+        assert wrapper.stat().st_mode & 0o111
         assert "exec" in wrapper.read_text()
         ignored = (project / ".gitignore").read_text()
         assert "leedevkit\n" not in ignored
-        assert ".leedevkit/" in ignored
-        assert ".leedevkit.bootstrap.lock" in ignored
-        assert ".leedevkit-bootstrap-*/" in ignored
-        assert "self-bootstraps" in wrapper.read_text()
+        assert all(
+            entry in ignored
+            for entry in (
+                ".leedevkit/",
+                ".leedevkit.bootstrap.lock",
+                ".leedevkit-bootstrap-*/",
+                ".leedevkit.new-*",
+                ".leedevkit.previous-*",
+            )
+        )
 
     def test_pins_devkit_version_in_toml(self, tmp_path, monkeypatch):
         """Init pins the actual devkit version in leedevkit.toml."""

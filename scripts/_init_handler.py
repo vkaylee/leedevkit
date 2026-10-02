@@ -14,7 +14,7 @@ from pathlib import Path
 
 from _bootstrap import ensure_project_gitignore
 from _devkit_config import _load_toml
-from _download import download_and_extract_tarball
+from _download import download_and_extract_tarball, normalize_version
 from _handler_base import HandlerBase
 from _logging import log_info, log_success, log_warn
 
@@ -166,7 +166,7 @@ class InitHandler(HandlerBase):
         config_toml = root / "leedevkit.toml"
 
         # ── Step 0: Load or create leedevkit.toml ──
-        if not config_toml.exists() or force:
+        if not config_toml.exists():
             source_root = Path(__file__).resolve().parent.parent
             if (root / "Cargo.toml").exists():
                 template = source_root / "templates" / "leedevkit.rust.toml"
@@ -185,8 +185,15 @@ class InitHandler(HandlerBase):
         # ── Step 1: Ensure .leedevkit/ exists with correct version ──
         leedevkit_dir = root / ".leedevkit"
         installed_version = self._read_installed_version(leedevkit_dir)
-        requested_version = str(devkit_version).lstrip("v")
-        version_matches = installed_version == requested_version
+        requested_version = (
+            "latest"
+            if str(devkit_version) == "latest"
+            else normalize_version(str(devkit_version))
+        )
+        installed_normalized = (
+            installed_version.lstrip("v") if installed_version is not None else None
+        )
+        version_matches = installed_normalized == requested_version
         if devkit_version == "latest" and installed_version is not None:
             version_matches = True
 
@@ -254,7 +261,7 @@ class InitHandler(HandlerBase):
             copied = 0
             for rule_file in sorted(devkit_rules.glob("*.md")):
                 target = project_rules / rule_file.name
-                if not target.exists() or force:
+                if not target.exists():
                     target.write_text(rule_file.read_text())
                     copied += 1
             if copied:
@@ -293,10 +300,18 @@ class InitHandler(HandlerBase):
 
         # ── Step 4: Create committed self-bootstrapping wrapper ──
         wrapper = root / "leedevkit"
-        template = Path(__file__).resolve().parent.parent / "templates" / "leedevkit-wrapper.sh"
-        wrapper_content = template.read_text() if template.is_file() else (
-            "#!/bin/bash\n"
-            'exec "$(cd "$(dirname "$0")" && pwd)/.leedevkit/bin/leedevkit" "$@"\n'
+        template = (
+            Path(__file__).resolve().parent.parent
+            / "templates"
+            / "leedevkit-wrapper.sh"
+        )
+        wrapper_content = (
+            template.read_text()
+            if template.is_file()
+            else (
+                "#!/bin/bash\n"
+                'exec "$(cd "$(dirname "$0")" && pwd)/.leedevkit/bin/leedevkit" "$@"\n'
+            )
         )
         if wrapper.is_symlink():
             wrapper.unlink()
@@ -415,11 +430,9 @@ class InitHandler(HandlerBase):
         import shutil as _shutil
         import tempfile
 
-        stage_root = Path(
-            tempfile.mkdtemp(prefix=".leedevkit-stage-", dir=project_root)
-        )
+        stage_root = Path(tempfile.mkdtemp(prefix="leedevkit-stage-"))
         staged_target = stage_root / "devkit"
-        backup_root = project_root / ".leedevkit.previous"
+        backup_root = stage_root / "previous"
         activated = False
         preserved: dict[str, bool] = {}
         for name in ("skills.d", ".venv"):
@@ -485,6 +498,15 @@ class InitHandler(HandlerBase):
             if not source.is_dir():
                 raise RuntimeError(
                     f"DEVKIT_LOCAL_PATH is not a directory: {local_path}"
+                )
+            source_version = source / "VERSION"
+            if not source_version.is_file():
+                raise RuntimeError(f"Local DevKit source is missing VERSION: {source}")
+            actual = normalize_version(source_version.read_text().strip())
+            if version != "latest" and actual != normalize_version(version):
+                raise RuntimeError(
+                    f"Local devkit version {actual!r} does not match requested "
+                    f"{normalize_version(version)!r}"
                 )
             log_info(f"Installing from explicit local source: {source}")
             self._extract_from_source(source, target_dir)

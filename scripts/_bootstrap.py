@@ -9,7 +9,14 @@ import os
 import shutil
 from pathlib import Path
 
-RUNTIME_GITIGNORE = (".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/")
+RUNTIME_GITIGNORE = (
+    ".leedevkit/",
+    ".leedevkit.bootstrap.lock",
+    ".leedevkit-bootstrap-*/",
+    ".leedevkit.new-*",
+    ".leedevkit.previous-*",
+)
+
 
 # Resolve the actual project root from CWD, not the devkit install location.
 # Walks up from current directory looking for leedevkit.toml or .git.
@@ -36,11 +43,21 @@ def ensure_project_gitignore(project_root: Path = PROJECT_ROOT) -> None:
     """Ignore runtime state while keeping committed ``leedevkit`` launcher."""
     path = project_root / ".gitignore"
     lines = path.read_text().splitlines() if path.exists() else []
-    lines = [line for line in lines if line.strip() != "leedevkit"]
+    legacy_launcher_rules = {
+        "leedevkit",
+        "leedevkit/",
+        "/leedevkit",
+        "/leedevkit/",
+        "./leedevkit",
+        "./leedevkit/",
+    }
+    lines = [line for line in lines if line.strip() not in legacy_launcher_rules]
     for entry in RUNTIME_GITIGNORE:
         if entry not in lines:
             lines.append(entry)
-    path.write_text("\n".join(lines).rstrip() + "\n")
+    content = "\n".join(lines).rstrip() + "\n"
+    if not path.exists() or path.read_text() != content:
+        path.write_text(content)
 
 
 def _which(cmd: str) -> str | None:
@@ -81,7 +98,16 @@ PROFILES: dict[str, list[str]] = {
     "integration": ["--profile", "api"],
     "web": ["--profile", "web"],
     "go": ["--profile", "go"],
-    "all": ["--profile", "api", "--profile", "web", "--profile", "go"],
+    "all": [
+        "--profile",
+        "api",
+        "--profile",
+        "web",
+        "--profile",
+        "e2e-web",
+        "--profile",
+        "go",
+    ],
 }
 
 
@@ -116,7 +142,7 @@ LIFECYCLE_PROFILES: dict[str, list[str]] = {
         "--profile",
         "infra-pooler",
     ],
-    "e2e-web": ["--profile", "web"],
+    "e2e-web": ["--profile", "e2e-web"],
     "lint-web": ["--profile", "web"],
     "unit-web": ["--profile", "web"],
     "web": ["--profile", "web"],

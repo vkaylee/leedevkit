@@ -235,7 +235,11 @@ class Orchestrator:
             "db:setup": lambda: self.run_phase("Database Setup", "all", args),
             "prebuild": lambda: self.run_phase("Prebuild", "all", args),
             "fmt:infra": self.handle_fmt_infra,
-            "doctor": lambda: self.handle_doctor(getattr(args, "fix", False)) if getattr(args, "fix", False) else self.handle_doctor(),
+            "doctor": lambda: (
+                self.handle_doctor(getattr(args, "fix", False))
+                if getattr(args, "fix", False)
+                else self.handle_doctor()
+            ),
             "verify:infra": self.handle_verify_infra,
         }
 

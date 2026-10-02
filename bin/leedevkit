@@ -57,7 +57,11 @@ case "$COMMAND" in
         ;;
 esac
 
-# Python-backed commands initialize the project-local environment lazily.
+if [ "$COMMAND" = "doctor" ]; then
+    exec python3 "$SCRIPT_DIR/scripts/_doctor.py" "$@"
+fi
+
+# Other Python-backed commands initialize project-local environment lazily.
 PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
 
 case "$COMMAND" in

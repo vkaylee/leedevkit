@@ -1283,8 +1283,9 @@ class TestInitPopulatesRules:
 
         _devkit_config._DEVKIT_ROOT = None
         # Create leedevkit.toml with custom rules_dir
+        version = (Path(dk) / "VERSION").read_text().strip()
         (tmp_path / "leedevkit.toml").write_text(
-            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n[ai]\nrules_dir=".myrules"\n'
+            f'[devkit]\nversion = "{version}"\n[project]\nname="test"\n[ai]\nrules_dir=".myrules"\n'
         )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -1305,8 +1306,9 @@ class TestInitPopulatesRules:
         import _devkit_config
 
         _devkit_config._DEVKIT_ROOT = None
+        version = (Path(dk) / "VERSION").read_text().strip()
         (tmp_path / "leedevkit.toml").write_text(
-            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n'
+            f'[devkit]\nversion = "{version}"\n[project]\nname="test"\n'
         )
         # Pre-create a rule file
         rules_dir = tmp_path / ".agent" / "rules"
@@ -1330,8 +1332,9 @@ class TestInitPopulatesRules:
         import _devkit_config
 
         _devkit_config._DEVKIT_ROOT = None
+        version = (Path(dk) / "VERSION").read_text().strip()
         (tmp_path / "leedevkit.toml").write_text(
-            '[devkit]\nversion = "0.1.0"\n[project]\nname="test"\n'
+            f'[devkit]\nversion = "{version}"\n[project]\nname="test"\n'
         )
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()

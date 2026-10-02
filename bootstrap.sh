@@ -8,12 +8,25 @@
 set -euo pipefail
 
 REPO="vkaylee/leedevkit"
-VERSION="${1:-latest}"
+if [ "$#" -eq 0 ] && [ -f leedevkit.toml ]; then
+    VERSION="$(python3 - leedevkit.toml <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    raise SystemExit("Python 3.11+ required to read leedevkit.toml")
+with open(sys.argv[1], "rb") as stream:
+    print(tomllib.load(stream).get("devkit", {}).get("version", "latest"))
+PY
+)"
+else
+    VERSION="${1:-latest}"
+fi
 RELEASE_BASE_URL="${LEEDEVKIT_RELEASE_BASE_URL:-https://github.com/$REPO/releases}"
 
-# Must be in a project directory (has .git or leedevkit.toml)
-if [ ! -d .git ] && [ ! -f leedevkit.toml ]; then
-    echo "⚠️  No .git or leedevkit.toml found in current directory."
+# Must be in a project directory (Git worktrees expose .git as a file).
+if [ ! -e .git ] && [ ! -f leedevkit.toml ]; then
+    echo "⚠️  No Git metadata or leedevkit.toml found in current directory."
     echo "   Run this from your project root, or create leedevkit.toml first."
     echo ""
     echo "   mkdir my-project && cd my-project"
@@ -23,8 +36,15 @@ if [ ! -d .git ] && [ ! -f leedevkit.toml ]; then
 fi
 
 echo "🚀 Installing leedevkit into .leedevkit/ (per-project, no global)..."
+BOOTSTRAP_LOCK=".leedevkit.bootstrap.lock"
+BOOTSTRAP_LOCK_HELD=0
+while ! mkdir "$BOOTSTRAP_LOCK" 2>/dev/null; do
+    sleep 0.1
+done
+BOOTSTRAP_LOCK_HELD=1
 DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
 TMP_DIR="$(mktemp -d)"
+trap 'rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true' EXIT
 SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
 if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
     DOWNLOAD_HELPER="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)/scripts/_download.py"
@@ -52,10 +72,21 @@ with urllib.request.urlopen(request, timeout=timeout) as response, open(destinat
         output.write(chunk)
 PY
 fi
-
+if [ "$VERSION" = "latest" ] && [ -f leedevkit.toml ]; then
+    VERSION="$(python3 - leedevkit.toml <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    raise SystemExit("Python 3.11+ required to read leedevkit.toml")
+with open(sys.argv[1], "rb") as stream:
+    print(tomllib.load(stream).get("devkit", {}).get("version", "latest"))
+PY
+)"
+fi
 if [ "$VERSION" = "latest" ]; then
-    LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \
-        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT"
+    VERSION_TAG="$(LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \
+        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")"
 else
     VERSION_TAG="$VERSION"
 fi
@@ -111,6 +142,9 @@ finish() {
     if [ "$status" -ne 0 ] && [ "$TRANSACTION_ACTIVE" -eq 1 ]; then
         rollback
     fi
+    if [ "$BOOTSTRAP_LOCK_HELD" -eq 1 ]; then
+        rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true
+    fi
     rm -rf "$TMP_DIR"
     exit "$status"
 }
@@ -134,109 +168,7 @@ LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devk
 
 # Prepare every project-side change before activation. Existing configuration
 # is copied and updated in staging, so malformed config fails harmlessly.
-cat > "$WRAPPER_STAGE" <<'WRAPPER'
-#!/bin/bash
-# LeeDevKit — committed project launcher (self-bootstraps per-project runtime)
-set -euo pipefail
-
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-RUNTIME="$ROOT/.leedevkit"
-CONFIG="$ROOT/leedevkit.toml"
-LOCK="$ROOT/.leedevkit.bootstrap.lock"
-
-read_version() {
-    python3 - "$1" <<'PY'
-import sys
-try:
-    import tomllib
-except ImportError:
-    raise SystemExit("Python 3.11+ required to read leedevkit.toml")
-with open(sys.argv[1], "rb") as stream:
-    print(tomllib.load(stream).get("devkit", {}).get("version", "latest"))
-PY
-}
-
-version_matches() {
-    [ -f "$1/VERSION" ] && {
-        expected="$(read_version "$CONFIG")"
-        expected="${expected#v}"
-        [ "$expected" = "latest" ] || [ "$(cat "$1/VERSION")" = "$expected" ]
-    }
-}
-
-link_runtime() {
-    local source="$1"
-    rm -rf "$RUNTIME"
-    ln -s "$source" "$RUNTIME"
-}
-
-bootstrap_runtime() {
-    local version tag base tmp
-    version="$(read_version "$CONFIG")"
-    [ "$version" != "latest" ] || { echo "leedevkit.toml must pin [devkit].version" >&2; return 1; }
-    tag="v${version#v}"
-    base="${LEEDEVKIT_RELEASE_BASE_URL:-https://github.com/vkaylee/leedevkit/releases}"
-    tmp="$(mktemp -d "$ROOT/.leedevkit-bootstrap-XXXXXX")"
-    trap 'rm -rf "$tmp"' RETURN
-    extracted="$(python3 - "$base/download/$tag/leedevkit-${version#v}.tar.gz" "$tmp" "$version" <<'PY'
-import os, pathlib, sys, tarfile, urllib.request
-url, temp_dir, expected = sys.argv[1:]
-request = urllib.request.Request(url, headers={"User-Agent": "leedevkit"})
-with urllib.request.urlopen(request, timeout=float(os.environ.get("LEEDEVKIT_DOWNLOAD_TIMEOUT", "120"))) as response:
-    data = response.read(512 * 1024 * 1024 + 1)
-if len(data) > 512 * 1024 * 1024:
-    raise SystemExit("release exceeds maximum size")
-archive = pathlib.Path(temp_dir) / "release.tar.gz"
-archive.write_bytes(data)
-stage = pathlib.Path(temp_dir) / "extracted"
-stage.mkdir()
-with tarfile.open(archive, "r:gz") as source:
-    members = source.getmembers()
-    for member in members:
-        path = pathlib.PurePosixPath(member.name)
-        if not path.parts or path.is_absolute() or ".." in path.parts or member.issym() or member.islnk():
-            raise SystemExit(f"unsafe release member: {member.name}")
-    source.extractall(stage, members=members)
-children = list(stage.iterdir())
-root = children[0] if len(children) == 1 and children[0].is_dir() else stage
-actual = (root / "VERSION").read_text().strip()
-if actual != expected:
-    raise SystemExit(f"release version {actual!r} does not match {expected!r}")
-(root / "bin" / "leedevkit").chmod(0o755)
-print(root)
-PY
-    )"
-    rm -rf "$RUNTIME"
-    mv "$extracted" "$RUNTIME"
-    trap - RETURN
-    rm -rf "$tmp"
-}
-
-ensure_runtime() {
-    version_matches "$RUNTIME" && return
-    local common_git main_repo
-    common_git="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-    if [ -n "$common_git" ]; then
-        main_repo="$(dirname "$common_git")"
-        version_matches "$main_repo/.leedevkit" && { link_runtime "$main_repo/.leedevkit"; return; }
-    fi
-    if [ -n "${DEVKIT_HOME:-}" ] && version_matches "$DEVKIT_HOME"; then
-        link_runtime "$DEVKIT_HOME"
-        return
-    fi
-    while ! mkdir "$LOCK" 2>/dev/null; do
-        sleep 0.1
-        version_matches "$RUNTIME" && return
-    done
-    trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
-    version_matches "$RUNTIME" || bootstrap_runtime
-    rmdir "$LOCK"
-    trap - EXIT
-}
-
-ensure_runtime
-exec "$RUNTIME/bin/leedevkit" "$@"
-WRAPPER
+cp "$EXTRACTED/templates/leedevkit-wrapper.sh" "$WRAPPER_STAGE"
 chmod +x "$WRAPPER_STAGE"
 
 if [ -f leedevkit.toml ]; then
@@ -292,8 +224,9 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-lines = [line for line in path.read_text().splitlines() if line.strip() != "leedevkit"]
-for entry in (".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/"):
+legacy = {"leedevkit", "leedevkit/", "/leedevkit", "/leedevkit/", "./leedevkit", "./leedevkit/"}
+lines = [line for line in path.read_text().splitlines() if line.strip() not in legacy]
+for entry in (".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/", ".leedevkit.new-*", ".leedevkit.previous-*"):
     if entry not in lines:
         lines.append(entry)
 path.write_text("\n".join(lines).rstrip() + "\n")

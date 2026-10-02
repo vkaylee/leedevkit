@@ -231,7 +231,11 @@ def test_discover_skill_sources_warns_on_duplicate_id(tmp_path: Path, capsys) ->
     assert set(result) == {"alpha"}
     captured = capsys.readouterr()
     assert "alpha" in captured.err or "alpha" in captured.out
-def test_discover_skill_sources_ignores_cli_asset_copies(tmp_path: Path, capsys) -> None:
+
+
+def test_discover_skill_sources_ignores_cli_asset_copies(
+    tmp_path: Path, capsys
+) -> None:
     """Generated CLI assets must not shadow a plugin's canonical skill source."""
     import sys
 
@@ -240,7 +244,9 @@ def test_discover_skill_sources_ignores_cli_asset_copies(tmp_path: Path, capsys)
 
     source_dir = tmp_path / "skills"
     canonical = source_dir / "ui-ux-pro-max" / ".claude" / "skills" / "banner-design"
-    generated = source_dir / "ui-ux-pro-max" / "cli" / "assets" / "skills" / "banner-design"
+    generated = (
+        source_dir / "ui-ux-pro-max" / "cli" / "assets" / "skills" / "banner-design"
+    )
     canonical.mkdir(parents=True)
     generated.mkdir(parents=True)
     (canonical / "SKILL.md").write_text("---\nname: banner-design\n---\n")

@@ -6,50 +6,122 @@ container engine, port conflicts, virtual environment, and running containers.
 """
 
 from __future__ import annotations
-
+import os
 import shutil
 import socket
 import subprocess
 from pathlib import Path
 
-from _bootstrap import PROJECT_ROOT
-from _devkit_config import get_devkit_root, load_project_config, resolve_ai_rules
+from _bootstrap import PROJECT_ROOT, ensure_project_gitignore
+from _devkit_config import (
+    _load_toml,
+    get_devkit_root,
+    load_project_config,
+    resolve_ai_rules,
+)
+from _download import download_and_extract_tarball, normalize_version
 from _logging import log_info, log_success, log_warn
 
 
-def _repair_environment() -> None:
-    """Repair runtime link, devkit venv, and missing project rulebooks."""
-    runtime = PROJECT_ROOT / ".leedevkit"
-    if not runtime.exists():
-        common = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            check=False,
-        ).stdout.strip()
-        if common:
-            source = Path(common).resolve().parent / ".leedevkit"
-            if source.is_dir():
-                runtime.symlink_to(source, target_is_directory=True)
-                log_success(f"✅ Linked worktree runtime: {runtime} → {source}")
+def _runtime_matches(root: Path, version: str) -> bool:
+    version_file = root / "VERSION"
+    return version_file.is_file() and version_file.read_text().strip().lstrip(
+        "v"
+    ) == version.lstrip("v")
 
+
+def _matching_runtime(version: str) -> Path | None:
+    candidates = [PROJECT_ROOT / ".leedevkit"]
+    common = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    if common:
+        common_path = Path(common).resolve()
+        if common_path.name == ".git":
+            candidates.append(common_path.parent / ".leedevkit")
+    env = os.environ.get("DEVKIT_HOME")
+    if env:
+        candidates.append(Path(env))
+    return next(
+        (candidate for candidate in candidates if _runtime_matches(candidate, version)),
+        None,
+    )
+
+
+def _bootstrap_runtime(version: str) -> Path:
+    version = normalize_version(version)
+    base = os.environ.get(
+        "LEEDEVKIT_RELEASE_BASE_URL",
+        "https://github.com/vkaylee/leedevkit/releases",
+    ).rstrip("/")
+    target = PROJECT_ROOT / ".leedevkit"
+    url = f"{base}/download/v{version}/leedevkit-{version}.tar.gz"
+    download_and_extract_tarball(
+        url,
+        target,
+        timeout=os.environ.get("LEEDEVKIT_DOWNLOAD_TIMEOUT"),
+        expected_version=version,
+    )
+    return target
+
+
+def _repair_environment() -> None:
+    """Repair only DevKit-owned runtime, venv, and missing rulebooks."""
+    ensure_project_gitignore(PROJECT_ROOT)
+    config_path = PROJECT_ROOT / "leedevkit.toml"
+    cfg = _load_toml(config_path) if config_path.is_file() else {}
+    configured = str(cfg.get("devkit", {}).get("version", "latest"))
+    if configured == "latest":
+        raise RuntimeError("[devkit].version must be pinned before runtime repair")
+    version = normalize_version(configured)
+    runtime = PROJECT_ROOT / ".leedevkit"
+    source = _matching_runtime(version)
+    if source is not None and source != runtime:
+        if runtime.is_symlink():
+            runtime.unlink()
+        elif runtime.exists():
+            raise RuntimeError(f"Refusing to replace user-owned runtime: {runtime}")
+        runtime.symlink_to(source, target_is_directory=True)
+        log_success(f"✅ Linked worktree runtime: {runtime} → {source}")
+    elif not _runtime_matches(runtime, version):
+        _bootstrap_runtime(version)
+        log_success(f"✅ Downloaded DevKit {version} into {runtime}")
+
+    import _devkit_config
+
+    _devkit_config._DEVKIT_ROOT = None
     devkit = get_devkit_root()
     ensure_venv = devkit / "scripts" / "_ensure-venv.sh"
-    if ensure_venv.is_file():
+    python_bin = devkit / ".venv" / "bin" / "python3"
+    venv_ready = python_bin.is_file() and os.access(python_bin, os.X_OK)
+    if venv_ready:
+        probe = subprocess.run(
+            [str(python_bin), "-c", "import sys"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        venv_ready = probe.returncode == 0
+    if ensure_venv.is_file() and not venv_ready:
         result = subprocess.run(["bash", str(ensure_venv)], check=False)
         if result.returncode:
             raise RuntimeError("DevKit virtual environment repair failed")
         log_success("✅ Virtual environment repaired")
 
-    cfg = load_project_config()
     rules_rel = cfg.get("ai", {}).get("rules_dir", ".agent/rules")
     source_rules = devkit / ".agent" / "rules"
     target_rules = PROJECT_ROOT / rules_rel
+    if target_rules.is_symlink():
+        log_warn(f"⚠️  Refusing to modify symlinked rulebook directory: {target_rules}")
+        return
     target_rules.mkdir(parents=True, exist_ok=True)
     copied = 0
     for rule in source_rules.glob("*.md"):
         target = target_rules / rule.name
-        if not target.exists():
+        if not target.exists() and not target.is_symlink():
             shutil.copy2(rule, target)
             copied += 1
     if copied:
@@ -121,7 +193,9 @@ def run_doctor(engine: str, fix: bool = False) -> None:
             log_info(f"⚠️  Port {port} is occupied")
         s.close()
 
-    venv_root = (devkit_root / ".venv") if devkit_root is not None else (PROJECT_ROOT / ".venv")
+    venv_root = (
+        (devkit_root / ".venv") if devkit_root is not None else (PROJECT_ROOT / ".venv")
+    )
     if venv_root.is_dir():
         log_success("✅ Virtual Environment: Found")
     else:
@@ -139,3 +213,19 @@ def run_doctor(engine: str, fix: bool = False) -> None:
         for r in ["leedevkit-dev-db", "leedevkit-dev-api"]:
             if any(r in n for n in names):
                 log_success(f"✅ Container {r}: Running")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="leedevkit doctor")
+    parser.add_argument("--fix", action="store_true")
+    args = parser.parse_args()
+    engine = (
+        "podman"
+        if shutil.which("podman")
+        else "docker"
+        if shutil.which("docker")
+        else ""
+    )
+    run_doctor(engine, fix=args.fix)

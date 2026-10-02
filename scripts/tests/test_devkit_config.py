@@ -125,28 +125,75 @@ class TestFindDevkitRoot:
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DEVKIT_HOME", str(tmp_path))
+        (tmp_path / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        (tmp_path / "VERSION").write_text("0.1.0\n")
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "_orchestrator.py").write_text("# stub\n")
         _devkit_config._DEVKIT_ROOT = None
         root = _find_devkit_root()
         assert root == tmp_path
         _devkit_config._DEVKIT_ROOT = None
+
     def test_worktree_uses_main_repo_runtime(self, tmp_path, monkeypatch):
-        """A worktree resolves runtime from its main checkout's common Git dir."""
+        """A worktree resolves matching runtime from its main checkout."""
         worktree = tmp_path / "worktree"
         worktree.mkdir()
+        (worktree / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
         main = tmp_path / "main"
         runtime = main / ".leedevkit"
         (runtime / "scripts").mkdir(parents=True)
         (runtime / "scripts" / "_orchestrator.py").write_text("# stub\n")
+        (runtime / "VERSION").write_text("0.1.0\n")
         monkeypatch.chdir(worktree)
         monkeypatch.delenv("DEVKIT_HOME", raising=False)
         monkeypatch.setattr(
             "_devkit_config.subprocess.run",
-            lambda *args, **kwargs: type("Result", (), {"stdout": str(main / ".git") + "\n"})(),
+            lambda *args, **kwargs: type(
+                "Result", (), {"stdout": str(main / ".git") + "\n"}
+            )(),
         )
         import _devkit_config
 
         _devkit_config._DEVKIT_ROOT = None
         assert _devkit_config.get_devkit_root() == runtime
+
+    def test_worktree_rejects_mismatched_main_runtime(self, tmp_path, monkeypatch):
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        (worktree / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        main = tmp_path / "main"
+        runtime = main / ".leedevkit"
+        (runtime / "scripts").mkdir(parents=True)
+        (runtime / "scripts" / "_orchestrator.py").write_text("# stub\n")
+        (runtime / "VERSION").write_text("0.2.0\n")
+        monkeypatch.chdir(worktree)
+        monkeypatch.delenv("DEVKIT_HOME", raising=False)
+        monkeypatch.setattr(
+            "_devkit_config.subprocess.run",
+            lambda *args, **kwargs: type(
+                "Result", (), {"stdout": str(main / ".git") + "\n"}
+            )(),
+        )
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with pytest.raises(FileNotFoundError, match="same VERSION"):
+            _devkit_config.get_devkit_root()
+
+    def test_env_runtime_mismatch_is_rejected(self, tmp_path, monkeypatch):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        env_runtime = tmp_path / "env-runtime"
+        env_runtime.mkdir()
+        (env_runtime / "VERSION").write_text("0.2.0\n")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("DEVKIT_HOME", str(env_runtime))
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with pytest.raises(FileNotFoundError, match="same VERSION"):
+            _devkit_config.get_devkit_root()
 
 
 class TestResolveAiRules:
@@ -208,9 +255,10 @@ class TestFindDevkitRootFallbacks:
 
         dk = tmp_path / "custom-devkit"
         dk.mkdir()
+        (tmp_path / "leedevkit.toml").write_text('[devkit]\nversion = "9.9.9"\n')
         (dk / "VERSION").write_text("9.9.9")
-        (dk / ".agent").mkdir()
-        (dk / ".agent" / "skills.d").mkdir()
+        (dk / "scripts").mkdir()
+        (dk / "scripts" / "_orchestrator.py").write_text("# stub\n")
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("DEVKIT_HOME", str(dk))
         import _devkit_config
@@ -218,7 +266,6 @@ class TestFindDevkitRootFallbacks:
         _devkit_config._DEVKIT_ROOT = None
         root = _find_devkit_root()
         assert root == dk
-        # Reset cache so other tests get the real devkit
         _devkit_config._DEVKIT_ROOT = None
 
 

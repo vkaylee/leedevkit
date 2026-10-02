@@ -186,7 +186,7 @@ def download_and_extract_tarball(
         expected_version = normalize_version(expected_version)
     target_dir = Path(target_dir)
     target_dir.parent.mkdir(parents=True, exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix=".leedevkit-download-", dir=target_dir.parent))
+    work = Path(tempfile.mkdtemp(prefix="leedevkit-download-"))
     try:
         tarball = work / "release.tar.gz"
         _download(url, tarball, timeout_value)

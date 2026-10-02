@@ -16,8 +16,8 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+import sys
 from typing import Any
-
 from _runtime import enforce_project_venv
 
 # ── Bootstrap: locate devkit root ──────────────────────────────────────────
@@ -42,40 +42,59 @@ def _git_main_repo() -> Path | None:
     return common_path.parent if common_path.name == ".git" else None
 
 
+def _runtime_version_matches(root: Path, expected: str) -> bool:
+    """Accept runtime with a valid VERSION matching concrete project pins."""
+    version_file = root / "VERSION"
+    if not version_file.is_file():
+        return False
+    actual = version_file.read_text().strip().lstrip("v")
+    return expected == "latest" or actual == str(expected).strip().lstrip("v")
+
+
+def _runtime_candidate(root: Path, expected: str) -> Path | None:
+    if root.is_dir() and _runtime_version_matches(root, expected):
+        return root
+    return None
+
+
 def _find_devkit_root() -> Path:
-    """Resolve installed devkit, including runtime shared by a Git worktree."""
+    """Resolve project runtime, Git main-worktree runtime, or matching env runtime."""
     global _DEVKIT_ROOT
     if _DEVKIT_ROOT is not None:
         return _DEVKIT_ROOT
 
-    cwd_leedevkit = Path.cwd() / ".leedevkit"
-    if (cwd_leedevkit / "scripts" / "_orchestrator.py").exists():
-        _DEVKIT_ROOT = cwd_leedevkit
-        return _DEVKIT_ROOT
-
     project_root = _find_project_root()
-    per_project = project_root / ".leedevkit"
-    if (per_project / "scripts" / "_orchestrator.py").exists():
-        _DEVKIT_ROOT = per_project
-        return _DEVKIT_ROOT
-
+    expected = _read_version(project_root)
+    candidates = [Path.cwd() / ".leedevkit", project_root / ".leedevkit"]
     main_repo = _git_main_repo()
     if main_repo is not None:
-        worktree_runtime = main_repo / ".leedevkit"
-        if (worktree_runtime / "scripts" / "_orchestrator.py").exists():
-            _DEVKIT_ROOT = worktree_runtime
-            return _DEVKIT_ROOT
-
+        candidates.append(main_repo / ".leedevkit")
     env = os.environ.get("DEVKIT_HOME")
-    if env and Path(env).exists():
-        return Path(env)
+    if env:
+        candidates.append(Path(env))
+
+    if os.environ.get("LEEDEVKIT_BOOTSTRAP") == "1":
+        bootstrap_home = os.environ.get("DEVKIT_HOME")
+        if bootstrap_home and (Path(bootstrap_home) / "VERSION").is_file():
+            _DEVKIT_ROOT = Path(bootstrap_home)
+            return _DEVKIT_ROOT
+    for candidate in candidates:
+        resolved = _runtime_candidate(candidate, expected)
+        if resolved is not None:
+            _DEVKIT_ROOT = resolved
+            return resolved
 
     source_checkout = Path(__file__).resolve().parent.parent
-    if Path.cwd().resolve() == source_checkout:
+    if Path.cwd().resolve() == source_checkout and _runtime_version_matches(
+        source_checkout, expected
+    ):
+        _DEVKIT_ROOT = source_checkout
         return source_checkout
 
     raise FileNotFoundError(
-        "Cannot locate leedevkit. Run 'leedevkit init' or set DEVKIT_HOME"
+        "No compatible LeeDevKit runtime found for project version "
+        f"{expected!r}. Run './leedevkit doctor --fix' to repair or download it, "
+        "or set DEVKIT_HOME to a runtime with the same VERSION."
     )
 
 

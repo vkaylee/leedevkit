@@ -187,7 +187,9 @@ class CliParser:
 
         doctor_p = manage_cmd_sub.add_parser("doctor", parents=[parent_parser])
         doctor_p.add_argument(
-            "--fix", action="store_true", help="Repair missing worktree runtime, venv, and AI rules"
+            "--fix",
+            action="store_true",
+            help="Repair missing worktree runtime, venv, and AI rules",
         )
         logs_p = manage_cmd_sub.add_parser("logs", parents=[parent_parser])
         logs_p.add_argument(

@@ -29,6 +29,8 @@ devkit.manifest.json
 .leedevkit/
 .leedevkit.bootstrap.lock
 .leedevkit-bootstrap-*/
+.leedevkit.new-*
+.leedevkit.previous-*
 # ── IDE & Editor ──
 .vscode/
 .idea/
