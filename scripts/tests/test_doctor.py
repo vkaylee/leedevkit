@@ -274,12 +274,12 @@ class TestRunDoctor:
 
     # ── virtual environment ───────────────────────────────────────────────
 
-    def test_venv_found(self, tmp_path, capsys):
-        """Virtual environment found message."""
+    def test_venv_found_inside_devkit_runtime(self, tmp_path, capsys):
+        """Per-project installs keep the virtualenv inside .leedevkit/."""
         from _doctor import run_doctor
 
-        (tmp_path / ".venv").mkdir()
         dk = self._dk(tmp_path)
+        (dk / ".venv" / "bin").mkdir(parents=True)
 
         with self._patches(tmp_path, dk):
             run_doctor("podman")
@@ -287,8 +287,8 @@ class TestRunDoctor:
         out = capsys.readouterr().err
         assert "Virtual Environment: Found" in out
 
-    def test_venv_missing(self, tmp_path, capsys):
-        """Virtual environment missing message."""
+    def test_venv_missing_from_devkit_runtime(self, tmp_path, capsys):
+        """Missing per-project virtualenv reports the actual runtime state."""
         from _doctor import run_doctor
 
         dk = self._dk(tmp_path)
@@ -297,7 +297,8 @@ class TestRunDoctor:
             run_doctor("podman")
 
         out = capsys.readouterr().err
-        assert "Missing" in out
+        assert "Virtual Environment: Missing" in out
+
 
     # ── running containers ────────────────────────────────────────────────
 

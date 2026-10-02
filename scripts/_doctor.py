@@ -92,8 +92,10 @@ def run_doctor(engine: str, fix: bool = False) -> None:
         log_warn("⚠️  .agent directory missing (run: leedevkit init)")
 
     # ── DevKit install location ──
+    devkit_root: Path | None = None
     try:
         dk = get_devkit_root()
+        devkit_root = dk
         dk_version = (
             (dk / "VERSION").read_text().strip() if (dk / "VERSION").exists() else "?"
         )
@@ -119,7 +121,8 @@ def run_doctor(engine: str, fix: bool = False) -> None:
             log_info(f"⚠️  Port {port} is occupied")
         s.close()
 
-    if (PROJECT_ROOT / ".venv").exists():
+    venv_root = (devkit_root / ".venv") if devkit_root is not None else (PROJECT_ROOT / ".venv")
+    if venv_root.is_dir():
         log_success("✅ Virtual Environment: Found")
     else:
         log_info("💡 Virtual Environment: Missing (will be created on next run)")
