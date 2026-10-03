@@ -148,12 +148,16 @@ def _repair_environment() -> None:
     devkit = get_devkit_root()
     integrity = verify_devkit(devkit)
     if (
-        not integrity.is_clean
-        and not integrity.no_manifest
-        and (integrity.modified or integrity.missing or integrity.invalid_manifest)
+        devkit == runtime
+        and not runtime.is_symlink()
+        and not integrity.is_clean
+        and (
+            integrity.no_manifest
+            or integrity.modified
+            or integrity.missing
+            or integrity.invalid_manifest
+        )
     ):
-        if devkit != runtime:
-            raise RuntimeError(f"Refusing to repair shared runtime: {devkit}")
         _replace_runtime_from_release(version, runtime)
         log_success(f"✅ Restored DevKit {version} from release")
         _devkit_config._DEVKIT_ROOT = None
@@ -221,7 +225,6 @@ def run_doctor(engine: str, fix: bool = False) -> None:
         log_success(f"✅ Project: {name} (targets: {', '.join(targets)})")
     except (OSError, ValueError, KeyError) as e:
         log_warn(f"⚠️  leedevkit.toml: {e}")
-
     # ── .agent directory (per-project, real dir not symlink) ──
     agent_dir = PROJECT_ROOT / ".agent"
     if agent_dir.is_symlink():

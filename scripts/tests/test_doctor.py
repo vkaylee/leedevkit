@@ -438,6 +438,50 @@ class TestRunDoctor:
             runtime / "skills.d" / "custom" / "SKILL.md"
         ).read_text() == "keep skill\n"
 
+    def test_repair_restores_runtime_when_manifest_missing(self, tmp_path):
+        from _doctor import _repair_environment
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[ai]\nrules_dir = ".agent/rules"\n'
+        )
+        runtime = project / ".leedevkit"
+        (runtime / "scripts").mkdir(parents=True)
+        (runtime / "scripts" / "legacy.py").write_text("untracked\n")
+        (runtime / "VERSION").write_text("0.1.0\n")
+        (runtime / ".venv").mkdir()
+        (runtime / ".venv" / "marker").write_text("keep venv\n")
+
+        release = tmp_path / "release"
+        (release / "scripts").mkdir(parents=True)
+        (release / "scripts" / "new.py").write_text("shipped\n")
+        (release / "VERSION").write_text("0.1.0\n")
+        from _devkit_integrity import write_manifest
+
+        write_manifest(release)
+
+        with (
+            patch("_doctor.PROJECT_ROOT", project),
+            patch("_doctor._matching_runtime", return_value=None),
+            patch("_doctor.get_devkit_root", return_value=runtime),
+            patch("_doctor._devkit_config", create=True),
+            patch("_doctor.download_and_extract_tarball") as download,
+        ):
+
+            def install_archive(url, target, **kwargs):
+                import shutil
+
+                shutil.copytree(release, target)
+
+            download.side_effect = install_archive
+            _repair_environment()
+
+        assert (runtime / "devkit.manifest.json").is_file()
+        assert (runtime / "scripts" / "new.py").read_text() == "shipped\n"
+        assert not (runtime / "scripts" / "legacy.py").exists()
+        assert (runtime / ".venv" / "marker").read_text() == "keep venv\n"
+
     def test_doctor_reports_drift_and_verification(self, tmp_path, capsys):
         from _doctor import run_doctor
         from _devkit_integrity import write_manifest
