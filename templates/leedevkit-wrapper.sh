@@ -173,14 +173,14 @@ ensure_runtime() {
 if [ "${1:-}" = "doctor" ] && [ "${2:-}" != "--fix" ]; then
     common_git="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
     if version_matches "$RUNTIME" && [ -f "$RUNTIME/scripts/_doctor.py" ]; then
-        exec python3 "$RUNTIME/scripts/_doctor.py" "$@"
+        exec python3 "$RUNTIME/scripts/_doctor.py" "${@:2}"
     fi
     if [ -n "$common_git" ] && version_matches "$(dirname "$common_git")/.leedevkit"; then
         runtime="$(dirname "$common_git")/.leedevkit"
-        exec python3 "$runtime/scripts/_doctor.py" "$@"
+        exec python3 "$runtime/scripts/_doctor.py" "${@:2}"
     fi
     if [ -n "${DEVKIT_HOME:-}" ] && version_matches "$DEVKIT_HOME"; then
-        exec python3 "$DEVKIT_HOME/scripts/_doctor.py" "$@"
+        exec python3 "$DEVKIT_HOME/scripts/_doctor.py" "${@:2}"
     fi
     echo "LeeDevKit runtime missing or version-mismatched. Run './leedevkit doctor --fix' to repair." >&2
     exit 0

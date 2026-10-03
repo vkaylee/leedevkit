@@ -150,3 +150,46 @@ def test_install_success_activates_downloaded_release(tmp_path):
     assert (install_dir / "current").resolve() == (
         install_dir / f"v{version}"
     ).resolve()
+
+
+def test_project_wrapper_doctor_drops_command_name(tmp_path):
+    """The project launcher passes only doctor options to the doctor script."""
+    repo_root = Path(__file__).resolve().parents[2]
+    version = (repo_root / "VERSION").read_text().strip()
+    artifact = build_release(repo_root, tmp_path / "dist")
+    mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
+    mirror_release.mkdir(parents=True)
+    shutil.copy2(artifact, mirror_release / artifact.name)
+    (tmp_path / "tmp").mkdir(parents=True, exist_ok=True)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".git").mkdir()
+
+    env = _script_environment(
+        tmp_path,
+        LEEDEVKIT_RELEASE_BASE_URL=(tmp_path / "mirror").as_uri(),
+    )
+    bootstrap = subprocess.run(
+        ["bash", str(repo_root / "bootstrap.sh"), f"v{version}"],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert bootstrap.returncode == 0, bootstrap.stderr or bootstrap.stdout
+
+    doctor = subprocess.run(
+        [str(project / "leedevkit"), "doctor"],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    output = doctor.stdout + doctor.stderr
+    assert doctor.returncode == 0, output
+    assert "Project:" in output
+    assert "unrecognized arguments: doctor" not in output
