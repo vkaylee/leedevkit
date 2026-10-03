@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME="$ROOT/.leedevkit"
 CONFIG="$ROOT/leedevkit.toml"
-if [ -f "$ROOT/VERSION" ] && [ -x "$ROOT/bin/leedevkit" ] && [ -f "$ROOT/scripts/_orchestrator.py" ]; then
+if [ ! -d "$RUNTIME" ] && [ -f "$ROOT/VERSION" ] && [ -x "$ROOT/bin/leedevkit" ] && [ -f "$ROOT/scripts/_orchestrator.py" ]; then
     exec "$ROOT/bin/leedevkit" "$@"
 fi
 

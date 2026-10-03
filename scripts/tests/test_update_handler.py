@@ -13,11 +13,24 @@ class TestDevkitRoot:
     """Tests for _devkit_root()."""
 
     def test_returns_parent_of_scripts(self):
-        """_devkit_root points to the devkit install root."""
+        """_devkit_root points to the devkit install root when no .leedevkit."""
         from _update_handler import _devkit_root
 
         root = _devkit_root()
         assert (root / "scripts" / "_update_handler.py").exists()
+
+    def test_prefers_project_local_leedevkit_when_present(self, tmp_path, monkeypatch):
+        import _update_handler
+
+        fake_file = tmp_path / "repo" / "scripts" / "_update_handler.py"
+        fake_file.parent.mkdir(parents=True)
+        (tmp_path / "repo" / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n'
+        )
+        project_devkit = tmp_path / "repo" / ".leedevkit"
+        project_devkit.mkdir()
+        monkeypatch.setattr(_update_handler, "__file__", str(fake_file))
+        assert _update_handler._devkit_root() == project_devkit
 
 
 class TestDownloadAndExtract:

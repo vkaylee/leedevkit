@@ -21,8 +21,11 @@ DOWNLOAD_TIMEOUT = 120
 
 
 def _devkit_root() -> Path:
-    """Return the directory this devkit is installed in (parent of scripts/)."""
-    return Path(__file__).resolve().parent.parent
+    """Return active runtime, preferring project-local installation."""
+    root = Path(__file__).resolve().parent.parent
+    if (root / "leedevkit.toml").is_file() and (root / ".leedevkit").is_dir():
+        return root / ".leedevkit"
+    return root
 
 
 def _remove_path(path: Path) -> None:
