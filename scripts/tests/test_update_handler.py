@@ -534,13 +534,39 @@ class TestAutoSyncAfterUpdate:
         monkeypatch.setattr(
             "_update_handler.download_and_extract_tarball", fake_download
         )
-
         handle_update(target="v0.3.7")
 
         captured = capsys.readouterr()
         combined = captured.out + captured.err
         assert "syncing rules" in combined.lower()
         assert "sync complete" in combined.lower()
+
+    def test_update_downloads_release_artifact_with_manifest_url(
+        self, tmp_path, monkeypatch
+    ):
+        """Update downloads the compiled release artifact, not source tag archive."""
+        from _update_handler import handle_update
+
+        root = tmp_path / "devkit"
+        root.mkdir()
+        (root / "VERSION").write_text("0.1.0")
+        captured_url: list[str] = []
+
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+
+        def fake_download(url, target_dir):
+            captured_url.append(url)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "VERSION").write_text("0.2.0")
+
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
+        handle_update(target="v0.2.0")
+
+        assert captured_url == [
+            "https://github.com/vkaylee/leedevkit/releases/download/v0.2.0/leedevkit-0.2.0.tar.gz"
+        ]
 
     def test_sync_bridges_agents_and_skills(self, tmp_path, monkeypatch):
         """Post-update sync exposes devkit resources in Claude paths."""

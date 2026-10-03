@@ -7,6 +7,7 @@ with automatic backup and rollback on failure.
 
 from __future__ import annotations
 
+import os
 import shutil
 import urllib.request  # noqa: F401
 import uuid
@@ -68,7 +69,11 @@ def handle_update(target: str | None = None) -> None:
     tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
     config_toml = root.parent / "leedevkit.toml"
     original_config = config_toml.read_bytes() if config_toml.exists() else None
-    url = f"https://github.com/vkaylee/leedevkit/archive/refs/tags/{target}.tar.gz"
+    base = os.environ.get(
+        "LEEDEVKIT_RELEASE_BASE_URL",
+        "https://github.com/vkaylee/leedevkit/releases",
+    ).rstrip("/")
+    url = f"{base}/download/{target}/leedevkit-{ver}.tar.gz"
     try:
         download_and_extract_tarball(url, tmp_extract)
         version_file = tmp_extract / "VERSION"

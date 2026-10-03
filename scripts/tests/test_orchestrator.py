@@ -1507,7 +1507,7 @@ class TestHandleUpdate:
         assert "v0.3.0" in captured["url"]
         assert (root / "VERSION").read_text() == "0.3.0"
         # URL built from the resolved latest tag
-        assert "v0.3.0.tar.gz" in captured["url"]
+        assert "leedevkit-0.3.0.tar.gz" in captured["url"]
 
 
 class TestOrchestratorCoverageGaps:
