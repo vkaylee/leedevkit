@@ -41,14 +41,16 @@ BASE_CONTEXT = f"""## LeeDevKit base context
 This repository uses LeeDevKit. Before making changes, read and apply:
 `{BASE_CONTEXT_REF}`.
 
-Source of truth for this project's AI context lives in `.agent/`:
+Source of truth for this project's AI context lives in project `.agent/` and
+the installed devkit `.leedevkit/`:
 
 | Purpose | Location |
 |---------|----------|
 | Rulebooks (lazy-load by domain) | `.agent/rules/*.md` |
-| Built-in skills | `.agent/skills/*/SKILL.md` |
+| Built-in skills | `.leedevkit/.agent/skills/*/SKILL.md` |
 | Installed community skills | `.leedevkit/skills.d/*/SKILL.md` |
-| Specialist agents | `.agent/agents/*.md` |
+| Built-in agents | `.leedevkit/.agent/agents/*.md` |
+| Project agents | `.agent/agents/*.md` |
 | Devkit commands | `./leedevkit --help` |
 
 Capability fallback: if this harness cannot run shell commands, dispatch

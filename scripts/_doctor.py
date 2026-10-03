@@ -10,6 +10,8 @@ import os
 import shutil
 import socket
 import subprocess
+import tempfile
+import uuid
 from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT, ensure_project_gitignore
@@ -20,7 +22,57 @@ from _devkit_config import (
     resolve_ai_rules,
 )
 from _download import download_and_extract_tarball, normalize_version
+from _devkit_integrity import verify_devkit
 from _logging import log_info, log_success, log_warn
+
+
+MUTABLE_RUNTIME_DIRS = (".venv", "skills.d")
+MUTABLE_RUNTIME_FILES = ("dev-state.json",)
+
+
+def _replace_runtime_from_release(version: str, runtime: Path) -> Path:
+    """Install clean release files while preserving mutable runtime state."""
+    if runtime.is_symlink():
+        raise RuntimeError(f"Refusing to replace symlinked runtime: {runtime}")
+
+    staging = Path(tempfile.mkdtemp(prefix=".leedevkit-repair-", dir=runtime.parent))
+    staged_runtime = staging / "runtime"
+    backup = runtime.parent / f".{runtime.name}.repair-{uuid.uuid4().hex}"
+    moved_state: list[str] = []
+    try:
+        base = os.environ.get(
+            "LEEDEVKIT_RELEASE_BASE_URL",
+            "https://github.com/vkaylee/leedevkit/releases",
+        ).rstrip("/")
+        url = f"{base}/download/v{version}/leedevkit-{version}.tar.gz"
+        download_and_extract_tarball(
+            url,
+            staged_runtime,
+            timeout=os.environ.get("LEEDEVKIT_DOWNLOAD_TIMEOUT"),
+            expected_version=version,
+        )
+        if runtime.exists():
+            shutil.move(str(runtime), str(backup))
+        shutil.move(str(staged_runtime), str(runtime))
+        for name in (*MUTABLE_RUNTIME_DIRS, *MUTABLE_RUNTIME_FILES):
+            preserved = backup / name
+            if preserved.exists() or preserved.is_symlink():
+                shutil.move(str(preserved), str(runtime / name))
+                moved_state.append(name)
+        shutil.rmtree(backup, ignore_errors=True)
+        return runtime
+    except Exception:
+        if runtime.exists() and not runtime.is_symlink():
+            for name in moved_state:
+                current = runtime / name
+                if current.exists() or current.is_symlink():
+                    shutil.move(str(current), str(backup / name))
+            shutil.rmtree(runtime)
+        if backup.exists() or backup.is_symlink():
+            shutil.move(str(backup), str(runtime))
+        raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _runtime_matches(root: Path, version: str) -> bool:
@@ -69,7 +121,7 @@ def _bootstrap_runtime(version: str) -> Path:
 
 
 def _repair_environment() -> None:
-    """Repair only DevKit-owned runtime, venv, and missing rulebooks."""
+    """Repair DevKit-owned runtime, venv, missing rules, and harness projections."""
     ensure_project_gitignore(PROJECT_ROOT)
     config_path = PROJECT_ROOT / "leedevkit.toml"
     cfg = _load_toml(config_path) if config_path.is_file() else {}
@@ -94,6 +146,19 @@ def _repair_environment() -> None:
 
     _devkit_config._DEVKIT_ROOT = None
     devkit = get_devkit_root()
+    integrity = verify_devkit(devkit)
+    if (
+        not integrity.is_clean
+        and not integrity.no_manifest
+        and (integrity.modified or integrity.missing or integrity.invalid_manifest)
+    ):
+        if devkit != runtime:
+            raise RuntimeError(f"Refusing to repair shared runtime: {devkit}")
+        _replace_runtime_from_release(version, runtime)
+        log_success(f"✅ Restored DevKit {version} from release")
+        _devkit_config._DEVKIT_ROOT = None
+        devkit = get_devkit_root()
+
     ensure_venv = devkit / "scripts" / "_ensure-venv.sh"
     python_bin = devkit / ".venv" / "bin" / "python3"
     venv_ready = python_bin.is_file() and os.access(python_bin, os.X_OK)
@@ -116,16 +181,23 @@ def _repair_environment() -> None:
     target_rules = PROJECT_ROOT / rules_rel
     if target_rules.is_symlink():
         log_warn(f"⚠️  Refusing to modify symlinked rulebook directory: {target_rules}")
-        return
-    target_rules.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for rule in source_rules.glob("*.md"):
-        target = target_rules / rule.name
-        if not target.exists() and not target.is_symlink():
-            shutil.copy2(rule, target)
-            copied += 1
-    if copied:
-        log_success(f"✅ Synchronized {copied} missing AI rulebook(s)")
+    else:
+        target_rules.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        for rule in source_rules.glob("*.md"):
+            target = target_rules / rule.name
+            if not target.exists() and not target.is_symlink():
+                shutil.copy2(rule, target)
+                copied += 1
+        if copied:
+            log_success(f"✅ Synchronized {copied} missing AI rulebook(s)")
+
+    from _harness_engine import sync_harnesses
+
+    report = sync_harnesses(PROJECT_ROOT, devkit, cfg)
+    changed = sum(report.values())
+    if changed:
+        log_success(f"✅ Synchronized AI harnesses ({changed} changed)")
 
 
 def run_doctor(engine: str, fix: bool = False) -> None:
@@ -172,6 +244,18 @@ def run_doctor(engine: str, fix: bool = False) -> None:
             (dk / "VERSION").read_text().strip() if (dk / "VERSION").exists() else "?"
         )
         log_success(f"✅ DevKit: {dk} (v{dk_version})")
+        integrity = verify_devkit(dk)
+        if integrity.no_manifest:
+            log_warn("⚠️  DevKit integrity: manifest missing")
+        elif integrity.is_clean:
+            log_success("✅ DevKit integrity: verified")
+        else:
+            log_warn(
+                "⚠️  DevKit integrity: drift detected "
+                f"({len(integrity.modified)} modified, "
+                f"{len(integrity.missing)} missing, "
+                f"{len(integrity.extra)} extra)"
+            )
     except (OSError, ValueError) as e:
         log_warn(f"⚠️  DevKit: {e}")
 

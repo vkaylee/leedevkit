@@ -388,3 +388,94 @@ class TestRunDoctor:
         assert first_target == source
         assert (project / ".leedevkit").is_symlink()
         assert user_rule.read_text() == "user\n"
+
+    def test_repair_restores_drift_and_preserves_mutable_runtime_state(self, tmp_path):
+        from _doctor import _repair_environment
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[ai]\nrules_dir = ".agent/rules"\n'
+        )
+        runtime = project / ".leedevkit"
+        (runtime / "scripts").mkdir(parents=True)
+        (runtime / "scripts" / "changed.py").write_text("local change\n")
+        (runtime / "VERSION").write_text("0.1.0\n")
+        (runtime / ".venv").mkdir()
+        (runtime / ".venv" / "marker").write_text("keep venv\n")
+        (runtime / "skills.d" / "custom").mkdir(parents=True)
+        (runtime / "skills.d" / "custom" / "SKILL.md").write_text("keep skill\n")
+
+        release = tmp_path / "release"
+        (release / "scripts").mkdir(parents=True)
+        (release / "scripts" / "changed.py").write_text("upstream\n")
+        (release / "VERSION").write_text("0.1.0\n")
+        from _devkit_integrity import write_manifest
+
+        write_manifest(release)
+        (runtime / "devkit.manifest.json").write_text(
+            (release / "devkit.manifest.json").read_text()
+        )
+        with (
+            patch("_doctor.PROJECT_ROOT", project),
+            patch("_doctor._matching_runtime", return_value=None),
+            patch("_doctor.get_devkit_root", return_value=runtime),
+            patch("_doctor._devkit_config", create=True),
+            patch("_doctor.download_and_extract_tarball") as download,
+        ):
+
+            def install_archive(url, target, **kwargs):
+                import shutil
+
+                shutil.copytree(release, target)
+
+            download.side_effect = install_archive
+            _repair_environment()
+
+        assert (runtime / "scripts" / "changed.py").read_text() == "upstream\n"
+        assert (runtime / ".venv" / "marker").read_text() == "keep venv\n"
+        assert (
+            runtime / "skills.d" / "custom" / "SKILL.md"
+        ).read_text() == "keep skill\n"
+
+    def test_doctor_reports_drift_and_verification(self, tmp_path, capsys):
+        from _doctor import run_doctor
+        from _devkit_integrity import write_manifest
+
+        dk = self._dk(tmp_path)
+        (dk / "file.txt").write_text("clean\n")
+        write_manifest(dk)
+
+        with self._patches(tmp_path, dk):
+            run_doctor("podman")
+        out = capsys.readouterr().err
+        assert "DevKit integrity: verified" in out
+
+        (dk / "file.txt").write_text("drifted\n")
+        with self._patches(tmp_path, dk):
+            run_doctor("podman")
+        out = capsys.readouterr().err
+        assert "DevKit integrity: drift detected" in out
+
+    def test_repair_syncs_harnesses(self, tmp_path):
+        from _doctor import _repair_environment
+
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leedevkit.toml").write_text(
+            '[devkit]\nversion = "0.1.0"\n[ai]\nrules_dir = ".agent/rules"\n'
+        )
+        runtime = project / ".leedevkit"
+        runtime.mkdir()
+        (runtime / "VERSION").write_text("0.1.0\n")
+
+        with (
+            patch("_doctor.PROJECT_ROOT", project),
+            patch("_doctor._matching_runtime", return_value=None),
+            patch("_doctor.get_devkit_root", return_value=runtime),
+            patch(
+                "_harness_engine.sync_harnesses", return_value={"claude": 1}
+            ) as mock_sync,
+        ):
+            _repair_environment()
+            mock_sync.assert_called_once()

@@ -41,21 +41,12 @@ Load only the rulebooks applicable to the task using the `Read` tool.
 
 Security, migration, architecture, and release rules are risk-triggered and do not apply mechanically to unrelated changes.
 
-## 🤖 Layer 4: AGENTS & SKILLS (Lazy Load)
-Read only the agents or skills relevant to the current task.
+Read only agents or skills relevant to current task.
 
-- **General Orchestration:** `.agent/agents/orchestrator.md`
-- **Frontend / React / UI:** `.agent/agents/frontend-specialist.md`
-- **Backend / API / Server:** `.agent/agents/backend-specialist.md`
-- **API Contract Design:** `.agent/agents/api-designer.md`
-- **Database / Schema:** `.agent/agents/database-architect.md`
-- **DevOps / Infra:** `.agent/agents/devops-engineer.md`
-- **Security / Audit:** `.agent/agents/security-auditor.md`
-- **Testing & QA:** `.agent/agents/test-engineer.md`
-- **Debugging:** `.agent/agents/debugger.md`
-- **Performance:** `.agent/agents/performance-optimizer.md`
-- **Mobile Development:** `.agent/agents/mobile-developer.md`
-- **Game Development:** `.agent/agents/game-developer.md`
+- **Built-in agents:** `.leedevkit/.agent/agents/*.md`
+- **Built-in skills:** `.leedevkit/.agent/skills/*/SKILL.md`
+- **Project agents:** `.agent/agents/*.md`
+- **Project skills:** `.agent/skills/*/SKILL.md`
 
 ## 🤖 OPTIONAL TASK ROUTING
 If active harness exposes `mcp__leedevkit-task-assessor__assess_task`, call it for ambiguous or non-trivial delegation and use its suggested tier unless explicit task context justifies an override. Otherwise estimate task risk and choose an appropriate local or harness-native agent path; never invent unavailable MCP or subagent tools.

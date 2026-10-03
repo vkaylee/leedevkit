@@ -45,10 +45,36 @@ def test_explicit_harnesses_project_context_and_preserve_user_content(
 
     assert set(report) == {"claude", "codex", "cursor", "gemini"}
     assert (root / ".claude/skills/api-patterns/SKILL.md").is_file()
+    context = (root / "CLAUDE.md").read_text()
+    assert "`.leedevkit/.agent/skills/*/SKILL.md`" in context
+    assert "`../.leedevkit/.agent/skills/api-patterns/SKILL.md`" in context
     assert (root / "AGENTS.md").read_text().startswith("# Local rules\n")
     assert "Keep this text." in (root / "AGENTS.md").read_text()
     assert (root / ".cursor/rules/leedevkit.mdc").is_file()
     assert (root / "GEMINI.md").is_file()
+
+
+def test_context_uses_consumer_paths_for_builtin_skills(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    devkit = root / ".leedevkit"
+    skill_names = (
+        "brainstorming",
+        "frontend-design",
+        "intelligent-routing",
+        "plan-writing",
+    )
+    for name in skill_names:
+        skill = devkit / ".agent" / "skills" / name
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(f"---\nname: {name}\ndescription: test\n---\n")
+    root.mkdir(exist_ok=True)
+
+    sync_harnesses(root, devkit, {"ai": {"harnesses": ["claude"]}})
+
+    context = (root / "CLAUDE.md").read_text()
+    for name in skill_names:
+        assert f"`.leedevkit/.agent/skills/{name}/SKILL.md`" in context
+        assert f"`.agent/skills/{name}/SKILL.md`" not in context
 
 
 def test_sync_is_idempotent_and_managed_block_is_single_instance(
