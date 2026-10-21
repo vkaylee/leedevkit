@@ -22,6 +22,16 @@ TIMEOUT_UNIT = int(os.environ.get("TIMEOUT_UNIT", "900"))
 TIMEOUT_INTEGRATION = int(os.environ.get("TIMEOUT_INTEGRATION", "1200"))
 TIMEOUT_BUILD = int(os.environ.get("TIMEOUT_BUILD", "600"))
 LAST_PHASE_EXIT_CODE: int | None = None
+
+def get_run_log_dir() -> Path:
+    """Return log directory isolated by the current Compose project."""
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "").strip()
+    if not project_name:
+        return LOG_DIR
+    safe_project = "".join(
+        char if char.isalnum() or char in "-_." else "_" for char in project_name
+    )
+    return LOG_DIR / safe_project
 LAST_PHASE_COMMANDS: dict[str, list[str]] = {}
 QUIET_OUTPUT = False
 
@@ -135,9 +145,10 @@ def _terminate_process_tree(proc: subprocess.Popen) -> None:
 
 
 def _ensure_log_dir() -> Path:
-    """Ensure LOG_DIR exists and return it."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    return LOG_DIR
+    """Ensure the current run's log directory exists and return it."""
+    log_dir = get_run_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
 
 
 def _safe_log_name(phase_name: str, task_name: str) -> str:
@@ -258,7 +269,7 @@ def _run_tasks_serial(
 
     all_passed = True
     for name, _service, cmd in tasks:
-        log_file = LOG_DIR / _safe_log_name(phase_name, name)
+        log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
         if not QUIET_OUTPUT:
             _sys.stdout.write(f"\n  [{name}] Running...\n")
             _sys.stdout.flush()
@@ -323,9 +334,9 @@ def _run_tasks_parallel(
             with lock:
                 if not task_queue:
                     return
-                name, service, cmd = task_queue.popleft()
+                name, _service, cmd = task_queue.popleft()
 
-            log_file = LOG_DIR / _safe_log_name(phase_name, name)
+            log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
             ret = run_single_task(name, cmd, log_file, timeout)
             with lock:
                 results[name] = ret
@@ -346,10 +357,10 @@ def _run_tasks_parallel(
     for name, exit_code in results.items():
         if exit_code != 0:
             LAST_PHASE_EXIT_CODE = exit_code
-            log_file = LOG_DIR / _safe_log_name(phase_name, name)
+            log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
             _print_failure(name, log_file, exit_code)
             return False
-        log_file = LOG_DIR / _safe_log_name(phase_name, name)
+        log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
         _print_success(name, log_file)
 
     return all(v == 0 for v in results.values())

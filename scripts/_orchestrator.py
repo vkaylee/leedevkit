@@ -34,6 +34,7 @@ from _test_modules import (
     _resolve_go_service,
     _resolve_rust_service,
 )
+from _test_utils import get_run_log_dir
 
 
 class Orchestrator:
@@ -117,8 +118,8 @@ class Orchestrator:
             return
 
         try:
-            cleanup_log = PROJECT_ROOT / ".test_logs" / "cleanup.log"
-            cleanup_log.parent.mkdir(exist_ok=True)
+            cleanup_log = get_run_log_dir() / "cleanup.log"
+            cleanup_log.parent.mkdir(parents=True, exist_ok=True)
             with cleanup_log.open("a") as f:
                 now = time.strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"\n--- Cleanup started at {now} ---\n")
