@@ -23,6 +23,7 @@ TIMEOUT_INTEGRATION = int(os.environ.get("TIMEOUT_INTEGRATION", "1200"))
 TIMEOUT_BUILD = int(os.environ.get("TIMEOUT_BUILD", "600"))
 LAST_PHASE_EXIT_CODE: int | None = None
 
+
 def get_run_log_dir() -> Path:
     """Return log directory isolated by the current Compose project."""
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "").strip()
@@ -32,6 +33,8 @@ def get_run_log_dir() -> Path:
         char if char.isalnum() or char in "-_." else "_" for char in project_name
     )
     return LOG_DIR / safe_project
+
+
 LAST_PHASE_COMMANDS: dict[str, list[str]] = {}
 QUIET_OUTPUT = False
 

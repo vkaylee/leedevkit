@@ -238,8 +238,7 @@ class TestHandler(HandlerBase):
         if status in ("failed", "blocked"):
             run_log_dir = get_run_log_dir()
             result["log"] = str(
-                run_log_dir.relative_to(PROJECT_ROOT)
-                / f"{phase.replace(' ', '_')}.log"
+                run_log_dir.relative_to(PROJECT_ROOT) / f"{phase.replace(' ', '_')}.log"
             )
             result["rerun"] = command
         self._results[key] = result
