@@ -15,6 +15,7 @@ from _test_utils import (
     build_compose_exec,
     get_last_phase_commands,
     get_phase_timeout,
+    get_run_log_dir,
     run_parallel_ordered,
     run_single_task,
 )
@@ -245,6 +246,18 @@ class TestEnsureLogDir:
         log_dir = _ensure_log_dir()
         assert log_dir.exists()
         assert log_dir.is_dir()
+
+    def test_run_log_dir_isolated_by_compose_project(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path / ".test_logs")
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "leedevkit-test-a1b2")
+
+        first = get_run_log_dir()
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "leedevkit-test-c3d4")
+        second = get_run_log_dir()
+
+        assert first != second
+        assert first == tmp_path / ".test_logs" / "leedevkit-test-a1b2"
+        assert second == tmp_path / ".test_logs" / "leedevkit-test-c3d4"
 
 
 class TestPrintSuccessFailure:

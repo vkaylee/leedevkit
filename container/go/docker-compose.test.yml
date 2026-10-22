@@ -11,10 +11,16 @@ services:
       - go-module-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     working_dir: /workspace
+    environment:
+      GOTMPDIR: /go-tmp
+    tmpfs:
+      - /go-tmp:rw,nosuid,nodev,size=1g
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "go", "version"]
 
 volumes:
   go-module-cache:
+    name: leedevkit_go-module-cache
   go-build-cache:
+    name: leedevkit_go-build-cache

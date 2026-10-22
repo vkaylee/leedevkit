@@ -9,6 +9,7 @@ shared state and lifecycle management.
 import argparse
 import datetime
 import json
+import os
 import re
 import shlex
 import sys
@@ -34,6 +35,7 @@ from _test_utils import (
     clear_last_phase_commands,
     get_last_phase_commands,
     get_last_phase_exit_code,
+    get_run_log_dir,
     set_quiet_output,
 )
 
@@ -234,11 +236,15 @@ class TestHandler(HandlerBase):
         if error:
             result["error"] = error
         if status in ("failed", "blocked"):
-            result["log"] = f".test_logs/{phase.replace(' ', '_')}.log"
+            run_log_dir = get_run_log_dir()
+            result["log"] = str(
+                run_log_dir.relative_to(PROJECT_ROOT)
+                / f"{phase.replace(' ', '_')}.log"
+            )
             result["rerun"] = command
         self._results[key] = result
         if status in ("failed", "blocked"):
-            log_path = PROJECT_ROOT / ".test_logs" / f"{phase.replace(' ', '_')}.log"
+            log_path = get_run_log_dir() / f"{phase.replace(' ', '_')}.log"
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 if not log_path.exists():
@@ -681,7 +687,11 @@ class TestHandler(HandlerBase):
         vitest_pattern = re.compile(r"Tests\s+(\d+)\s+passed\s+\((\d+)\)")
         pw_pattern = re.compile(r"^\s*(\d+)\s+passed\s+\(.*?\)", re.MULTILINE)
 
-        log_dir = PROJECT_ROOT / ".test_logs"
+        log_dir = (
+            get_run_log_dir()
+            if os.environ.get("COMPOSE_PROJECT_NAME")
+            else PROJECT_ROOT / ".test_logs"
+        )
         if log_dir.exists():
             for log_file in log_dir.glob("*.log"):
                 try:
