@@ -117,11 +117,8 @@ def handle_update(target: str | None = None) -> None:
 
         log_info("Syncing rules and creating symlinks...")
         from _init_handler import InitHandler
-        from _orchestrator import Orchestrator
 
-        orch = Orchestrator.__new__(Orchestrator)
-        setattr(orch, "_devkit_root", root)
-        InitHandler(orch).handle_post_update_sync()
+        InitHandler(None).handle_post_update_sync()
         log_success("Post-update sync complete")
     except Exception:
         if original_config is None:

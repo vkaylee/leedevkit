@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import shutil
+import sys
 import tarfile
+from types import ModuleType
 
 import pytest
 
@@ -521,8 +523,10 @@ class TestAutoSyncAfterUpdate:
         assert (root / "skills.d").resolve() == external_skills.resolve()
         assert (root / "skills.d" / "my-skill" / "SKILL.md").read_text() == "external\n"
 
-    def test_sync_called_after_update(self, tmp_path, monkeypatch, capsys):
-        """After successful update, sync is automatically called."""
+    def test_sync_works_with_stale_test_utils_module(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Post-update sync does not import stale runtime modules."""
         from _update_handler import handle_update
 
         project_root = tmp_path / "project"
@@ -547,6 +551,8 @@ class TestAutoSyncAfterUpdate:
         monkeypatch.setattr(
             "_update_handler.download_and_extract_tarball", fake_download
         )
+        monkeypatch.setitem(sys.modules, "_test_utils", ModuleType("_test_utils"))
+        monkeypatch.delitem(sys.modules, "_orchestrator", raising=False)
         handle_update(target="v0.3.7")
 
         captured = capsys.readouterr()
