@@ -345,15 +345,22 @@ def resolve_test_targets(target: str = "all") -> list[str]:
     if not isinstance(all_services, list):
         return ["all"]
     selected: list[str] = []
+    covered_services: set[str] = set()
     for name, services in targets.items():
         if name == "all" or not isinstance(services, list):
             continue
-        if any(service in all_services for service in services):
+        configured_services = {str(service) for service in services}
+        covered = configured_services.intersection(
+            str(service) for service in all_services
+        )
+        if covered:
             selected.append(str(name))
+            covered_services.update(covered)
     for service in all_services:
         service_name = str(service)
-        if service_name not in selected and service_name not in targets:
+        if service_name not in covered_services and service_name not in selected:
             selected.append(service_name)
+            covered_services.add(service_name)
     return selected or ["all"]
 
 

@@ -18,6 +18,7 @@ from _devkit_config import (
     load_project_config,
     resolve_ai_rules,
     resolve_lifecycle_dependencies,
+    resolve_test_targets,
 )
 
 
@@ -304,6 +305,55 @@ class TestDeepMergeMore:
         result = deep_merge(base, override)
         assert result["a"]["b"]["c"]["d"] == 1
         assert result["a"]["b"]["c"]["e"] == 2
+
+
+class TestResolveTestTargets:
+    def test_deduplicates_service_covered_by_alias(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"targets": {"go": ["zkteco"], "all": ["zkteco"]}},
+        )
+
+        assert resolve_test_targets() == ["go"]
+
+    def test_keeps_service_without_alias(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"targets": {"all": ["service"]}},
+        )
+
+        assert resolve_test_targets() == ["service"]
+
+    def test_keeps_all_targets_and_uncovered_services_in_config_order(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {
+                "targets": {
+                    "go": ["zkteco"],
+                    "api": ["api"],
+                    "all": ["zkteco", "api", "standalone"],
+                }
+            },
+        )
+
+        assert resolve_test_targets() == ["go", "api", "standalone"]
+
+    def test_result_order_is_stable(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {
+                "targets": {
+                    "web": ["web-service"],
+                    "go": ["go-service"],
+                    "all": ["go-service", "web-service"],
+                }
+            },
+        )
+
+        assert resolve_test_targets() == ["web", "go"]
+        assert resolve_test_targets() == ["web", "go"]
 
 
 class TestLifecycleDependencies:
