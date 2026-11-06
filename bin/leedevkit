@@ -4,10 +4,11 @@
 #
 # Commands:
 #   test    Run test suite (./test.sh)
-#   manage  Infrastructure management (./manage.sh)
-#   init    Initialize project (alias: manage init)
-#   doctor  System health check (alias: manage doctor)
-#   skills  Manage community skills (alias: manage skills)
+#   dev     Manage development environment (./dev up|down)
+#   init    Initialize project
+#   doctor  System health check
+#   skills  Manage community skills
+
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ print_usage() {
     echo ""
     echo "Commands:"
     echo "  test     Run tests       (leedevkit test infra --lint-only)"
-    echo "  manage   Infra & config  (leedevkit manage up dev)"
+    echo "  dev      Dev environment (leedevkit dev up|down)"
     echo "  init     Initialize a project with leedevkit"
     echo "  update   Update devkit to the latest (or pinned) release"
     echo "  doctor   System health check"
@@ -48,7 +49,7 @@ case "$COMMAND" in
         print_usage
         exit 0
         ;;
-    test|manage|init|doctor|skills|update)
+    test|dev|init|doctor|skills|update)
         ;;
     *)
         echo "Unknown command: $COMMAND"
@@ -68,17 +69,17 @@ case "$COMMAND" in
     test)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" test "$@"
         ;;
-    manage)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage "$@"
+    dev)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" dev "$@"
         ;;
     init)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage init "$@"
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" init "$@"
         ;;
     doctor)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage doctor "$@"
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" doctor "$@"
         ;;
     skills)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" manage skills "$@"
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" skills "$@"
         ;;
     update)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" update "$@"

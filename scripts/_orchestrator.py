@@ -204,8 +204,23 @@ class Orchestrator:
 
         if args.command == "test":
             self.handle_test(args)
-        elif args.command == "manage":
-            if self.handle_manage(args) is False:
+        elif args.command in {
+            "dev",
+            "init",
+            "doctor",
+            "skills",
+            "sync:api",
+            "test:infra",
+            "migrate:run",
+            "migrate:revert",
+            "migrate:status",
+            "db:setup",
+            "db:query",
+            "prebuild",
+            "fmt:infra",
+            "verify:infra",
+        }:
+            if self.handle_command(args) is False:
                 sys.exit(1)
         elif args.command == "run":
             self.handle_run(args)
@@ -220,8 +235,8 @@ class Orchestrator:
     def run_phase(self, phase_name: str, mode: str, args: argparse.Namespace) -> None:
         self._test_handler.run_phase(phase_name, mode, args)
 
-    def handle_manage(self, args: argparse.Namespace) -> bool | None:
-        """Handle 'manage' commands using a dispatch map for simplicity."""
+    def handle_command(self, args: argparse.Namespace) -> bool | None:
+        """Handle top-level and development commands."""
         sub = args.subcommand
 
         simple_dispatch: dict[str, typing.Callable[[], typing.Any]] = {
@@ -236,11 +251,7 @@ class Orchestrator:
             "db:setup": lambda: self.run_phase("Database Setup", "all", args),
             "prebuild": lambda: self.run_phase("Prebuild", "all", args),
             "fmt:infra": self.handle_fmt_infra,
-            "doctor": lambda: (
-                self.handle_doctor(getattr(args, "fix", False))
-                if getattr(args, "fix", False)
-                else self.handle_doctor()
-            ),
+            "doctor": lambda: self.handle_doctor(getattr(args, "fix", False)),
             "verify:infra": self.handle_verify_infra,
         }
 
@@ -258,8 +269,7 @@ class Orchestrator:
         if sub == "db:query":
             self.handle_db_query(args)
         elif sub in ["up", "down", "ps", "clean", "logs"]:
-            target_env: str = getattr(args, "env", "dev")
-            files = self.get_compose_files(target_env)
+            files = self.get_compose_files("dev")
             if sub == "clean":
                 cmd = self.compose_engine + files + ["down", "-v"]
             elif sub == "up" and self.engine == "podman":

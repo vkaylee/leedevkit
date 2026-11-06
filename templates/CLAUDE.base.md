@@ -59,8 +59,9 @@ If active harness exposes `mcp__leedevkit-task-assessor__assess_task`, call it f
 | `leedevkit test infra` | Format check + lint + unit/coverage |
 | `leedevkit test all` | Full suite (lint + unit + e2e) |
 | `leedevkit test all --json` | Machine-readable output |
-| `leedevkit manage up dev` | Start dev environment |
-| `leedevkit manage db:setup` | Init database + migrations |
+| `leedevkit dev up` | Start dev environment |
+| `leedevkit dev down` | Stop dev environment |
+| `leedevkit db:setup` | Init database + migrations |
 | `leedevkit doctor` | System health check |
 | `leedevkit skills list` | Browse available skills |
 | `leedevkit version` | Print installed version (no venv/network) |

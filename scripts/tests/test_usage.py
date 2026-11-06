@@ -77,7 +77,18 @@ class TestCliHelp:
         assert args.json_stream is True
         assert args.quiet is True
 
-    def test_manage_help(self):
+    def test_dev_help(self):
+        orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
+        r = subprocess.run(
+            [VENV_PYTHON, str(orch), "dev", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
+        assert "leedevkit dev up" in r.stdout
+
+    def test_manage_command_removed(self):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
         r = subprocess.run(
             [VENV_PYTHON, str(orch), "manage", "--help"],
@@ -85,7 +96,7 @@ class TestCliHelp:
             text=True,
             timeout=10,
         )
-        assert r.returncode == 0
+        assert r.returncode != 0
 
 
 class TestInitFlow:
@@ -94,7 +105,7 @@ class TestInitFlow:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         r = subprocess.run(
-            [VENV_PYTHON, str(orch), "manage", "init", "--dry-run"],
+            [VENV_PYTHON, str(orch), "init", "--dry-run"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -108,14 +119,13 @@ class TestInitFlow:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         subprocess.run(
-            [VENV_PYTHON, str(orch), "manage", "init"],
+            [VENV_PYTHON, str(orch), "init"],
             capture_output=True,
             text=True,
             timeout=30,
             env={**os.environ, "DEVKIT_HOME": dk},
         )
         assert (tmp_path / "leedevkit").exists()
-
 
 class TestDoctor:
     def test_doctor_runs(self, tmp_path, monkeypatch):
@@ -124,7 +134,7 @@ class TestDoctor:
         monkeypatch.chdir(tmp_path)
         dk = str(Path(__file__).resolve().parent.parent.parent)
         r = subprocess.run(
-            [VENV_PYTHON, str(orch), "manage", "doctor"],
+            [VENV_PYTHON, str(orch), "doctor"],
             capture_output=True,
             text=True,
             timeout=10,

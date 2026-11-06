@@ -1,6 +1,6 @@
 #!/bin/bash
 # Ensure Python venv exists with required dependencies.
-# Outputs the python binary path on the last line for test.sh/manage.sh.
+# Outputs the python binary path on the last line for CLI wrappers.
 
 set -euo pipefail
 

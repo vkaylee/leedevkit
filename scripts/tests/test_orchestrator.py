@@ -386,33 +386,33 @@ class TestSkillsSubCommands:
             orch.handle_skills(args)
 
 
-class TestHandleManageDispatch:
-    def test_manage_fmt_infra(self, monkeypatch):
+class TestHandleCommandDispatch:
+    def test_command_fmt_infra(self, monkeypatch):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="fmt:infra")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_manage_doctor_dry(self):
+    def test_command_doctor_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="doctor")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_manage_clean(self, monkeypatch):
+    def test_command_clean(self, monkeypatch):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="clean", env="dev")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
 
 class TestOrchestratorRun:
@@ -936,44 +936,44 @@ class TestCleanupMocked:
             orch.cleanup()
 
 
-class TestHandleManageMocked:
-    """Test handle_manage dispatch with execution mocked."""
+class TestHandleCommandMocked:
+    """Test handle_command dispatch with execution mocked."""
 
-    def test_handle_manage_sync_api_dry(self):
+    def test_handle_command_sync_api_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="sync:api")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_handle_manage_migrate_run_dry(self):
+    def test_handle_command_migrate_run_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="migrate:run")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_handle_manage_migrate_revert_dry(self):
+    def test_handle_command_migrate_revert_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="migrate:revert")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_handle_manage_prebuild_dry(self):
+    def test_handle_command_prebuild_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="prebuild")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
 
 # ── Coverage gap fillers: _build_mode_map, _inject_rust_version_env, etc. ──
@@ -1126,82 +1126,81 @@ class TestRunMethod:
             with patch("_update_handler.handle_update") as mock_update:
                 orch.run()
         mock_update.assert_called_once()
-
-    def test_handle_manage_db_setup_dry(self):
+    def test_command_db_setup_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="db:setup")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_handle_manage_verify_infra_dry(self):
+    def test_command_verify_infra_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="verify:infra")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_handle_manage_test_infra_dry(self):
+    def test_command_test_infra_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="test:infra")
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
 
-class TestHandleManageUpDown:
-    """Test compose up/down/ps/logs with execution mocked."""
+class TestHandleDevCommands:
+    """Test dev compose commands with execution mocked."""
 
-    def test_manage_up_dev_dry(self):
+    def test_dev_up_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
-            args = argparse.Namespace(subcommand="up", env="dev")
-            orch.handle_manage(args)
+            args = argparse.Namespace(subcommand="up")
+            orch.handle_command(args)
 
-    def test_manage_down_test_dry(self):
+    def test_dev_down_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
-            args = argparse.Namespace(subcommand="down", env="test")
-            orch.handle_manage(args)
+            args = argparse.Namespace(subcommand="down")
+            orch.handle_command(args)
 
-    def test_manage_ps_dry(self):
+    def test_dev_ps_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
-            args = argparse.Namespace(subcommand="ps", env="dev")
-            orch.handle_manage(args)
+            args = argparse.Namespace(subcommand="ps")
+            orch.handle_command(args)
 
-    def test_manage_exec_dry(self):
+    def test_dev_exec_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="exec", service="apiserver", args=[])
-            orch.handle_manage(args)
+            orch.handle_command(args)
 
-    def test_manage_logs_dry(self):
+    def test_dev_logs_dry(self):
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.dry_run = True
-            args = argparse.Namespace(subcommand="logs", env="dev", service=None)
-            orch.handle_manage(args)
+            args = argparse.Namespace(subcommand="logs", service=None)
+            orch.handle_command(args)
 
 
 class TestHandleTestSummary:
@@ -1622,8 +1621,8 @@ class TestOrchestratorCoverageGaps:
         err = capsys.readouterr().err
         assert "Failed to lock" in err
 
-    def test_handle_manage_skills_dispatch(self, monkeypatch):
-        """handle_manage dispatches 'skills' to handle_skills."""
+    def test_handle_command_skills_dispatch(self, monkeypatch):
+        """handle_command dispatches 'skills' to handle_skills."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1631,37 +1630,35 @@ class TestOrchestratorCoverageGaps:
             dispatched = []
             monkeypatch.setattr(orch, "handle_skills", lambda a: dispatched.append(a))
             args = type("Args", (), {"subcommand": "skills", "skills_action": "list"})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert len(dispatched) == 1
 
-    def test_handle_manage_dispatch_init(self, monkeypatch):
-        """handle_manage dispatches 'init' via simple_dispatch map."""
+    def test_handle_command_dispatch_init(self, monkeypatch):
+        """handle_command dispatches 'init' via simple_dispatch map."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(
-                orch, "handle_init", lambda force=False: called.append(force)
-            )
+            monkeypatch.setattr(orch, "handle_init", lambda force=False: called.append(force))
             args = type("Args", (), {"subcommand": "init", "force": True})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert called == [True]
 
-    def test_handle_manage_dispatch_doctor(self, monkeypatch):
-        """handle_manage dispatches 'doctor' via simple_dispatch map."""
+    def test_handle_command_dispatch_doctor(self, monkeypatch):
+        """handle_command dispatches 'doctor' via simple_dispatch map."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(orch, "handle_doctor", lambda: called.append(True))
+            monkeypatch.setattr(orch, "handle_doctor", lambda fix=False: called.append(fix))
             args = type("Args", (), {"subcommand": "doctor"})()
-            orch.handle_manage(args)
-        assert called == [True]
+            orch.handle_command(args)
+        assert called == [False]
 
-    def test_handle_manage_dispatch_fmt_infra(self, monkeypatch):
-        """handle_manage dispatches 'fmt:infra' via simple_dispatch map."""
+    def test_handle_command_dispatch_fmt_infra(self, monkeypatch):
+        """handle_command dispatches 'fmt:infra' via simple_dispatch map."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1669,25 +1666,23 @@ class TestOrchestratorCoverageGaps:
             called = []
             monkeypatch.setattr(orch, "handle_fmt_infra", lambda: called.append(True))
             args = type("Args", (), {"subcommand": "fmt:infra"})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert called == [True]
 
-    def test_handle_manage_dispatch_verify_infra(self, monkeypatch):
-        """handle_manage dispatches 'verify:infra' via simple_dispatch map."""
+    def test_handle_command_dispatch_verify_infra(self, monkeypatch):
+        """handle_command dispatches 'verify:infra' via simple_dispatch map."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(
-                orch, "handle_verify_infra", lambda: called.append(True)
-            )
+            monkeypatch.setattr(orch, "handle_verify_infra", lambda: called.append(True))
             args = type("Args", (), {"subcommand": "verify:infra"})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert called == [True]
 
-    def test_handle_manage_dispatch_db_query(self, monkeypatch):
-        """handle_manage dispatches 'db:query' to handle_db_query."""
+    def test_handle_command_dispatch_db_query(self, monkeypatch):
+        """handle_command dispatches 'db:query' to handle_db_query."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1695,11 +1690,11 @@ class TestOrchestratorCoverageGaps:
             dispatched = []
             monkeypatch.setattr(orch, "handle_db_query", lambda a: dispatched.append(a))
             args = type("Args", (), {"subcommand": "db:query", "sql": "SELECT 1"})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert len(dispatched) == 1
 
-    def test_handle_manage_dispatch_migrate(self, monkeypatch):
-        """handle_manage dispatches migrate commands to handle_diesel."""
+    def test_handle_command_dispatch_migrate(self, monkeypatch):
+        """handle_command dispatches migrate commands to handle_diesel."""
         from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1707,7 +1702,7 @@ class TestOrchestratorCoverageGaps:
             dispatched = []
             monkeypatch.setattr(orch, "handle_diesel", lambda a: dispatched.append(a))
             args = type("Args", (), {"subcommand": "migrate:status"})()
-            orch.handle_manage(args)
+            orch.handle_command(args)
         assert dispatched == [["migration", "list"]]
 
     def test_handle_run_dispatches(self, monkeypatch):

@@ -59,10 +59,10 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 # ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
 ./leedevkit test all                # cargo fmt + clippy + nextest + coverage
 
-# Infrastructure management
-./leedevkit manage up dev           # start dev environment
-./leedevkit manage down dev         # stop dev environment
-./leedevkit doctor                  # health check: config, containers, devkit location
+# Development environment
+./leedevkit dev up                   # start dev environment
+./leedevkit dev down                 # stop dev environment
+./leedevkit doctor                   # health check: config, containers, devkit location
 
 # Skills catalog
 ./leedevkit skills list             # browse built-in + community catalog

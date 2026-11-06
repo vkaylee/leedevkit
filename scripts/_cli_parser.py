@@ -9,7 +9,6 @@ Orchestrator calls CliParser(tool_map).build() instead of defining
 from __future__ import annotations
 
 import argparse
-import sys
 import typing
 
 from _devkit_config import resolve_targets
@@ -33,14 +32,15 @@ class CliParser:
             prog="leedevkit",
             description="LeeDevKit Enterprise Orchestrator",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="Examples:\n  leedevkit test all\n  leedevkit manage up dev\n  leedevkit manage sync:api",
+            epilog="Examples:\n  leedevkit test all\n  leedevkit dev up\n  leedevkit dev down",
         )
         parent_parser = argparse.ArgumentParser(add_help=False)
         parent_parser.add_argument("--dry-run", action="store_true")
 
         subparsers = parser.add_subparsers(dest="command", required=True)
         self._setup_test_parser(subparsers, parent_parser)
-        self._setup_manage_parser(subparsers, parent_parser)
+        self._setup_dev_parser(subparsers, parent_parser)
+        self._setup_top_level_commands(subparsers, parent_parser)
         self._setup_run_parser(subparsers, parent_parser)
         self._setup_update_parser(subparsers, parent_parser)
 
@@ -138,36 +138,51 @@ class CliParser:
             help="Suppress task logs; keep compact failures and summary",
         )
 
-    def _setup_manage_parser(
+    def _setup_dev_parser(
         self,
         subparsers: typing.Any,  # noqa: ANN401
         parent_parser: argparse.ArgumentParser,
     ) -> None:
-        manage_prog = (
-            "manage.sh" if "manage" in sys.argv and "test" not in sys.argv else None
-        )
-        manage_parser = subparsers.add_parser(
-            "manage",
-            prog=manage_prog,
+        dev_parser = subparsers.add_parser(
+            "dev",
             parents=[parent_parser],
-            description="LeeDevKit Infrastructure & Environment Manager",
+            description="LeeDevKit development environment",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="Examples for AI Agents:\n  leedevkit manage up dev         # Start development environment\n  leedevkit manage db:setup       # Initialize database and run migrations\n  leedevkit manage sync:api       # Sync OpenAPI schema from backend to frontend\n  leedevkit manage logs apiserver # View backend logs",
+            epilog="Examples:\n  leedevkit dev up         # Start development environment\n  leedevkit dev down       # Stop development environment\n  leedevkit dev logs       # Follow development logs",
         )
-        manage_cmd_sub = manage_parser.add_subparsers(dest="subcommand", required=True)
+        dev_cmd_sub = dev_parser.add_subparsers(dest="subcommand", required=True)
 
         for cmd in ["up", "down", "ps", "clean"]:
-            p = manage_cmd_sub.add_parser(cmd, parents=[parent_parser])
-            p.add_argument(
-                "env", choices=["dev", "test", "prod"], default="dev", nargs="?"
-            )
+            dev_cmd_sub.add_parser(cmd, parents=[parent_parser])
 
-        init_p = manage_cmd_sub.add_parser("init", parents=[parent_parser])
+        logs_p = dev_cmd_sub.add_parser("logs", parents=[parent_parser])
+        logs_p.add_argument("service", nargs="?")
+
+        exec_p = dev_cmd_sub.add_parser("exec", parents=[parent_parser])
+        exec_p.add_argument("service")
+        exec_p.add_argument("args", nargs=argparse.REMAINDER)
+
+    def _setup_top_level_commands(
+        self,
+        subparsers: typing.Any,  # noqa: ANN401
+        parent_parser: argparse.ArgumentParser,
+    ) -> None:
+        init_p = subparsers.add_parser("init", parents=[parent_parser])
+        init_p.set_defaults(subcommand="init")
         init_p.add_argument(
             "--force", action="store_true", help="Overwrite existing files"
         )
 
-        skills_p = manage_cmd_sub.add_parser("skills", parents=[parent_parser])
+        doctor_p = subparsers.add_parser("doctor", parents=[parent_parser])
+        doctor_p.set_defaults(subcommand="doctor")
+        doctor_p.add_argument(
+            "--fix",
+            action="store_true",
+            help="Repair missing worktree runtime, venv, and AI rules",
+        )
+
+        skills_p = subparsers.add_parser("skills", parents=[parent_parser])
+        skills_p.set_defaults(subcommand="skills")
         skills_sub = skills_p.add_subparsers(dest="skills_action", required=True)
         skills_sub.add_parser("list", parents=[parent_parser])
         skills_sub.add_parser("update", parents=[parent_parser])
@@ -185,19 +200,7 @@ class CliParser:
         skills_rm = skills_sub.add_parser("remove", parents=[parent_parser])
         skills_rm.add_argument("name", help="Skill repo name to remove")
 
-        doctor_p = manage_cmd_sub.add_parser("doctor", parents=[parent_parser])
-        doctor_p.add_argument(
-            "--fix",
-            action="store_true",
-            help="Repair missing worktree runtime, venv, and AI rules",
-        )
-        logs_p = manage_cmd_sub.add_parser("logs", parents=[parent_parser])
-        logs_p.add_argument(
-            "env", choices=["dev", "test", "prod"], default="dev", nargs="?"
-        )
-        logs_p.add_argument("service", nargs="?")
-
-        manage_cmds = [
+        for command in [
             "sync:api",
             "test:infra",
             "migrate:run",
@@ -207,15 +210,12 @@ class CliParser:
             "prebuild",
             "fmt:infra",
             "verify:infra",
-        ]
-        for cmd in manage_cmds:
-            manage_cmd_sub.add_parser(cmd, parents=[parent_parser])
+        ]:
+            command_parser = subparsers.add_parser(command, parents=[parent_parser])
+            command_parser.set_defaults(subcommand=command)
 
-        exec_p = manage_cmd_sub.add_parser("exec", parents=[parent_parser])
-        exec_p.add_argument("service")
-        exec_p.add_argument("args", nargs=argparse.REMAINDER)
-
-        db_query_p = manage_cmd_sub.add_parser("db:query", parents=[parent_parser])
+        db_query_p = subparsers.add_parser("db:query", parents=[parent_parser])
+        db_query_p.set_defaults(subcommand="db:query")
         db_query_p.add_argument("sql", help="SQL query to execute")
         db_query_p.add_argument(
             "--json", action="store_true", help="Output in JSON format"
