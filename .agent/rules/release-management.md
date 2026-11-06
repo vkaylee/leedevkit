@@ -50,13 +50,27 @@ Deployment and feature exposure are separate controls. A deployed feature MUST N
 A request to release LeeDevKit means the complete customer-visible workflow, not only a commit or Git tag:
 
 1. Run the release readiness gate: format, lint, type checks, tests, coverage, and `git diff --check`.
-2. Update `VERSION` and `RELEASE_NOTES_vX.Y.Z.md`; commit the release changes.
-3. Push `main` to `origin`.
-4. Create and push immutable annotated tag `vX.Y.Z`.
-5. Create the public GitHub Release with `gh release create vX.Y.Z --repo vkaylee/leedevkit --notes-file RELEASE_NOTES_vX.Y.Z.md`.
-6. Verify `gh release view vX.Y.Z` reports public, non-draft, non-prerelease, and that `releases/latest` resolves to the new tag.
+2. Build and accept the customer artifact:
+   ```bash
+   .venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/leedevkit-release
+   .venv/bin/python3 scripts/_release_acceptance.py \
+     --repo-root . \
+     --artifact /tmp/leedevkit-release/leedevkit-$(tr -d '\n' < VERSION).tar.gz
+   ```
+3. Update `VERSION` and `RELEASE_NOTES_vX.Y.Z.md`; commit the release changes.
+4. Push `main` to `origin`.
+5. Create and push immutable annotated tag `vX.Y.Z`.
+6. Create the public GitHub Release **with the tarball attached**:
+   ```bash
+   version="$(tr -d '\n' < VERSION)"
+   gh release create "v${version}" \
+     --repo vkaylee/leedevkit \
+     --notes-file "RELEASE_NOTES_v${version}.md" \
+     "/tmp/leedevkit-release/leedevkit-${version}.tar.gz"
+   ```
+7. Verify `gh release view vX.Y.Z` reports public, non-draft, non-prerelease, includes `leedevkit-X.Y.Z.tar.gz`, and that `releases/latest` resolves to the new tag.
 
-Do not report release completion until all six steps pass. LeeDevKit customer updates read GitHub Releases, not tags alone; a tag without a GitHub Release is incomplete.
+Do not report release completion until all seven steps pass. LeeDevKit customer updates read GitHub Releases, not tags alone; a tag without a GitHub Release and attached tarball is incomplete.
 
 ## 8. Release Completion
 
