@@ -57,15 +57,24 @@ A request to release LeeDevKit means the complete customer-visible workflow, not
      --repo-root . \
      --artifact /tmp/leedevkit-release/leedevkit-$(tr -d '\n' < VERSION).tar.gz
    ```
-3. Update `VERSION` and `RELEASE_NOTES_vX.Y.Z.md`; commit the release changes.
+3. Update `VERSION` and `CHANGELOG.md`: add new changes under `## [Unreleased]`; on release, move those entries into `## [X.Y.Z] - YYYY-MM-DD`. Commit the release changes.
 4. Push `main` to `origin`.
 5. Create and push immutable annotated tag `vX.Y.Z`.
 6. Create the public GitHub Release **with the tarball attached**:
    ```bash
    version="$(tr -d '\n' < VERSION)"
+   notes_file="$(mktemp)"
+   trap 'rm -f "$notes_file"' EXIT
+   awk -v heading="## [${version}]" '
+     $0 == heading || index($0, heading " - ") == 1 { found=1; printing=1 }
+     printing && /^## / && $0 != heading && index($0, heading " - ") != 1 { exit }
+     printing { print }
+     END { if (!found) exit 1 }
+   ' CHANGELOG.md > "$notes_file"
+   test -s "$notes_file"
    gh release create "v${version}" \
      --repo vkaylee/leedevkit \
-     --notes-file "RELEASE_NOTES_v${version}.md" \
+     --notes-file "$notes_file" \
      "/tmp/leedevkit-release/leedevkit-${version}.tar.gz"
    ```
 7. Verify `gh release view vX.Y.Z` reports public, non-draft, non-prerelease, includes `leedevkit-X.Y.Z.tar.gz`, and that `releases/latest` resolves to the new tag.
