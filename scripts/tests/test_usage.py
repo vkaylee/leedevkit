@@ -127,6 +127,7 @@ class TestInitFlow:
         )
         assert (tmp_path / "leedevkit").exists()
 
+
 class TestDoctor:
     def test_doctor_runs(self, tmp_path, monkeypatch):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"

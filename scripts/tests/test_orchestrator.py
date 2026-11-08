@@ -1126,6 +1126,7 @@ class TestRunMethod:
             with patch("_update_handler.handle_update") as mock_update:
                 orch.run()
         mock_update.assert_called_once()
+
     def test_command_db_setup_dry(self):
         from _orchestrator import Orchestrator
 
@@ -1640,7 +1641,9 @@ class TestOrchestratorCoverageGaps:
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(orch, "handle_init", lambda force=False: called.append(force))
+            monkeypatch.setattr(
+                orch, "handle_init", lambda force=False: called.append(force)
+            )
             args = type("Args", (), {"subcommand": "init", "force": True})()
             orch.handle_command(args)
         assert called == [True]
@@ -1652,7 +1655,9 @@ class TestOrchestratorCoverageGaps:
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(orch, "handle_doctor", lambda fix=False: called.append(fix))
+            monkeypatch.setattr(
+                orch, "handle_doctor", lambda fix=False: called.append(fix)
+            )
             args = type("Args", (), {"subcommand": "doctor"})()
             orch.handle_command(args)
         assert called == [False]
@@ -1676,7 +1681,9 @@ class TestOrchestratorCoverageGaps:
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             called = []
-            monkeypatch.setattr(orch, "handle_verify_infra", lambda: called.append(True))
+            monkeypatch.setattr(
+                orch, "handle_verify_infra", lambda: called.append(True)
+            )
             args = type("Args", (), {"subcommand": "verify:infra"})()
             orch.handle_command(args)
         assert called == [True]
