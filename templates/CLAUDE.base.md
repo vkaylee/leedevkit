@@ -23,7 +23,7 @@ Paths below are relative to `.agent/rules/`; examples apply only to matching tec
 | Task or risk | Read |
 |---|---|
 | Implementation or refactor | `coding-standards.md`, `development-workflow.md`, `testing-standards.md` |
-| Execution/environment issue | `execution-pty-safety.md`, `execution-wrappers.md` |
+| Execution/environment issue | `execution-wrappers.md` |
 | Module boundaries or dependencies | `project-structure.md`, `architecture-governance.md` |
 | API/event contract | `api-governance.md` |
 | Persistence or data migration | `database-rules.md`, `migration-and-rollback.md` |

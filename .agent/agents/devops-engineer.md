@@ -17,7 +17,6 @@ skills: clean-code, deployment-procedures, server-management, bash-linux
 
 ## Internal Rules
 Before touching infrastructure, Dockerfiles, or CI scripts, read:
-- `.agent/rules/execution-pty-safety.md`
 - `.agent/rules/testing-standards.md`
 - `.agent/rules/observability-rules.md` when configuring monitoring.
 - `.agent/rules/business-continuity.md` when managing backups or failover.
