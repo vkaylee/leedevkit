@@ -187,7 +187,7 @@ class InitHandler(HandlerBase):
         if not ensure_venv.is_file():
             raise RuntimeError(f"DevKit venv bootstrap is missing: {ensure_venv}")
         setup = subprocess.run(
-            ["bash", str(ensure_venv)],
+            ["bash", str(ensure_venv), "runtime"],
             capture_output=True,
             text=True,
             check=False,

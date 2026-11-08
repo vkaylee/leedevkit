@@ -35,6 +35,7 @@ REQUIRED_FILES = [
     "scripts/_orchestrator.py",
     "scripts/_devkit_integrity.py",
     "scripts/requirements.lock",
+    "scripts/requirements-runtime.lock",
 ]
 
 # ── Patterns to exclude — always filtered ──

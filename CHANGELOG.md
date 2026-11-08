@@ -2,6 +2,28 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.8.3] - 2026-11-08
+
+### Improvements
+- Separate LeeDevKit runtime dependencies from test and lint dependencies.
+- Keep `.leedevkit/.venv` self-contained while installing only runtime packages during `init`.
+- Install the full test toolchain only when running `leedevkit test`.
+
+#### Compatibility
+- No project `.venv` migration required.
+- Existing Claude hook and MCP paths remain `.leedevkit/.venv/bin/python3`.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.2
+```
+
+Rollback restores the previous LeeDevKit runtime.
+
+#### Verification
+- Full regression passed: 859 passed, 1 skipped; production coverage 82.91%.
+- Release build and acceptance passed.
+
 ## [Unreleased]
 
 ## [0.8.2] - 2026-11-08

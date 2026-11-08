@@ -21,7 +21,9 @@ class TestCliFastPaths:
         cli.chmod(0o755)
         (root / "VERSION").write_text("9.8.7\n")
         ensure = root / "scripts" / "_ensure-venv.sh"
-        ensure.write_text('#!/bin/bash\ntouch "$(dirname "$0")/CALLED"\nexit 99\n')
+        ensure.write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$1" > "$(dirname "$0")/PROFILE"\nexit 99\n'
+        )
         ensure.chmod(0o755)
         return root, cli
 
@@ -48,15 +50,17 @@ class TestCliFastPaths:
         assert "Unknown command" in result.stdout
         assert not (root / "scripts" / "CALLED").exists()
 
-    def test_python_command_initializes_venv(self, tmp_path):
+    def test_cli_selects_test_and_runtime_profiles_by_command(self, tmp_path):
         root, cli = self._make_artifact(tmp_path)
 
-        result = subprocess.run(
-            [str(cli), "test"], capture_output=True, text=True, timeout=10
-        )
-
-        assert result.returncode != 0
-        assert (root / "scripts" / "CALLED").exists()
+        for command, expected_profile in (("test", "test"), ("init", "runtime")):
+            result = subprocess.run(
+                [str(cli), command], capture_output=True, text=True, timeout=10
+            )
+            assert result.returncode == 99
+            assert (
+                root / "scripts" / "PROFILE"
+            ).read_text().strip() == expected_profile
 
 
 class TestCliHelp:

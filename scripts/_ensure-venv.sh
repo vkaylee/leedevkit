@@ -7,10 +7,26 @@ set -euo pipefail
 DEVKIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="$DEVKIT_ROOT/.venv"
 PYTHON_BIN="$VENV_DIR/bin/python3"
-LOCK_FILE="$DEVKIT_ROOT/scripts/requirements.lock"
-FINGERPRINT_FILE="$VENV_DIR/.leedevkit-dependency-fingerprint"
+PROFILE="${1:-runtime}"
+if [ "$PROFILE" != "runtime" ] && [ "$PROFILE" != "test" ]; then
+    echo "❌ Profile must be runtime or test" >&2
+    exit 2
+fi
+if [ "$PROFILE" = "test" ]; then
+    LOCK_FILE="$DEVKIT_ROOT/scripts/requirements.lock"
+else
+    LOCK_FILE="$DEVKIT_ROOT/scripts/requirements-runtime.lock"
+fi
+if [ "$PROFILE" = "test" ]; then
+    FINGERPRINT_FILE="$VENV_DIR/.leedevkit-test-dependency-fingerprint"
+else
+    FINGERPRINT_FILE="$VENV_DIR/.leedevkit-runtime-dependency-fingerprint"
+fi
 PIP_TIMEOUT="${PIP_TIMEOUT:-120}"
-REQUIRE_PLAYWRIGHT="${LEEDEVKIT_REQUIRE_PLAYWRIGHT:-0}"
+REQUIRE_PLAYWRIGHT="0"
+if [ "$PROFILE" = "test" ]; then
+    REQUIRE_PLAYWRIGHT="${LEEDEVKIT_REQUIRE_PLAYWRIGHT:-0}"
+fi
 
 if [ ! -f "$LOCK_FILE" ]; then
     echo "❌ Dependency lock missing: $LOCK_FILE" >&2
@@ -33,41 +49,46 @@ fi
 
 LOCK_SHA="$(sha256sum "$LOCK_FILE" | cut -d' ' -f1)"
 RUNTIME_ID="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.implementation.name}:{sys.version_info.major}.{sys.version_info.minor}")')"
-EXPECTED_FINGERPRINT="$RUNTIME_ID lock=$LOCK_SHA playwright=$REQUIRE_PLAYWRIGHT"
+EXPECTED_FINGERPRINT="$PROFILE $RUNTIME_ID lock=$LOCK_SHA playwright=$REQUIRE_PLAYWRIGHT"
 
-CORE_REQUIREMENTS="$VENV_DIR/.leedevkit-core-requirements.txt"
-OPTIONAL_REQUIREMENTS="$VENV_DIR/.leedevkit-optional-requirements.txt"
-awk '/^# Optional browser harness/{exit} {print}' "$LOCK_FILE" > "$CORE_REQUIREMENTS"
-awk 'optional {print} /^# Optional browser harness/{optional=1; next}' "$LOCK_FILE" > "$OPTIONAL_REQUIREMENTS"
+CORE_REQUIREMENTS="$VENV_DIR/.leedevkit-${PROFILE}-requirements.txt"
+OPTIONAL_REQUIREMENTS="$VENV_DIR/.leedevkit-${PROFILE}-optional-requirements.txt"
+if [ "$PROFILE" = "test" ]; then
+    awk '/^# Optional browser harness/{exit} {print}' "$LOCK_FILE" > "$CORE_REQUIREMENTS"
+    awk 'optional {print} /^# Optional browser harness/{optional=1; next}' "$LOCK_FILE" > "$OPTIONAL_REQUIREMENTS"
+else
+    cp "$LOCK_FILE" "$CORE_REQUIREMENTS"
+    : > "$OPTIONAL_REQUIREMENTS"
+fi
 
-MISSING="$("$PYTHON_BIN" - "$LOCK_FILE" "$REQUIRE_PLAYWRIGHT" <<'PY'
+MISSING="$("$PYTHON_BIN" - "$CORE_REQUIREMENTS" "$OPTIONAL_REQUIREMENTS" "$REQUIRE_PLAYWRIGHT" <<'PY'
 import importlib.metadata
 import sys
 
-lock_path, require_playwright = sys.argv[1:]
-optional = False
+core_path, optional_path, require_playwright = sys.argv[1:]
 missing = []
-for raw_line in open(lock_path, encoding="utf-8"):
-    line = raw_line.strip()
-    if line.startswith("# Optional browser harness"):
-        optional = True
-        continue
-    if not line or line.startswith("#") or (optional and require_playwright != "1"):
-        continue
-    requirement = line.split(";", 1)[0].strip()
-    if "==" not in requirement:
-        continue
-    name, expected = requirement.split("==", 1)
-    try:
-        installed = importlib.metadata.version(name.strip())
-    except importlib.metadata.PackageNotFoundError:
-        missing.append(name.strip())
-        continue
-    if installed != expected.strip():
-        missing.append(name.strip())
+paths = [core_path]
+if require_playwright == "1":
+    paths.append(optional_path)
+for path in paths:
+    for raw_line in open(path, encoding="utf-8"):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        requirement = line.split(";", 1)[0].strip()
+        if "==" not in requirement:
+            continue
+        name, expected = requirement.split("==", 1)
+        try:
+            installed = importlib.metadata.version(name.strip())
+        except importlib.metadata.PackageNotFoundError:
+            missing.append(name.strip())
+            continue
+        if installed != expected.strip():
+            missing.append(name.strip())
 print(" ".join(missing))
 PY
-)"
+ )"
 
 if [ ! -f "$FINGERPRINT_FILE" ] || [ "$(cat "$FINGERPRINT_FILE")" != "$EXPECTED_FINGERPRINT" ] || [ -n "$MISSING" ]; then
     echo "📦 Installing locked dependencies..." >&2

@@ -35,9 +35,7 @@ downloads the devkit into `.leedevkit/` inside your project.
 
 `init` or `bootstrap` creates this structure:
 
-- `.leedevkit/scripts/`, `templates/`, `bin/`, `.agent/` — immutable engine
-- `.leedevkit/.venv/` — project-local Python environment
-- `.leedevkit/skills.d/` — installed community skills
+- `.leedevkit/.venv/` — isolated Python runtime with only CLI-required packages; test/lint tools install on first `./leedevkit test`
 - `.agent/rules/` — project's AI rulebooks (copied from devkit base)
 - `./leedevkit` → project-local wrapper script
 

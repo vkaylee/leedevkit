@@ -62,8 +62,12 @@ if [ "$COMMAND" = "doctor" ]; then
     exec python3 "$SCRIPT_DIR/scripts/_doctor.py" "$@"
 fi
 
-# Other Python-backed commands initialize project-local environment lazily.
-PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" | tail -n 1)
+# Commands that run test/lint tooling need the full development lock.
+PROFILE=runtime
+if [ "$COMMAND" = "test" ]; then
+    PROFILE=test
+fi
+PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" "$PROFILE" | tail -n 1)
 
 case "$COMMAND" in
     test)

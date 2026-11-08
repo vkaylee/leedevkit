@@ -23,7 +23,7 @@ REQUIRED_PATHS = {
     "sbom.cdx.json",
     "bin/leedevkit",
     "scripts/_orchestrator.py",
-    "scripts/_devkit_integrity.py",
+    "scripts/requirements-runtime.lock",
 }
 FORBIDDEN_PARTS = {".git", "__pycache__", ".venv", "skills.d"}
 
@@ -123,7 +123,6 @@ def _assert_bootstrap(
 
     project = workspace / "project"
     project.mkdir()
-    (project / ".git").mkdir()
     (project / "leedevkit.toml").write_text(
         '[service]\nversion = "9.8.7"\n\n'
         '[devkit]\nversion = "0.0.1"\n\n'
@@ -138,6 +137,8 @@ def _assert_bootstrap(
     )
 
     installed = project / ".leedevkit"
+    if not (installed / "scripts" / "requirements-runtime.lock").is_file():
+        raise RuntimeError("bootstrap did not install the runtime dependency lock")
     verification = verify_devkit(installed)
     if not verification.is_clean:
         raise RuntimeError(verification.report())
