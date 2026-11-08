@@ -65,12 +65,11 @@ project-name/
 
 ## Setup Steps
 
-1. `python -m venv venv`
-2. `source venv/bin/activate`
-3. `pip install fastapi uvicorn sqlalchemy alembic pydantic`
-4. Create `.env`
-5. `alembic upgrade head`
-6. `uvicorn app.main:app --reload`
+1. Create the project virtual environment: `python3 -m venv .venv`.
+2. Install dependencies: `./.venv/bin/python3 -m pip install fastapi uvicorn sqlalchemy alembic pydantic`.
+3. Create `.env`
+4. `alembic upgrade head`
+5. `uvicorn app.main:app --reload`
 
 ---
 

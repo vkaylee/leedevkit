@@ -4,7 +4,7 @@ Lint Runner - Unified linting and type checking
 Runs appropriate linters based on project type.
 
 Usage:
-    python lint_runner.py <project_path>
+    ./.venv/bin/python3 lint_runner.py <project_path>
 
 Supports:
     - Node.js: npm run lint, npx tsc --noEmit

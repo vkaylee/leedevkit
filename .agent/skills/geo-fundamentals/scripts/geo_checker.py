@@ -14,7 +14,7 @@ WHAT IT CHECKS:
     - NOT markdown files (those are developer docs, not public content)
 
 Usage:
-    python geo_checker.py <project_path>
+    ./.venv/bin/python3 geo_checker.py <project_path>
 """
 import sys
 import re

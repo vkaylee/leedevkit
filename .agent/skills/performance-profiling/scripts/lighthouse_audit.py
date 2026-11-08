@@ -3,7 +3,7 @@
 Skill: performance-profiling
 Script: lighthouse_audit.py
 Purpose: Run Lighthouse performance audit on a URL
-Usage: python lighthouse_audit.py https://example.com
+Usage: ./.venv/bin/python3 lighthouse_audit.py https://example.com
 Output: JSON with performance scores
 Note: Requires lighthouse CLI (npm install -g lighthouse)
 """
@@ -69,7 +69,7 @@ def get_summary(categories: dict) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: python lighthouse_audit.py <url>"}))
+        print(json.dumps({"error": "Usage: ./.venv/bin/python3 lighthouse_audit.py <url>"}))
         sys.exit(1)
     
     result = run_lighthouse(sys.argv[1])

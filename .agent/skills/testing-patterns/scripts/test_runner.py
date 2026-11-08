@@ -4,7 +4,7 @@ Test Runner - Unified test execution and coverage reporting
 Runs tests and generates coverage report based on project type.
 
 Usage:
-    python test_runner.py <project_path> [--coverage]
+    ./.venv/bin/python3 test_runner.py <project_path> [--coverage]
 
 Supports:
     - Node.js: npm test, jest, vitest

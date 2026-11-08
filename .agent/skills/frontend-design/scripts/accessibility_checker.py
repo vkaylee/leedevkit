@@ -4,7 +4,7 @@ Accessibility Checker - WCAG compliance audit
 Checks HTML files for accessibility issues.
 
 Usage:
-    python accessibility_checker.py <project_path>
+    ./.venv/bin/python3 accessibility_checker.py <project_path>
 
 Checks:
     - Form labels

@@ -14,19 +14,17 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `.agent/skills/webapp-testing/scripts/playwright_runner.py` | Basic browser test | `.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py https://example.com` |
-| | With screenshot | `.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --screenshot` |
-| | Accessibility check | `.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --a11y` |
+| `.agent/skills/webapp-testing/scripts/playwright_runner.py` | Basic browser test | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py https://example.com` |
+| | With screenshot | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --screenshot` |
+| | Accessibility check | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --a11y` |
 
-**Runtime setup:** LeeDevKit installs the Python `playwright` package in its managed venv. On the first standalone browser-test run, the runner downloads Chromium automatically only if it is missing. If that download fails, run:
+**Runtime setup:** The project-local virtual environment should provide Python `playwright`. On the first standalone browser-test run, the runner downloads Chromium automatically only if it is missing. If that download fails, run:
 
 ```bash
-.leedevkit/.venv/bin/python3 -m playwright install chromium
+./.venv/bin/python3 -m playwright install chromium
 ```
 
-For a global DevKit installation, use that installation’s `.venv/bin/python3` executable instead.
-
----
+Use the project's `./.venv/bin/python3` executable; initialize that environment with the project's setup procedure if it is missing.
 
 ## 1. Deep Audit Approach
 

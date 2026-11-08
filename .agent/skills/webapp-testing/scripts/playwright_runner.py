@@ -204,11 +204,11 @@ def run_accessibility_check(url: str) -> dict:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({
-            "error": "Usage: python playwright_runner.py <url> [--screenshot] [--a11y]",
+            "error": "Usage: ./.venv/bin/python3 playwright_runner.py <url> [--screenshot] [--a11y]",
             "examples": [
-                "python playwright_runner.py https://example.com",
-                "python playwright_runner.py https://example.com --screenshot",
-                "python playwright_runner.py https://example.com --a11y"
+                "./.venv/bin/python3 playwright_runner.py https://example.com",
+                "./.venv/bin/python3 playwright_runner.py https://example.com --screenshot",
+                "./.venv/bin/python3 playwright_runner.py https://example.com --a11y"
             ]
         }, indent=2))
         sys.exit(1)

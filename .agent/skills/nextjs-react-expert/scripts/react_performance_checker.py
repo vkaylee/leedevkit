@@ -235,7 +235,7 @@ def main():
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python react_performance_checker.py <project_path>")
+        print("Usage: ./.venv/bin/python3 react_performance_checker.py <project_path>")
         sys.exit(1)
 
     project_path = sys.argv[1]

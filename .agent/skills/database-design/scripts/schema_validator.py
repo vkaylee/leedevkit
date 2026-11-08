@@ -4,7 +4,7 @@ Schema Validator - Database schema validation
 Validates Prisma schemas and checks for common issues.
 
 Usage:
-    python schema_validator.py <project_path>
+    ./.venv/bin/python3 schema_validator.py <project_path>
 
 Checks:
     - Prisma schema syntax

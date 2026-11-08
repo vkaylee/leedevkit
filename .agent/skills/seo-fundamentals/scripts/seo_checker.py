@@ -15,7 +15,7 @@ WHAT IT CHECKS:
     - Only files that are likely PUBLIC pages
 
 Usage:
-    python seo_checker.py <project_path>
+    ./.venv/bin/python3 seo_checker.py <project_path>
 """
 import sys
 import json
