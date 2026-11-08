@@ -517,6 +517,7 @@ class TestRunDoctor:
             patch("_doctor.PROJECT_ROOT", project),
             patch("_doctor._matching_runtime", return_value=None),
             patch("_doctor.get_devkit_root", return_value=runtime),
+            patch("_doctor._replace_runtime_from_release"),
             patch(
                 "_harness_engine.sync_harnesses", return_value={"claude": 1}
             ) as mock_sync,

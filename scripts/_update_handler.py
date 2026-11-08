@@ -124,6 +124,7 @@ def handle_update(target: str | None = None) -> None:
         else:
             import _init_handler  # noqa: F401
         from _init_handler import InitHandler
+
         InitHandler(None).handle_post_update_sync()
         log_success("Post-update sync complete")
     except Exception:

@@ -3,7 +3,26 @@
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
 ## [Unreleased]
+
+## [0.8.2] - 2026-11-08
+
+### Fixes
 - Reload post-update sync code after replacing the runtime so Claude integrations use the updated handler implementation.
+- Keep the doctor repair test independent of GitHub availability.
+
+#### Compatibility
+- No CLI command or configuration migration required.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.1
+```
+
+Rollback restores the previous LeeDevKit runtime.
+
+#### Verification
+- Full regression passed: 857 passed, 1 skipped; production coverage 82.93%.
+
 
 ## [0.8.1]
 

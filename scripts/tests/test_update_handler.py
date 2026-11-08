@@ -491,9 +491,7 @@ class TestAutoSyncAfterUpdate:
         assert (
             project_root / ".claude" / "skills" / "my-skill" / "SKILL.md"
         ).read_text() == "keep me\n"
-        settings = json.loads(
-            (project_root / ".claude" / "settings.json").read_text()
-        )
+        settings = json.loads((project_root / ".claude" / "settings.json").read_text())
         command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         assert shlex.split(command) == [
             ".leedevkit/.venv/bin/python3",
