@@ -491,6 +491,66 @@ class TestAutoSyncAfterUpdate:
         assert (
             project_root / ".claude" / "skills" / "my-skill" / "SKILL.md"
         ).read_text() == "keep me\n"
+        settings = json.loads(
+            (project_root / ".claude" / "settings.json").read_text()
+        )
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        assert shlex.split(command) == [
+            ".leedevkit/.venv/bin/python3",
+            ".leedevkit/scripts/_model_router.py",
+        ]
+        mcp = json.loads((project_root / ".mcp.json").read_text())
+        assert mcp["mcpServers"]["leedevkit-task-assessor"] == {
+            "command": ".leedevkit/.venv/bin/python3",
+            "args": [".leedevkit/scripts/_task_assessor_mcp.py"],
+        }
+
+    def test_update_reloads_post_update_sync_after_replacing_runtime(
+        self, tmp_path, monkeypatch
+    ):
+        """Post-update sync loads replaced handler instead of stale loaded code."""
+        from _claude_config import install_ai_integrations
+        from _init_handler import InitHandler
+        from _update_handler import handle_update
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        (project_root / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        devkit_root = project_root / ".leedevkit"
+        devkit_root.mkdir()
+        (devkit_root / "VERSION").write_text("0.1.0")
+        agents = devkit_root / ".agent" / "agents"
+        agents.mkdir(parents=True)
+        (agents / "backend.md").write_text("# Backend\n")
+        monkeypatch.chdir(project_root)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: devkit_root)
+        monkeypatch.setattr("_devkit_config.get_devkit_root", lambda: devkit_root)
+
+        def fake_download(_url, target):
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "VERSION").write_text("0.2.0")
+            agents = target / ".agent" / "agents"
+            agents.mkdir(parents=True)
+            (agents / "backend.md").write_text("# Backend\n")
+
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
+
+        def stale_sync(self):
+            install_ai_integrations(project_root)
+
+        monkeypatch.setattr(InitHandler, "handle_post_update_sync", stale_sync)
+        handle_update(target="v0.2.0")
+
+        assert (project_root / ".claude" / "settings.json").is_file()
+        assert (project_root / ".mcp.json").is_file()
+        settings = json.loads((project_root / ".claude" / "settings.json").read_text())
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        assert shlex.split(command) == [
+            ".leedevkit/.venv/bin/python3",
+            ".leedevkit/scripts/_model_router.py",
+        ]
 
     def test_update_preserves_skills_directory_symlink(self, tmp_path, monkeypatch):
         """An external skills.d target remains linked after update."""
@@ -646,7 +706,7 @@ class TestAutoSyncAfterUpdate:
             "_update_handler.download_and_extract_tarball", fake_download
         )
         monkeypatch.setattr(
-            "_init_handler.InitHandler.handle_post_update_sync",
+            "_harness_engine.sync_harnesses",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 RuntimeError("sync failed")
             ),

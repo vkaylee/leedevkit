@@ -7,8 +7,10 @@ with automatic backup and rollback on failure.
 
 from __future__ import annotations
 
+import importlib
 import os
 import shutil
+import sys
 import urllib.request  # noqa: F401
 import uuid
 from pathlib import Path
@@ -116,8 +118,12 @@ def handle_update(target: str | None = None) -> None:
                     log_success(f'Updated leedevkit.toml: version = "{new_ver}"')
 
         log_info("Syncing rules and creating symlinks...")
+        module_name = "_init_handler"
+        if module_name in sys.modules:
+            importlib.reload(sys.modules[module_name])
+        else:
+            import _init_handler  # noqa: F401
         from _init_handler import InitHandler
-
         InitHandler(None).handle_post_update_sync()
         log_success("Post-update sync complete")
     except Exception:
