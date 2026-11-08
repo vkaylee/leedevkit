@@ -26,41 +26,35 @@ jobs:
 
       - name: Install locked verification dependencies
         run: |
-          mkdir -p logs
           python3 -m venv .venv
-          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock > logs/run_ci-dependencies.log 2>&1 </dev/null
+          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
 
       - name: Generate supply-chain evidence
         run: |
-          mkdir -p logs
-          .venv/bin/python3 scripts/_supply_chain_check.py --lock scripts/requirements.lock --output logs/supply-chain.json --container-root . > logs/run_ci-supply-chain.log 2>&1 </dev/null
-          .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" logs/sbom.cdx.json > logs/run_ci-sbom.log 2>&1 </dev/null
+          mkdir -p .ci-artifacts
+          .venv/bin/python3 scripts/_supply_chain_check.py --lock scripts/requirements.lock --output .ci-artifacts/supply-chain.json --container-root . </dev/null
+          .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" .ci-artifacts/sbom.cdx.json </dev/null
 
       - name: Check shell syntax
         run: |
-          mkdir -p logs
-          bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit > logs/run_ci-shell-syntax.log 2>&1 </dev/null
+          bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit </dev/null
 
       - name: Check formatting
         run: |
-          mkdir -p logs
-          .venv/bin/ruff format --check scripts > logs/run_ci-format.log 2>&1 </dev/null
+          .venv/bin/ruff format --check scripts </dev/null
 
       - name: Run lint and type checks
         run: |
-          mkdir -p logs
-          .venv/bin/ruff check scripts > logs/run_ci-ruff.log 2>&1 </dev/null
-          .venv/bin/mypy scripts > logs/run_ci-mypy.log 2>&1 </dev/null
+          .venv/bin/ruff check scripts </dev/null
+          .venv/bin/mypy scripts </dev/null
 
       - name: Run full LeeDevKit regression gate
         run: |
-          mkdir -p logs
-          ./bin/leedevkit test all --json > logs/run_ci-full-regression.json 2> logs/run_ci-full-regression.log </dev/null
+          ./bin/leedevkit test all --json </dev/null
       - name: Emit AI-readable regression events
         if: always()
         run: |
-          mkdir -p logs
-          ./bin/leedevkit test all --json-stream --quiet > logs/run_ci-full-regression.jsonl 2> logs/run_ci-full-regression-stream.log </dev/null
+          ./bin/leedevkit test all --json-stream --quiet </dev/null
 
       - name: Upload quality and supply-chain evidence
         if: always()
@@ -68,7 +62,7 @@ jobs:
         with:
           name: leedevkit-quality-evidence
           path: |
-            logs/**
+            .ci-artifacts/**
             .test_logs/**
           include-hidden-files: true
           if-no-files-found: error
@@ -90,19 +84,18 @@ jobs:
 
       - name: Install locked acceptance dependencies
         run: |
-          mkdir -p logs
           python3 -m venv .venv
-          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock > logs/run_ci-release-dependencies.log 2>&1 </dev/null
+          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
 
       - name: Build, checksum, and accept release artifact
         run: |
-          mkdir -p logs/release-dist
-          .venv/bin/python3 scripts/_release_build.py --repo-root . --output logs/release-dist > logs/run_ci-release-build.log 2>&1 </dev/null
-          artifact="logs/release-dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz"
-          sha256sum "$artifact" > logs/release-artifact.sha256
-          .venv/bin/python3 scripts/_release_acceptance.py --repo-root . --artifact "$artifact" > logs/run_ci-release-acceptance.log 2>&1 </dev/null
-          .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" logs/release-sbom.cdx.json > logs/run_ci-release-sbom.log 2>&1 </dev/null
-          sha256sum logs/release-sbom.cdx.json > logs/release-sbom.sha256
+          mkdir -p .ci-artifacts/release-dist
+          .venv/bin/python3 scripts/_release_build.py --repo-root . --output .ci-artifacts/release-dist </dev/null
+          artifact=".ci-artifacts/release-dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz"
+          sha256sum "$artifact" > .ci-artifacts/release-artifact.sha256
+          .venv/bin/python3 scripts/_release_acceptance.py --repo-root . --artifact "$artifact" </dev/null
+          .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" .ci-artifacts/release-sbom.cdx.json </dev/null
+          sha256sum .ci-artifacts/release-sbom.cdx.json > .ci-artifacts/release-sbom.sha256
 
 
       - name: Upload release evidence
@@ -110,5 +103,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leedevkit-release-evidence
-          path: logs/*
+          path: .ci-artifacts/**
           if-no-files-found: error
