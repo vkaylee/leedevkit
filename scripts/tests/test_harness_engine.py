@@ -152,6 +152,22 @@ def test_pi_adapter_bridges_skills_into_native_skills_and_writes_agents_md(
     assert MARKER_START in (root / "AGENTS.md").read_text()
 
 
+def test_external_runtime_uses_stable_project_relative_paths(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    devkit = tmp_path / "pytest-tmp" / ".leedevkit"
+    root.mkdir()
+    template = devkit / "templates" / "CLAUDE.base.md"
+    template.parent.mkdir(parents=True)
+    template.write_text("# Fixture project context\n")
+
+    sync_harnesses(root, devkit, {"ai": {"harnesses": ["claude"]}})
+
+    context = (root / "CLAUDE.md").read_text()
+    assert "`.leedevkit/templates/CLAUDE.base.md`." in context
+    assert str(devkit) not in context
+    assert "/tmp/" not in context
+
+
 def test_harness_aliases_and_detection(tmp_path: Path) -> None:
     root = tmp_path / "project"
     root.mkdir()

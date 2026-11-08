@@ -23,6 +23,14 @@ from _runtime import enforce_project_venv
 # ── Bootstrap: locate devkit root ──────────────────────────────────────────
 
 _DEVKIT_ROOT: Path | None = None
+_DEVKIT_CACHE_KEY: tuple[str, str, str, str, str] | None = None
+
+
+def reset_devkit_root_cache() -> None:
+    """Clear cached runtime resolution after project context changes."""
+    global _DEVKIT_ROOT, _DEVKIT_CACHE_KEY
+    _DEVKIT_ROOT = None
+    _DEVKIT_CACHE_KEY = None
 
 
 def _git_main_repo() -> Path | None:
@@ -58,14 +66,35 @@ def _runtime_candidate(root: Path, expected: str) -> Path | None:
 
 
 def _find_devkit_root() -> Path:
-    """Resolve project runtime, Git main-worktree runtime, or matching env runtime."""
-    global _DEVKIT_ROOT
-    if _DEVKIT_ROOT is not None:
-        return _DEVKIT_ROOT
-
+    """Resolve runtime without reusing cache across project contexts."""
+    global _DEVKIT_ROOT, _DEVKIT_CACHE_KEY
     project_root = _find_project_root()
     expected = _read_version(project_root)
+    cache_key = (
+        str(Path.cwd().resolve()),
+        str(project_root.resolve()),
+        str(expected),
+        os.environ.get("DEVKIT_HOME", ""),
+        os.environ.get("LEEDEVKIT_BOOTSTRAP", ""),
+    )
+    if _DEVKIT_ROOT is not None and _DEVKIT_CACHE_KEY == cache_key:
+        return _DEVKIT_ROOT
+    _DEVKIT_ROOT = None
+    _DEVKIT_CACHE_KEY = cache_key
     candidates = [Path.cwd() / ".leedevkit", project_root / ".leedevkit"]
+    for candidate in candidates:
+        resolved = _runtime_candidate(candidate, expected)
+        if resolved is not None:
+            _DEVKIT_ROOT = resolved
+            return resolved
+
+    source_checkout = Path(__file__).resolve().parent.parent
+    if Path.cwd().resolve() == source_checkout and _runtime_version_matches(
+        source_checkout, expected
+    ):
+        _DEVKIT_ROOT = source_checkout
+        return source_checkout
+
     main_repo = _git_main_repo()
     if main_repo is not None:
         candidates.append(main_repo / ".leedevkit")
@@ -83,13 +112,6 @@ def _find_devkit_root() -> Path:
         if resolved is not None:
             _DEVKIT_ROOT = resolved
             return resolved
-
-    source_checkout = Path(__file__).resolve().parent.parent
-    if Path.cwd().resolve() == source_checkout and _runtime_version_matches(
-        source_checkout, expected
-    ):
-        _DEVKIT_ROOT = source_checkout
-        return source_checkout
 
     raise FileNotFoundError(
         "No compatible LeeDevKit runtime found for project version "

@@ -144,7 +144,7 @@ def _repair_environment() -> None:
 
     import _devkit_config
 
-    _devkit_config._DEVKIT_ROOT = None
+    _devkit_config.reset_devkit_root_cache()
     devkit = get_devkit_root()
     integrity = verify_devkit(devkit)
     if (
@@ -160,7 +160,7 @@ def _repair_environment() -> None:
     ):
         _replace_runtime_from_release(version, runtime)
         log_success(f"✅ Restored DevKit {version} from release")
-        _devkit_config._DEVKIT_ROOT = None
+        _devkit_config.reset_devkit_root_cache()
         devkit = get_devkit_root()
 
     ensure_venv = devkit / "scripts" / "_ensure-venv.sh"

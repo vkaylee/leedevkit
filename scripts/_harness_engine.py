@@ -33,16 +33,20 @@ MARKER_END = "<!-- leedevkit:end -->"
 
 
 def base_context(root: Path, devkit: Path) -> str:
-    """Render context pointers for source checkouts and installed runtimes."""
+    """Render stable project-relative context pointers.
+
+    Installed project runtimes are addressed through ``.leedevkit`` even when
+    tests or bootstrap code stage them outside the project temporarily. This
+    prevents transient absolute paths from being persisted in instruction files.
+    """
     root, devkit = root.resolve(), devkit.resolve()
 
     def path(*parts: str) -> str:
         target = devkit.joinpath(*parts)
         if devkit == root:
             return target.relative_to(root).as_posix()
-        if devkit == root / ".leedevkit":
-            return Path(".leedevkit").joinpath(*parts).as_posix()
-        return str(target)
+        prefix = Path(".leedevkit")
+        return prefix.joinpath(*parts).as_posix()
 
     return f"""## LeeDevKit base context
 

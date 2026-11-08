@@ -17,6 +17,12 @@
 - Assert failures and absence of unauthorized or partial side effects where relevant.
 - Keep tests deterministic and isolated. Do not weaken assertions or hide failures with skips, retries, or quarantines; follow project policy for any necessary exception.
 
+## Filesystem isolation
+
+- Tests that initialize or synchronize a project MUST use a fixture or temporary workspace as project root; they MUST NOT write the source checkout.
+- Root/runtime caches MUST be reset when a test changes project context. Shared test fixtures guard tracked checkout files and MUST fail on unauthorized mutations.
+- Use containers only for integration or release acceptance when process/filesystem boundaries are part of the behavior; do not containerize ordinary unit tests by default.
+
 ## Verification report
 
 Report checks actually run, with exact commands/targets and pass, fail, skip, or warning results. State material checks not run and why, plus remaining verification risks. Do not describe dry-run output, code inspection, or command construction as a passing test.

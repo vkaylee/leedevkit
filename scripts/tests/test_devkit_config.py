@@ -135,6 +135,32 @@ class TestFindDevkitRoot:
         assert root == tmp_path
         _devkit_config._DEVKIT_ROOT = None
 
+    def test_cache_does_not_cross_project_boundaries(self, tmp_path, monkeypatch):
+        """A runtime resolved for one project is not reused by another."""
+        import _devkit_config
+
+        first = tmp_path / "first"
+        first_runtime = first / ".leedevkit"
+        (first / "leedevkit.toml").parent.mkdir(parents=True)
+        (first / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        (first_runtime / "scripts").mkdir(parents=True)
+        (first_runtime / "VERSION").write_text("0.1.0\n")
+
+        second = tmp_path / "second"
+        second_runtime = second / ".leedevkit"
+        second.mkdir()
+        (second / "leedevkit.toml").write_text('[devkit]\nversion = "0.1.0"\n')
+        (second_runtime / "scripts").mkdir(parents=True)
+        (second_runtime / "VERSION").write_text("0.1.0\n")
+
+        monkeypatch.delenv("DEVKIT_HOME", raising=False)
+        _devkit_config._DEVKIT_ROOT = None
+        monkeypatch.chdir(first)
+        assert _devkit_config.get_devkit_root() == first_runtime
+
+        monkeypatch.chdir(second)
+        assert _devkit_config.get_devkit_root() == second_runtime
+
     def test_worktree_uses_main_repo_runtime(self, tmp_path, monkeypatch):
         """A worktree resolves matching runtime from its main checkout."""
         worktree = tmp_path / "worktree"
