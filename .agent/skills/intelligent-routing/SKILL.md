@@ -29,9 +29,8 @@ Route work by risk and scope. Do not invoke agents for simple questions or one-l
 
 ## Complexity Rules
 
-- **Simple:** One file, one domain, clear behavior. Use one specialist or work directly.
-- **Moderate:** Several files or two domains. Use a short sequential agent chain.
-- **Complex:** Multiple domains, architecture, migration, or unclear scope. Use `orchestrator`.
+- **Moderate:** Several files or two domains. Delegate independent slices when harness delegation exists; otherwise handle them in a short, ordered sequence.
+- **Complex:** Multiple domains, architecture, migration, or unclear scope. Use an available orchestrator; otherwise handle work directly or delegate the smallest feasible slices.
 
 ## Invocation
 
@@ -48,7 +47,7 @@ When the repository is configured for specialist agents, invoke the matched agen
 
 ## Overrides
 
-If the user names a specific agent, honor that choice when the agent exists. If the name is unavailable, use `general-purpose` or `orchestrator` and state the substitution.
+If the user names a specific agent, honor that choice when harness supports it and agent exists. Otherwise explain the limitation briefly and handle work directly or use an available suitable agent; do not assume `general-purpose` or `orchestrator` exists.
 
 ## Examples
 

@@ -17,7 +17,7 @@ Before making changes, classify the debt being addressed:
 
 - **Code Debt:** Complex or duplicated code, DRY violations, overly long functions, magic numbers, hardcoded user-facing strings, dead code, unused dependencies, and expired feature-flag branches or compatibility shims.
 - **Architecture Debt:** Cross-component dependencies, tight coupling, SOLID violations, or missing interface and repository abstractions.
-- **Testing Debt:** Test coverage below 80%, missing end-to-end tests, or flaky tests.
+- **Testing Debt:** Missing protection for material behavior, repository-enforced coverage gaps, or flaky tests; no universal coverage percentage.
 - **Documentation/UI Debt:** Documentation or comments that no longer match behavior, or UI built with raw elements instead of the approved design system.
 
 ### 2. Quantify and Prioritize
@@ -34,7 +34,7 @@ Technical-debt work MUST follow these steps:
 
 1. **Protect:** Do not refactor untested behavior. Confirm the relevant tests pass or add characterization tests before changing the implementation.
 2. **Refactor:** Improve the structure without changing current business behavior.
-3. **Verify:** Run the applicable type checker, linter, and test suite. Required checks MUST complete with zero errors and zero warnings.
+3. **Verify:** Follow `development-workflow.md` and `testing-standards.md` for applicable behavior and configured checks. Fix failures; report warnings and unavailable checks accurately rather than claiming full verification.
 
 ### 3.1. Safe Dead Code Removal
 

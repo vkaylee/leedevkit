@@ -57,15 +57,7 @@ def _die(msg: str) -> NoReturn:
     """Print error to stderr and exit."""
     print(f"\n🚨 PTY SAFETY ERROR: {msg}", file=sys.stderr)
     print(
-        "💡 Instead use: ./scripts/ai-tools/run-inline -l <lang> -c 'code'",
-        file=sys.stderr,
-    )
-    print(
-        "   Or pipe: echo 'code' | ./scripts/ai-tools/run-inline -l <lang>",
-        file=sys.stderr,
-    )
-    print(
-        "   Supported: python python3 bun node js bash sh",
+        "Pass a script file to this runner; use harness-native execution for inline code.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -113,7 +105,7 @@ def _check_banned_interpreter(args: list[str]) -> None:
         if second in ("-c", "-e"):
             raise ArgSanitizeError(
                 f"Inline '{first} -c/-e' execution blocked. "
-                f"Use ./scripts/ai-tools/run-inline -l {first} instead."
+                "Pass a script file or use harness-native execution outside this runner."
             )
 
 

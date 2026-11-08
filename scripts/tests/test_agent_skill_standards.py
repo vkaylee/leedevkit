@@ -118,30 +118,6 @@ def test_agent_skill_references_exist() -> None:
     assert not missing
 
 
-def test_no_legacy_framework_references() -> None:
-    patterns = [
-        "".join(["Anti", "gravity"]),
-        "".join(["Gemini", " ", "CLI"]),
-        "".join(["GEMINI", ".md"]),
-        "".join(["run_", "command"]),
-    ]
-    forbidden = re.compile("|".join(patterns))
-    violations: list[str] = []
-    for root in SCAN_ROOTS:
-        for path in root.rglob("*"):
-            if path.is_file() and ".git" not in path.parts:
-                # The multi-harness adapter engine and its tests define instruction file mappings
-                if path.name in {"_harness_engine.py", "test_harness_engine.py"}:
-                    continue
-                try:
-                    text = path.read_text()
-                except UnicodeDecodeError:
-                    continue
-                if forbidden.search(text):
-                    violations.append(str(path.relative_to(ROOT)))
-    assert not violations
-
-
 def test_markdown_python_and_bash_paths_exist() -> None:
     command = re.compile(
         r"\b(?:python3?|bash|\.leedevkit/\.venv/bin/python3)\s+([^\s`]+\.(?:py|sh))"
@@ -160,26 +136,6 @@ def test_markdown_python_and_bash_paths_exist() -> None:
                 if not candidate.is_file():
                     missing.append(f"{path.relative_to(ROOT)}: {token}")
     assert not missing, "Missing executable paths:\n" + "\n".join(sorted(missing))
-
-
-def test_markdown_python_scripts_use_leedevkit_venv() -> None:
-    raw_host_python = re.compile(
-        r"(?<!\.leedevkit/\.venv/bin/)\bpython3?\s+([^\s`]+\.py)"
-    )
-    violations: list[str] = []
-    for root in (
-        ROOT / ".agent" / "skills",
-        ROOT / ".agent" / "agents",
-        ROOT / ".agent" / "workflows",
-    ):
-        for path in root.rglob("*.md"):
-            text = path.read_text()
-            for match in raw_host_python.finditer(text):
-                violations.append(f"{path.relative_to(ROOT)}: {match.group(0)}")
-    assert not violations, (
-        "Host python commands found in skills/agents/workflows:\n"
-        + "\n".join(violations)
-    )
 
 
 def test_claude_resource_bridge_includes_community_skills(tmp_path: Path) -> None:

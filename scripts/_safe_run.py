@@ -109,11 +109,11 @@ def validate_command(cmd_args: list[str] | str) -> None:
                 file=sys.stderr,
             )
             print(
-                "⚠️  Project Policy: 100% of logic must reside in physical script files.",
+                "This runner accepts script files, not inline interpreter code.",
                 file=sys.stderr,
             )
             print(
-                "💡 Solution: Use ./scripts/ai-tools/run-inline -l <lang> -c 'code'",
+                "Pass a script file or use harness-native execution outside this runner.",
                 file=sys.stderr,
             )
             print("!" * 80 + "\n", file=sys.stderr)

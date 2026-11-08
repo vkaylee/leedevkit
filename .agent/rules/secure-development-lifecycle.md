@@ -33,14 +33,15 @@ Update the threat model when trust boundaries or material data flows change.
 
 ## 4. Automated Security Verification (REQUIRED)
 
-Use repository-configured controls applicable to the change:
+Use repository-configured security controls that apply to the changed technology and risk. Examples include:
 
-- Secret scanning
-- Static application security testing
-- Dependency and license scanning
-- Infrastructure and container scanning
-- Dynamic or API security testing for exposed behavior
-- Security-focused unit and integration tests
+- Secret scanning for changes that may introduce credentials
+- Static analysis for supported languages and risk surfaces
+- Dependency or license review where third-party components change and project policy requires it
+- Infrastructure, container, dynamic, or API security testing when those surfaces are present and supported
+- Security-focused tests for changed behavior
+
+Do not require a tool the project has not configured or claim a control ran when it did not.
 
 Critical and high-confidence high-severity findings block release unless an approved risk acceptance exists.
 

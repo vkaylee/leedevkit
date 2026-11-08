@@ -4,11 +4,11 @@
 
 ## 1. Service Objectives
 
-Critical services and journeys MUST define measurable service-level indicators and objectives for availability, latency, correctness, freshness, or durability as applicable.
+Define service-level indicators and objectives for services or journeys where the project’s business impact and operational model justify them. Objectives and targets are project-owned decisions, not generic SLAs.
 
-- SLOs require an owner and measurement source.
-- Alerts SHOULD reflect user impact and error-budget consumption rather than raw infrastructure noise.
-- Reliability work and release risk MUST consider remaining error budget.
+- Assign an owner and measurement source to objectives the project adopts.
+- Alerts SHOULD reflect user impact and operational capacity rather than raw infrastructure noise.
+- Use adopted objectives to inform reliability work and release risk where appropriate.
 
 ## 2. Dependency Resilience (REQUIRED)
 

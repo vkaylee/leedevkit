@@ -1,67 +1,24 @@
-# 🧪 Testing Standards
+# Testing Standards
 
-> `development-workflow.md` defines the mandatory development–testing loop and test-impact matrix. This rulebook defines test execution and quality gates.
+> Scope: Test selection, execution, coverage, and verification evidence. `development-workflow.md` owns behavior analysis and the implementation loop.
 
-## 1. Post-Implementation Test Gate (MANDATORY)
+## Select and run checks
 
-> 🔴 **Every code implementation or behavior change MUST pass this gate before the task is reported complete.**
+- Discover available checks from project configuration and documentation, existing wrappers, then CI; follow `ai-agent-governance.md` for discovery order.
+- MUST run applicable configured checks that verify changed behavior and its material risks before reporting task complete. Use the narrowest checks that provide adequate evidence; expand when shared infrastructure, multiple targets, public contracts, packaging, or elevated risk make focused checks insufficient.
+- Treat configured test, lint, type, security, and coverage checks as gates when applicable. Do not run unrelated suites or invent commands, targets, or thresholds.
+- Focused test options support iteration; they do not substitute for broader verification when broader verification is warranted.
+- For LeeDevKit itself, use its documented `./leedevkit test <target>` target and the release acceptance gate for packaging, install, bootstrap, update, versioning, or release-artifact changes.
 
-After implementing a change, the AI agent MUST:
+## Coverage and test quality
 
-1. Identify the new or changed observable behaviors, failure paths, and regression risks.
-2. Inspect the existing tests that cover those behaviors.
-3. Decide autonomously whether tests must be added or updated; do not defer this engineering decision to the user.
-4. Record one explicit outcome in the final report:
-   - **Tests added/updated:** list the scenarios covered; or
-   - **No test change needed:** give a concrete, behavior-based justification.
-5. Run the applicable LeeDevKit test target and report the exact result. If verification cannot run, state why and leave the task unverified—not complete.
-6. Reconcile the completed tests against every applicable dimension in the pre-implementation Test Impact Matrix from `development-workflow.md`.
+- Preserve repository-enforced coverage thresholds. Where no threshold exists, select meaningful tests for changed behavior and material branches/failure paths; do not impose a universal percentage.
+- Prefer tests at the lowest level that meaningfully checks the contract; use integration or end-to-end checks when boundaries between components or user-visible flows are at risk.
+- Assert failures and absence of unauthorized or partial side effects where relevant.
+- Keep tests deterministic and isolated. Do not weaken assertions or hide failures with skips, retries, or quarantines; follow project policy for any necessary exception.
 
-Tests MUST be added or updated for:
-- New or changed business logic or externally observable behavior
-- Bug fixes and regressions (the test MUST fail without the fix)
-- Validation, authorization, persistence, API contract, concurrency, and error-path changes
-- Boundary values, empty or malformed input, partial state, dependency failure, timeout, cancellation, retry exhaustion, compatibility, and resource limits when applicable
+## Verification report
 
-A test change MAY be unnecessary for documentation-only, comment-only, formatting-only, or generated-artifact changes that cannot alter behavior. The agent must still state this conclusion and its reason.
+Report checks actually run, with exact commands/targets and pass, fail, skip, or warning results. State material checks not run and why, plus remaining verification risks. Do not describe dry-run output, code inspection, or command construction as a passing test.
 
-## 2. Test Execution Commands
-
-> [!WARNING]
-> Prefer the project-local LeeDevKit target or documented repository wrapper. Do not assume language-specific wrappers exist. Follow the discovery order in `ai-agent-governance.md`.
-
-| Scope | Command | Purpose |
-|---|---|---|
-| **Fast feedback** | `./leedevkit test <target> --unit-only` | Focused unit-test iteration |
-| **Applicable target** | `./leedevkit test <target>` | Required verification before completion |
-| **Coverage** | `./leedevkit test <target> --coverage` | Coverage verification for changed logic |
-| **Release packaging** | `.venv/bin/python3 scripts/_release_build.py ...` then `.venv/bin/python3 scripts/_release_acceptance.py ...` | Required for packaging/install/bootstrap/update changes in LeeDevKit itself |
-
-Use the narrowest target that fully covers the change. Run the full suite when the change crosses targets or affects shared infrastructure. Do not use background execution (`&`). Follow `execution-pty-safety.md` for output handling.
-
-When the change affects LeeDevKit packaging, bootstrap, install, update, versioning, or release artifacts, also run the release acceptance gate from `devkit-internals.md`. Passing source unit tests alone does **not** complete packaging work.
-
-## 3. Core Testing Principles
-
-- **Testing Pyramid:** Prioritize Unit > Integration > E2E.
-- **Pattern:** Use AAA Pattern (Arrange-Act-Assert).
-- **Behavior First:** Test public behavior and regression risk, not implementation details.
-- **Edge Cases Are Required:** Happy-path coverage alone is insufficient for changed behavior.
-- **Negative Assertions:** Verify both the returned failure and the absence of unauthorized or partial side effects.
-- **Skipped Tests:** New skips, ignores, retries, or quarantines require a linked issue, owner, reason, and expiry condition.
-- **Code Coverage:** Do not reduce repository-enforced coverage. When no threshold is configured, 80% changed-logic coverage is a RECOMMENDED baseline; prioritize meaningful branch and failure-path coverage over a numeric target.
-- **Mandatory Pass:** A code task is NOT complete until the Post-Implementation Test Gate passes.
-
-## 4. Verification Pipeline
-
-> 🔴 **Execution Priority:** Security → Lint → Schema → Tests → UX → SEO → Performance
-
-The LeeDevKit target command orchestrates the applicable type, lint, schema, and test phases:
-
-```bash
-./leedevkit test <target>
-```
-
-Use `--lint-only`, `--unit-only`, `--e2e-only`, `--pattern`, or `--coverage` only for focused iteration. Focused checks do not replace the applicable target verification required before completion.
-
-Security, compatibility, migration, reliability, and release risks require the additional verification defined in their respective rulebooks; the standard test target does not replace those gates.
+When no test or runtime check is appropriate, state the concrete behavior-based reason. For high-risk changes, include relevant security, compatibility, migration, release, or other specialist evidence required by applicable rulebooks.

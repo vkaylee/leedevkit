@@ -4,16 +4,14 @@
 
 ## Project Identity
 
-This is a **meta-tool factory**. Changes here ship to ALL downstream projects via:
-- `~/.leedevkit/current` symlink (updated by `install.sh`)
-- `leedevkit init` (writes wrappers + symlinks into project roots)
+Changes here ship to downstream projects through release artifacts installed into each project's `.leedevkit/`. Init/update synchronize project wrappers, rulebooks, and harness discovery paths. `install.sh` retains a legacy global installation path; it is not the source checkout layout.
 
 ## Stack
 
 | Component | Language | Tooling |
 |-----------|----------|---------|
 | Orchestrator | Python 3.11+ | `scripts/_orchestrator.py` |
-| CLI wrappers | Bash | `bin/test.sh`, `bin/manage.sh`, `bin/leedevkit` |
+| CLI launcher | Bash | `leedevkit`, `bin/leedevkit` |
 | Lint/format | Python | `ruff` + `mypy` (strict) |
 | Shell lint | Bash | `shellcheck` |
 | Container engine | | podman-compose preferred, docker fallback |
@@ -23,11 +21,13 @@ This is a **meta-tool factory**. Changes here ship to ALL downstream projects vi
 ./leedevkit test infra --lint-only   # focused feedback only
 ./leedevkit test infra --unit-only    # focused feedback only
 ./leedevkit test infra                # infra verification
-./leedevkit test all                  # completion gate: configured server/web/build/integration/E2E phases
+./leedevkit test all                  # all configured targets; this checkout configures infra
 ./leedevkit test all --json           # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents
 
 Machine contract: parse JSON/JSONL, not human log text. Each phase carries `phase`, `target`, `command`, timestamps, duration, exit code, status, and required flag. Failed/blocked phases carry `log`, `rerun`, and diagnostic fields. `passed`, `failed`, `blocked`, and `skipped` are distinct; focused or skipped runs report `partial` and `full_regression=false`.
+
+A dry-run constructs commands only. Its success flags are not execution evidence; report the invocation mode alongside the result.
 
 Focused flags, `--pattern`, `--skip-e2e`, and `--skip-build` produce partial/unverified results; they cannot replace `test all` for runtime/build/API/DB/config/dependency changes.
 
@@ -65,12 +65,11 @@ Notes:
 2. **Type hints mandatory** — mypy strict mode.
 3. **No shell=True** — subprocess calls use argument lists.
 4. **All CLI output to stderr** — structured JSON to stdout.
-5. **PTY safety** — `_safe_run.py` wraps ALL subprocess execution.
+5. **Process execution** — use `_safe_run.py` for managed build/test subprocesses where applicable; preserve exit codes, timeout, and signal behavior.
 6. **Ruff for formatting** — `ruff format scripts/`, not black.
 7. **Argument sanitization** — AI-provided args go through `_arg_sanitizer.sanitize()`.
 
 ## Bash Conventions
 
 1. `bin/*` scripts are **passthrough only** — set up venv, delegate to orchestrator.
-2. Signal traps in `test.sh` for cleanup.
-3. PTY restoration (`stty sane`) on exit.
+2. Preserve exit status and clean up owned child processes/resources when a command is interrupted; do not impose terminal restoration or redirection on every harness.

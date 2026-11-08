@@ -28,34 +28,34 @@ from _logging import log_warn
 # ── Harness-neutral contract constants ─────────────────────────────────────
 
 ADAPTER_NAMES = ("claude", "codex", "cursor", "gemini", "omp", "pi")
-
-#: Historical filename; the *path* is a stable contract referenced by every
-#: generated instruction file, so it is not renamed with the adapters.
-BASE_CONTEXT_REF = ".leedevkit/templates/CLAUDE.base.md"
-
 MARKER_START = "<!-- leedevkit:begin -->"
 MARKER_END = "<!-- leedevkit:end -->"
 
-BASE_CONTEXT = f"""## LeeDevKit base context
+
+def base_context(root: Path, devkit: Path) -> str:
+    """Render context pointers for source checkouts and installed runtimes."""
+    root, devkit = root.resolve(), devkit.resolve()
+
+    def path(*parts: str) -> str:
+        target = devkit.joinpath(*parts)
+        if devkit == root:
+            return target.relative_to(root).as_posix()
+        if devkit == root / ".leedevkit":
+            return Path(".leedevkit").joinpath(*parts).as_posix()
+        return str(target)
+
+    return f"""## LeeDevKit base context
 
 This repository uses LeeDevKit. Before making changes, read and apply:
-`{BASE_CONTEXT_REF}`.
+`{path("templates", "CLAUDE.base.md")}`.
 
-Source of truth for this project's AI context lives in project `.agent/` and
-the installed devkit `.leedevkit/`:
+Project policy lives in `.agent/`; devkit sources live at:
+- Built-in skills: `{path(".agent", "skills", "*")}/SKILL.md`
+- Community skills: `{path("skills.d", "*")}/SKILL.md`
+- Built-in agents: `{path(".agent", "agents", "*")}.md`
+- Project agents: `.agent/agents/*.md`
 
-| Purpose | Location |
-|---------|----------|
-| Rulebooks (lazy-load by domain) | `.agent/rules/*.md` |
-| Built-in skills | `.leedevkit/.agent/skills/*/SKILL.md` |
-| Installed community skills | `.leedevkit/skills.d/*/SKILL.md` |
-| Built-in agents | `.leedevkit/.agent/agents/*.md` |
-| Project agents | `.agent/agents/*.md` |
-| Devkit commands | `./leedevkit --help` |
-
-Capability fallback: if this harness cannot run shell commands, dispatch
-subagents, or track todos, follow the skill's prose directly and report the
-missing capability. Never invent a tool call the harness does not provide.
+Run `./leedevkit --help` for available project commands.
 """
 
 
@@ -320,11 +320,7 @@ class ClaudeCodeAdapter(HarnessAdapter):
         changed += self.bridge_tree(
             self.skill_sources, self.root / ".claude" / "skills"
         )
-        body = (
-            BASE_CONTEXT
-            + "\n### Available skills\n\n"
-            + skill_index(self.devkit, self.root)
-        )
+        body = base_context(self.root, self.devkit)
         if write_managed_block(self.root / "CLAUDE.md", body):
             changed += 1
         return changed
@@ -338,7 +334,7 @@ class AgentsFileAdapter(HarnessAdapter):
 
     def sync(self) -> int:
         body = (
-            BASE_CONTEXT
+            base_context(self.root, self.devkit)
             + "\n### Available skills\n\n"
             + skill_index(self.devkit, self.root)
         )
@@ -352,7 +348,7 @@ class CursorAdapter(HarnessAdapter):
 
     def sync(self) -> int:
         body = (
-            BASE_CONTEXT
+            base_context(self.root, self.devkit)
             + "\n### Available skills\n\n"
             + skill_index(self.devkit, self.root)
         )
@@ -376,7 +372,7 @@ class GeminiAdapter(HarnessAdapter):
 
     def sync(self) -> int:
         body = (
-            BASE_CONTEXT
+            base_context(self.root, self.devkit)
             + "\n### Available skills\n\n"
             + skill_index(self.devkit, self.root)
         )
@@ -391,11 +387,7 @@ class OmpAdapter(HarnessAdapter):
     def sync(self) -> int:
         changed = self.bridge_tree(self.agent_sources, self.root / ".omp" / "agents")
         changed += self.bridge_tree(self.skill_sources, self.root / ".omp" / "skills")
-        body = (
-            BASE_CONTEXT
-            + "\n### Available skills\n\n"
-            + skill_index(self.devkit, self.root, ".omp/skills")
-        )
+        body = base_context(self.root, self.devkit)
         if write_managed_block(self.root / ".omp" / "AGENTS.md", body):
             changed += 1
         return changed
@@ -408,10 +400,11 @@ class PiAdapter(HarnessAdapter):
 
     def sync(self) -> int:
         changed = self.bridge_tree(self.skill_sources, self.root / ".pi" / "skills")
+        # Pi and Codex share AGENTS.md; render the same fallback index for both.
         body = (
-            BASE_CONTEXT
+            base_context(self.root, self.devkit)
             + "\n### Available skills\n\n"
-            + skill_index(self.devkit, self.root, ".pi/skills")
+            + skill_index(self.devkit, self.root)
         )
         if write_managed_block(self.root / "AGENTS.md", body):
             changed += 1

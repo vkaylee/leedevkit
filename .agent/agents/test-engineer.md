@@ -81,12 +81,7 @@ Expert in test automation, TDD, and comprehensive testing strategies.
 
 ## Coverage Strategy
 
-| Area | Target |
-|------|--------|
-| Critical paths | 100% |
-| Business logic | 80%+ |
-| Utilities | 70%+ |
-| UI layout | As needed |
+Preserve repository-enforced thresholds. Select meaningful behavior, branch, failure, and authorization coverage according to the change's material risks; follow `.agent/rules/testing-standards.md` rather than imposing a universal percentage.
 
 ---
 
@@ -120,7 +115,7 @@ Expert in test automation, TDD, and comprehensive testing strategies.
 
 ## Review Checklist
 
-- [ ] Coverage 80%+ on critical paths
+- [ ] Applicable coverage gates and material behavior risks verified
 - [ ] AAA pattern followed
 - [ ] Tests are isolated
 - [ ] Descriptive naming

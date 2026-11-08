@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _harness_engine import (  # noqa: E402
@@ -45,9 +47,6 @@ def test_explicit_harnesses_project_context_and_preserve_user_content(
 
     assert set(report) == {"claude", "codex", "cursor", "gemini"}
     assert (root / ".claude/skills/api-patterns/SKILL.md").is_file()
-    context = (root / "CLAUDE.md").read_text()
-    assert "`.leedevkit/.agent/skills/*/SKILL.md`" in context
-    assert "`../.leedevkit/.agent/skills/api-patterns/SKILL.md`" in context
     assert (root / "AGENTS.md").read_text().startswith("# Local rules\n")
     assert "Keep this text." in (root / "AGENTS.md").read_text()
     assert (root / ".cursor/rules/leedevkit.mdc").is_file()
@@ -71,10 +70,12 @@ def test_context_uses_consumer_paths_for_builtin_skills(tmp_path: Path) -> None:
 
     sync_harnesses(root, devkit, {"ai": {"harnesses": ["claude"]}})
 
-    context = (root / "CLAUDE.md").read_text()
     for name in skill_names:
-        assert f"`.leedevkit/.agent/skills/{name}/SKILL.md`" in context
-        assert f"`.agent/skills/{name}/SKILL.md`" not in context
+        discovered = root / ".claude" / "skills" / name / "SKILL.md"
+        assert (
+            discovered.resolve()
+            == (devkit / ".agent" / "skills" / name / "SKILL.md").resolve()
+        )
 
 
 def test_sync_is_idempotent_and_managed_block_is_single_instance(
@@ -134,9 +135,6 @@ def test_omp_adapter_bridges_agents_skills_and_writes_omp_agents_md(
     assert (root / ".omp/skills/api-patterns/SKILL.md").is_file()
     assert (root / ".omp/AGENTS.md").is_file()
     assert MARKER_START in (root / ".omp/AGENTS.md").read_text()
-    assert (
-        "`.omp/skills/api-patterns/SKILL.md`" in (root / ".omp/AGENTS.md").read_text()
-    )
 
 
 def test_pi_adapter_bridges_skills_into_native_skills_and_writes_agents_md(
@@ -152,7 +150,6 @@ def test_pi_adapter_bridges_skills_into_native_skills_and_writes_agents_md(
     assert (root / ".pi/skills/api-patterns/SKILL.md").is_file()
     assert (root / "AGENTS.md").is_file()
     assert MARKER_START in (root / "AGENTS.md").read_text()
-    assert "`.pi/skills/api-patterns/SKILL.md`" in (root / "AGENTS.md").read_text()
 
 
 def test_harness_aliases_and_detection(tmp_path: Path) -> None:
@@ -171,3 +168,41 @@ def test_harness_aliases_and_detection(tmp_path: Path) -> None:
     detected = detect_harnesses(root)
     assert "omp" in detected
     assert "pi" in detected
+
+
+@pytest.mark.parametrize("installed", [False, True])
+def test_base_reference_resolves_and_all_adapters_resync_without_changes(
+    tmp_path: Path, installed: bool
+) -> None:
+    root = tmp_path / "project with spaces"
+    root.mkdir()
+    devkit = root / ".leedevkit" if installed else root
+    template = devkit / "templates" / "CLAUDE.base.md"
+    template.parent.mkdir(parents=True)
+    template.write_text("# Fixture project context\n")
+    native_skill = root / ".claude" / "skills" / "user-skill" / "SKILL.md"
+    native_skill.parent.mkdir(parents=True)
+    native_skill.write_text("User-owned skill\n")
+    (root / "CLAUDE.md").write_text("User-owned context\n")
+    cfg = {"ai": {"harnesses": ["claude", "codex", "cursor", "gemini", "omp", "pi"]}}
+
+    sync_harnesses(root, devkit, cfg)
+
+    for relative in (
+        "CLAUDE.md",
+        "AGENTS.md",
+        "GEMINI.md",
+        ".cursor/rules/leedevkit.mdc",
+        ".omp/AGENTS.md",
+    ):
+        context = (root / relative).read_text()
+        references = [
+            part
+            for part in context.split("`")
+            if part.endswith("templates/CLAUDE.base.md")
+        ]
+        assert len(references) == 1
+        assert (root / references[0]).resolve() == template.resolve()
+    assert (root / "CLAUDE.md").read_text().startswith("User-owned context\n")
+    assert native_skill.read_text() == "User-owned skill\n"
+    assert not any(sync_harnesses(root, devkit, cfg).values())

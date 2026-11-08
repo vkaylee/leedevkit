@@ -5,7 +5,7 @@
 - Replace `leedevkit manage up dev` with `leedevkit dev up`.
 - Replace `leedevkit manage down dev` with `leedevkit dev down`.
 - Remove the `manage` CLI namespace.
-- Promote remaining administrative commands to top-level commands, including `init`, `doctor`, `skills`, `db:setup`, and migration commands.
+- Promote `init`, `doctor`, and `skills` to top-level commands. Administrative database/migration handlers remain internal; the public launcher does not expose them.
 - Update CLI help, wrappers, documentation, and tests.
 
 ## Breaking changes
@@ -17,16 +17,23 @@ leedevkit dev up
 leedevkit dev down
 ```
 
-Other commands previously nested under `manage` are now top-level. For example:
+Supported commands previously nested under `manage` are now top-level. For example:
 
 ```bash
 leedevkit init
 leedevkit doctor
 leedevkit skills list
-leedevkit db:setup
 ```
 
 The old `manage` namespace is no longer accepted.
+
+## AI context and harness compatibility
+
+- Reduce base context and load domain guidance only when its technology and risk apply.
+- Remove blanket PTY/shell-syntax bans and mandatory log redirection; use available harness process controls and existing project isolation wrappers.
+- Separate reusable safety invariants from project-owned auth, database, license, retention, and recovery policy.
+- Resolve generated context and Claude hook/MCP paths for both source checkouts and installed consumer projects; preserve user-owned managed-file surroundings.
+- Consolidate behavior verification and test execution rules. Dry-run success is not test evidence.
 
 ## Rollback
 

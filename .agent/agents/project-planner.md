@@ -292,81 +292,18 @@ Before assigning agents, determine project type:
 | **Tech Stack** | Technology choices with rationale | Trade-off awareness |
 | **File Structure** | Directory layout | Organization clarity |
 | **Task Breakdown** | Detailed tasks (see format below) | INPUT → OUTPUT → VERIFY |
-| **Phase X: Verification** | Mandatory checklist | Definition of done |
+| **Verification** | Applicable checks and observable evidence | Risk-proportionate definition of done |
 
-### Phase X: Final Verification (MANDATORY SCRIPT EXECUTION)
+### Final Verification
 
-> 🔴 **DO NOT mark project complete until ALL scripts pass.**
-> 🔴 **ENFORCEMENT: You MUST execute these Python scripts!**
+Plan verification from the affected behavior, configured project targets, and material risks. Follow `.agent/rules/development-workflow.md` for the behavior loop and `.agent/rules/testing-standards.md` for execution and coverage gates.
 
-> 💡 **Script paths are relative to `.agent/` directory**
+- Discover actual wrappers, scripts, and environments before listing commands. Do not assume Node, a web server, browser tooling, or a fixed Python path.
+- Include security, accessibility, migration, performance, or release checks when the changed surface warrants them; do not run every specialist script for every task.
+- Exercise the changed user-visible behavior in a safe environment. Report exact checks executed, outcomes, and unavailable evidence.
+- Mark completion only from observed results, not a copied success marker. Respect project design decisions rather than imposing unrelated style bans.
 
-#### 1. Run All Verifications (RECOMMENDED)
 
-```bash
-# SINGLE COMMAND - Runs all checks in priority order:
-.leedevkit/.venv/bin/python3 .agent/scripts/verify_all.py . --url http://localhost:3000
-
-# Priority Order:
-# P0: Security Scan (vulnerabilities, secrets)
-# P1: Color Contrast (WCAG AA accessibility)
-# P1.5: UX Audit (Psychology laws, Fitts, Hick, Trust)
-# P2: Touch Target (mobile accessibility)
-# P3: Lighthouse Audit (performance, SEO)
-# P4: Playwright Tests (E2E)
-```
-
-#### 2. Or Run Individually
-
-```bash
-# P0: Lint & Type Check
-npm run lint && npx tsc --noEmit
-
-# P0: Security Scan
-.leedevkit/.venv/bin/python3 .agent/skills/vulnerability-scanner/scripts/security_scan.py .
-
-# P1: UX Audit
-.leedevkit/.venv/bin/python3 .agent/skills/frontend-design/scripts/ux_audit.py .
-
-# P3: Lighthouse (requires running server)
-.leedevkit/.venv/bin/python3 .agent/skills/performance-profiling/scripts/lighthouse_audit.py http://localhost:3000
-
-# P4: Playwright E2E (requires running server)
-.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py http://localhost:3000 --screenshot
-```
-
-#### 3. Build Verification
-```bash
-# For Node.js projects:
-npm run build
-# → IF warnings/errors: Fix before continuing
-```
-
-#### 4. Runtime Verification
-```bash
-# Start dev server and test:
-npm run dev
-
-# Optional: Run Playwright tests if available
-.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py http://localhost:3000 --screenshot
-```
-
-#### 4. Rule Compliance (Manual Check)
-- [ ] No purple/violet hex codes
-- [ ] No standard template layouts
-- [ ] Socratic Gate was respected
-
-#### 5. Phase X Completion Marker
-```markdown
-# Add this to the plan file after ALL checks pass:
-## ✅ PHASE X COMPLETE
-- Lint: ✅ Pass
-- Security: ✅ No critical issues
-- Build: ✅ Success
-- Date: [Current Date]
-```
-
-> 🔴 **EXIT GATE:** Phase X marker MUST be in PLAN.md before project is complete.
 
 ---
 

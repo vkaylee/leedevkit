@@ -50,14 +50,14 @@ downloads the devkit into `.leedevkit/` inside your project.
 cd my-project && git init
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 
-# Focused commands provide fast feedback only; never completion gates.
-./leedevkit test infra --lint-only  # focused lint (partial/unverified)
-./leedevkit test infra --unit-only  # focused unit (partial/unverified)
-./leedevkit test all                # required full regression: server + web + build + integration/E2E
+# Focused commands provide fast feedback; select completion checks by affected risk.
+./leedevkit test infra --lint-only  # focused lint
+./leedevkit test infra --unit-only  # focused unit
+./leedevkit test all                # all configured targets/phases
 ./leedevkit test all --json         # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents; logs stay in .test_logs/
 # ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
-./leedevkit test all                # cargo fmt + clippy + nextest + coverage
+./leedevkit test all                # Rust targets use configured Rust verification
 
 # Development environment
 ./leedevkit dev up                   # start dev environment
@@ -329,6 +329,14 @@ override_manifest = ".agent/overrides.yaml"
 
 ```
 Managed files use delimiter comments (`<!-- leedevkit:begin -->` ... `<!-- leedevkit:end -->`) so custom instructions outside the block survive re-sync. Pi and OMP skill directories contain managed relative symlinks; user files with conflicting names are preserved.
+
+Context is split by responsibility: core safety and scope in the base context, executable facts in project configuration/CI, behavior verification in `development-workflow.md`, execution/coverage gates in `testing-standards.md`, and domain guidance loaded only for matching risks. Rulebooks do not override harness permissions or select an application's auth, database, or operational architecture.
+
+Consumer projects resolve the base under `.leedevkit/templates/CLAUDE.base.md`; the LeeDevKit source checkout uses `templates/CLAUDE.base.md`. Generated Claude hook/MCP commands follow the same source-versus-installed layout. Process control uses the active harness's capabilities, not blanket bans on shell syntax or forced log redirection. Existing configured isolation wrappers still apply.
+
+Use harness-native skill discovery when available; load relevant skill bodies only. Scenario checks should keep Q&A lightweight, verify observable behavior for small fixes, and load authorization, migration, or release controls only when those risks apply. A dry-run is not test evidence, even if its machine summary reports success.
+
+The context cleanup reduced the base template from 92 lines / 5,448 bytes to 37 lines / 3,119 bytes, and the 26 rulebooks from 1,636 lines / 105,297 bytes to 936 lines / 71,333 bytes. These are on-disk sizes, not measured injected tokens. Claude and OMP use native discovery without a duplicated full skill index; Pi retains the same fallback index as Codex because both manage `AGENTS.md`.
 
 ## Skills
 

@@ -49,40 +49,6 @@ class TestShouldExclude:
         assert _should_exclude("VERSION") is False
 
 
-class TestAgentTestingGuidance:
-    """Guard the mandatory post-implementation test decision in shipped context."""
-
-    repo_root = Path(__file__).resolve().parents[2]
-
-    def test_base_prompt_requires_explicit_test_impact_outcome(self):
-        prompt = (self.repo_root / "templates" / "CLAUDE.base.md").read_text()
-
-        assert "Post-Implementation Test Gate" in prompt
-        assert "tests added/updated" in prompt
-        assert "reason no test change is needed" in prompt
-        assert "./leedevkit test <target>" in prompt
-        assert "scripts/_release_acceptance.py" in prompt
-        assert "source tests alone are NOT enough" in prompt
-
-    def test_testing_standard_defines_test_gate_and_exceptions(self):
-        rules = (
-            self.repo_root / ".agent" / "rules" / "testing-standards.md"
-        ).read_text()
-        internals = (
-            self.repo_root / ".agent" / "rules" / "devkit-internals.md"
-        ).read_text()
-
-        assert "Decide autonomously whether tests must be added or updated" in rules
-        assert "No test change needed" in rules
-        assert "Bug fixes and regressions" in rules
-        assert "documentation-only" in rules
-        assert "./leedevkit test <target>" in rules
-        assert "./test.sh" not in rules
-        assert "scripts/_release_acceptance.py" in rules
-        assert "Release Packaging Gate" in internals
-        assert "LEEDEVKIT_RELEASE_BASE_URL" in internals
-
-
 class TestBuildRelease:
     def test_shell_builder_uses_canonical_root_and_verified_manifest(self, tmp_path):
         """Run the shipped shell builder against a local tag, without network."""

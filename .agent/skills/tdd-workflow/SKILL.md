@@ -105,7 +105,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 ---
 
-## 7. The Project-Suite Green Gate
+## 7. Applicable Verification Gate
 
 Passing only the newly written test is not sufficient for completion.
 
@@ -113,7 +113,7 @@ Passing only the newly written test is not sufficient for completion.
 
 1. **Local test passes:** The new/modified test passes consistently.
 2. **Regression check passes:** Original bug reproduction fails pre-fix and passes post-fix.
-3. **Full suite green:** The entire project test suite (unit, integration, regression) runs and passes.
+3. **Applicable checks pass:** Follow `development-workflow.md` for behavior evidence and `testing-standards.md` for target selection. Run broader regression when shared infrastructure or contracts are affected; do not require unrelated suites for every local change.
 4. **No silenced tests:** No tests skipped, retried, commented out, or weakened to force a green result.
 5. **Clean environment:** No leftover test artifacts, mocks leaking between runs, or leaked background processes.
 

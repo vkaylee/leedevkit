@@ -144,7 +144,7 @@ File to edit: UserService.ts
 | ✅ **Files edited?** | Did I modify all necessary files? |
 | ✅ **Code works?** | Did I test/verify the change? |
 | ✅ **Edge cases covered?** | Did I verify boundaries, negative paths, failures, state transitions, and compatibility where applicable? |
-| ✅ **No errors?** | Lint and TypeScript pass? |
+| ✅ **No errors?** | Applicable configured lint/type checks pass? |
 | ✅ **No dead code?** | Any unused, unreachable, replaced, or expired transitional code left behind? |
 | ✅ **Nothing forgotten?** | Any edge cases missed? |
 
@@ -152,62 +152,20 @@ File to edit: UserService.ts
 
 ---
 
-## Verification Scripts (MANDATORY)
+## Optional Validation Scripts
 
-> 🔴 **CRITICAL:** Each agent runs ONLY their own skill's scripts after completing work.
+Use a skill validation script only when the project provides that script and it applies to the changed files. Discover the configured command and harness capability first; this fixed list is illustrative, not a required agent-to-script mapping. Prefer repository-configured checks for the task. Do not assume `.leedevkit/.venv` or any listed path exists.
 
-### Agent → Script Mapping
+| Area | Example script, when present and applicable |
+|-------|---------------------------------------------|
+| UX / accessibility | `frontend-design/scripts/ux_audit.py` or accessibility checker |
+| API | `api-patterns/scripts/api_validator.py` |
+| Mobile | `mobile-design/scripts/mobile_audit.py` |
+| Security | `vulnerability-scanner/scripts/security_scan.py` |
+| Tests / browser | `testing-patterns/scripts/test_runner.py` or `webapp-testing/scripts/playwright_runner.py` |
+| Lint / types / i18n | Applicable script under the corresponding skill’s `scripts/` directory |
 
-| Agent | Script | Command |
-|-------|--------|---------|
-| **frontend-specialist** | UX Audit | `.leedevkit/.venv/bin/python3 .agent/skills/frontend-design/scripts/ux_audit.py .` |
-| **frontend-specialist** | A11y Check | `.leedevkit/.venv/bin/python3 .agent/skills/frontend-design/scripts/accessibility_checker.py .` |
-| **backend-specialist** | API Validator | `.leedevkit/.venv/bin/python3 .agent/skills/api-patterns/scripts/api_validator.py .` |
-| **mobile-developer** | Mobile Audit | `.leedevkit/.venv/bin/python3 .agent/skills/mobile-design/scripts/mobile_audit.py .` |
-| **database-architect** | Schema Validate | `.leedevkit/.venv/bin/python3 .agent/skills/database-design/scripts/schema_validator.py .` |
-| **security-auditor** | Security Scan | `.leedevkit/.venv/bin/python3 .agent/skills/vulnerability-scanner/scripts/security_scan.py .` |
-| **seo-specialist** | SEO Check | `.leedevkit/.venv/bin/python3 .agent/skills/seo-fundamentals/scripts/seo_checker.py .` |
-| **seo-specialist** | GEO Check | `.leedevkit/.venv/bin/python3 .agent/skills/geo-fundamentals/scripts/geo_checker.py .` |
-| **performance-optimizer** | Lighthouse | `.leedevkit/.venv/bin/python3 .agent/skills/performance-profiling/scripts/lighthouse_audit.py <url>` |
-| **test-engineer** | Test Runner | `.leedevkit/.venv/bin/python3 .agent/skills/testing-patterns/scripts/test_runner.py .` |
-| **test-engineer** | Playwright | `.leedevkit/.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url>` |
-| **Any agent** | Lint Check | `.leedevkit/.venv/bin/python3 .agent/skills/lint-and-validate/scripts/lint_runner.py .` |
-| **Any agent** | Type Coverage | `.leedevkit/.venv/bin/python3 .agent/skills/lint-and-validate/scripts/type_coverage.py .` |
-| **Any agent** | i18n Check | `.leedevkit/.venv/bin/python3 .agent/skills/i18n-localization/scripts/i18n_checker.py .` |
-
-> ❌ **WRONG:** `test-engineer` running `ux_audit.py`
-> ✅ **CORRECT:** `frontend-specialist` running `ux_audit.py`
 
 ---
 
-### 🔴 Script Output Handling (READ → SUMMARIZE → ASK)
-
-**When running a validation script, you MUST:**
-
-1. **Run the script** and capture ALL output
-2. **Parse the output** - identify errors, warnings, and passes
-3. **Summarize to user** in this format:
-
-```markdown
-## Script Results: [script_name.py]
-
-### ❌ Errors Found (X items)
-- [File:Line] Error description 1
-- [File:Line] Error description 2
-
-### ⚠️ Warnings (Y items)
-- [File:Line] Warning description
-
-### ✅ Passed (Z items)
-- Check 1 passed
-- Check 2 passed
-
-**Should I fix the X errors?**
-```
-
-4. **Fix in-scope failures** when the requested task already authorizes code changes; ask before semantic fixes that expand scope or require a product decision
-5. **After fixing** → Re-run script to confirm
-
-> 🔴 **VIOLATION:** Running script and ignoring output = FAILED task.
-> 🔴 **VIOLATION:** Applying semantic or out-of-scope auto-fixes without review is not allowed. Deterministic formatting of in-scope files is allowed.
-> 🔴 **Rule:** Always READ output → SUMMARIZE → ASK → then fix.
+When you run an applicable script, inspect its available result, summarize relevant errors and warnings accurately, and record command and evidence when project workflow requires it. Fix in-scope failures when task authorizes those changes; otherwise report them without expanding scope. Follow harness process and output capabilities instead of assuming a particular capture mechanism.

@@ -43,16 +43,18 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 ## 3. Process Management
 
+These examples describe Bash/Linux process controls, not capabilities guaranteed by every agent harness. In agent work, prefer harness-managed processes/services when available; otherwise use shell job control only when supported and needed. Run commands in the foreground by default when you need their exit status and output.
+
 | Task | Command |
 |------|---------|
 | List processes | `ps aux` |
-| Find by name | `ps aux \| grep node` |
-| Kill by PID | `kill -9 <PID>` |
+| Find by name | `ps aux | grep node` |
+| Send termination signal | `kill <PID>` |
 | Find port user | `lsof -i :3000` |
-| Kill port | `kill -9 $(lsof -t -i :3000)` |
-| Background | `npm run dev &` |
+| Send termination signal to port user | `kill "$(lsof -t -i :3000)"` |
+| Background (Bash job control, when needed) | `command &` |
 | Jobs | `jobs -l` |
-| Bring to front | `fg %1` |
+| Bring to foreground | `fg %1` |
 
 ---
 

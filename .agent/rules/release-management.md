@@ -41,7 +41,7 @@ Deployment and feature exposure are separate controls. A deployed feature MUST N
 
 ## 6. Rollback and Emergency Releases
 
-- Rollback procedures MUST be executable, owned, and compatible with data changes.
+- Define an executable recovery path, owner, and verification criteria appropriate to release risk. Rollback is one option; when data changes make rollback unsafe, document and use the approved roll-forward, restore, or reconciliation path from `migration-and-rollback.md`.
 - Emergency releases may use reduced pre-release scope only under the change-management hotfix process.
 - Emergency changes still require traceability, targeted verification, monitoring, and retrospective review.
 

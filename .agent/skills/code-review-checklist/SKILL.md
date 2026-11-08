@@ -64,7 +64,7 @@ Evidence: [path:line, test name, request/event ID, or log location]
 - [ ] Assertions verify absence of unauthorized or partial side effects where relevant
 - [ ] No source-text, AST, implementation-name, or change-detector tests substitute for behavior assertions
 - [ ] No assertions weakened; no tests skipped, retried, or quarantined without tracked, time-bound reason
-- [ ] Test Impact Matrix dimensions considered; non-applicable dimensions have concrete reasons
+- [ ] Material regression, boundary, failure, security, and compatibility risks assessed proportionately under `development-workflow.md`
 - [ ] Project test suite result recorded with command and evidence location when required by project workflow
 
 ## Findings Format

@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
 from _logging import log_warn
 
-DEVKIT_PYTHON = ".leedevkit/.venv/bin/python3"
-ROUTER_HOOK_COMMAND = f"{DEVKIT_PYTHON} .leedevkit/scripts/_model_router.py"
 MCP_SERVER_NAME = "leedevkit-task-assessor"
+LEGACY_ROUTER_HOOK_COMMAND = (
+    ".leedevkit/.venv/bin/python3 .leedevkit/scripts/_model_router.py"
+)
+LEGACY_MCP_COMMAND = ".leedevkit/.venv/bin/python3"
+LEGACY_MCP_ARGS = [".leedevkit/scripts/_task_assessor_mcp.py"]
 
 
 def _read_json(path: Path) -> tuple[dict[str, Any] | None, bool]:
@@ -35,8 +39,28 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     temp.replace(path)
 
 
-def merge_settings_json(root: Path) -> bool:
-    """Add LeeDevKit PreToolUse router hook to .claude/settings.json without overwriting user data."""
+def _runtime_paths(root: Path, devkit: Path) -> tuple[str, str, str]:
+    """Return interpreter, router, and MCP script paths for this runtime."""
+    root, devkit = root.resolve(), devkit.resolve()
+    if devkit == root:
+        prefix = Path()
+    elif devkit == root / ".leedevkit":
+        prefix = Path(".leedevkit")
+    else:
+        return (
+            str(devkit / ".venv" / "bin" / "python3"),
+            str(devkit / "scripts" / "_model_router.py"),
+            str(devkit / "scripts" / "_task_assessor_mcp.py"),
+        )
+    return (
+        (prefix / ".venv" / "bin" / "python3").as_posix(),
+        (prefix / "scripts" / "_model_router.py").as_posix(),
+        (prefix / "scripts" / "_task_assessor_mcp.py").as_posix(),
+    )
+
+
+def merge_settings_json(root: Path, devkit: Path) -> bool:
+    """Install or migrate the LeeDevKit router hook without overwriting user data."""
     target = root / ".claude" / "settings.json"
     data, valid = _read_json(target)
     if not valid or data is None:
@@ -57,29 +81,41 @@ def merge_settings_json(root: Path) -> bool:
         )
         return False
 
+    python, router, _ = _runtime_paths(root, devkit)
+    command = shlex.join([python, router])
+    changed = False
+    current_found = False
     for entry in pre_tool_list:
-        if isinstance(entry, dict):
-            inner_hooks = entry.get("hooks", [])
-            if isinstance(inner_hooks, list):
-                for hook in inner_hooks:
-                    if (
-                        isinstance(hook, dict)
-                        and hook.get("command") == ROUTER_HOOK_COMMAND
-                    ):
-                        return False
+        if entry == {
+            "matcher": "Agent|Task",
+            "hooks": [{"type": "command", "command": command}],
+        }:
+            current_found = True
+        elif entry == {
+            "matcher": "Agent|Task",
+            "hooks": [{"type": "command", "command": LEGACY_ROUTER_HOOK_COMMAND}],
+        }:
+            entry["hooks"][0]["command"] = command
+            changed = True
+
+    if changed:
+        _write_json_atomic(target, data)
+        return True
+    if current_found:
+        return False
 
     pre_tool_list.append(
         {
             "matcher": "Agent|Task",
-            "hooks": [{"type": "command", "command": ROUTER_HOOK_COMMAND}],
+            "hooks": [{"type": "command", "command": command}],
         }
     )
     _write_json_atomic(target, data)
     return True
 
 
-def merge_mcp_json(root: Path) -> bool:
-    """Add leedevkit-task-assessor to .mcp.json without overwriting user servers."""
+def merge_mcp_json(root: Path, devkit: Path) -> bool:
+    """Install or migrate the managed task assessor, preserving user servers."""
     target = root / ".mcp.json"
     data, valid = _read_json(target)
     if not valid or data is None:
@@ -93,17 +129,30 @@ def merge_mcp_json(root: Path) -> bool:
         )
         return False
 
+    python, _, assessor = _runtime_paths(root, devkit)
+    generated = {"command": python, "args": [assessor]}
+    existing = servers.get(MCP_SERVER_NAME)
     if MCP_SERVER_NAME in servers:
-        return False
+        if not isinstance(existing, dict):
+            return False
+        command, args = existing.get("command"), existing.get("args")
+        is_managed = (command, args) in (
+            (LEGACY_MCP_COMMAND, LEGACY_MCP_ARGS),
+            (generated["command"], generated["args"]),
+        )
+        if not is_managed:
+            return False
+        if command == generated["command"] and args == generated["args"]:
+            return False
+        existing.update(generated)
+        _write_json_atomic(target, data)
+        return True
 
-    servers[MCP_SERVER_NAME] = {
-        "command": DEVKIT_PYTHON,
-        "args": [".leedevkit/scripts/_task_assessor_mcp.py"],
-    }
+    servers[MCP_SERVER_NAME] = generated
     _write_json_atomic(target, data)
     return True
 
 
-def install_ai_integrations(root: Path) -> tuple[bool, bool]:
+def install_ai_integrations(root: Path, devkit: Path) -> tuple[bool, bool]:
     """Install integrations; runtime routing remains controlled by ``enabled``."""
-    return merge_settings_json(root), merge_mcp_json(root)
+    return merge_settings_json(root, devkit), merge_mcp_json(root, devkit)

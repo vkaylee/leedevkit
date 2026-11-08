@@ -29,11 +29,11 @@ Every high-risk migration MUST define:
 
 - Last safe rollback point
 - Data written by the new version and how older versions handle it
-- Rollback commands or automated procedure
+- A safe recovery path: rollback only when it preserves data and integrity; otherwise define roll-forward, restore, or reconciliation steps
 - Conditions where roll-forward is safer than rollback
 - Recovery and reconciliation steps after partial failure
 
-An untested destructive rollback script MUST NOT be treated as a valid rollback plan.
+A `down.sql` or equivalent is OPTIONAL when the migration can be safely reversed. Do not create or execute a destructive rollback merely to satisfy a rollback convention. An untested destructive rollback script MUST NOT be treated as a valid recovery plan.
 
 ## 5. Execution Controls
 

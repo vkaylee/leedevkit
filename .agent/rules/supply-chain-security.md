@@ -1,64 +1,22 @@
-# 📦 Supply Chain & Dependency Security (SOC 2 CC9.2 / ISO 27001 A.5.19-5.23)
+# Supply Chain and Dependency Security
 
-## 1. Dependency Audit Policy (MANDATORY)
-> 🔴 **Every dependency is an attack surface. Unaudited dependencies are unaccepted risk.**
+> Scope: Projects that use third-party dependencies, build artifacts, containers, or external services. Tooling, license criteria, review cadence, severity targets, and artifact requirements are project-owned controls; examples below do not establish compliance.
 
-### Automated Scanning
-| Tool | Scope | Frequency | Blocking |
-|------|-------|-----------|----------|
-| `cargo audit` | Rust crate vulnerabilities (RustSec) | Every CI run + weekly scheduled | ✅ CI blocks on CRITICAL/HIGH |
-| `npm audit` | Node.js package vulnerabilities | Every CI run + weekly scheduled | ✅ CI blocks on CRITICAL/HIGH |
-| `cargo deny` | License compliance + duplicate crates | Every CI run | ✅ CI blocks on violations |
-| `trivy` / `grype` | Docker image CVEs | Every image build | ✅ CI blocks on CRITICAL |
+## Dependency Risk
 
-- **Weekly Report:** Generate and review a dependency vulnerability report weekly. Fix CRITICAL within **24 hours**, HIGH within **7 days**.
-- **Zero-Day Response:** When a zero-day CVE is published for a dependency in use, treat as P2 security incident (per `incident-response.md`).
+- Know and review dependencies introduced or materially updated, including transitive dependencies where tooling supports it. Consider maintenance, origin, permissions, known vulnerabilities, and fit for purpose.
+- Use repository-configured vulnerability and license checks where available. Select scanning tools, blocking thresholds, cadence, and remediation targets according to project risk and contractual or legal requirements.
+- Track material findings with affected versions, exposure, owner, disposition, and due date. Prioritize active exploitation and reachable high-impact vulnerabilities. Document approved risk acceptance; a scanner result alone is not a risk decision.
+- Keep lockfiles and dependency source/configuration changes reviewed where the ecosystem uses them.
 
-## 2. Approved License Policy (MANDATORY)
-> 🔴 **Using dependencies with incompatible licenses is a legal liability.**
+## License and Provenance
 
-| Status | Licenses | Action |
-|--------|----------|--------|
-| ✅ **Allowed** | MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0, Unlicense, Zlib | Use freely |
-| ⚠️ **Review Required** | LGPL-2.1, LGPL-3.0, CC-BY-4.0 | Requires team lead approval |
-| ❌ **Blocked** | GPL-2.0, GPL-3.0, AGPL-3.0, SSPL, proprietary | NEVER use without legal review |
-| ❓ **Unknown/Custom** | Any custom or unlicensed | NEVER use. Must have explicit license. |
+- Assess license obligations and compatibility with the project’s distribution and use before adopting a dependency. Escalate uncertain, conflicting, or restrictive terms to the appropriate legal or project owner.
+- Maintain project-specific license allow, review, or deny criteria only where they are approved and kept current. Do not treat a generic license list as legal advice or automatic permission to use software.
+- Verify dependency and artifact origins using ecosystem and repository controls where supported. Preserve provenance, checksums, signatures, attestations, or an SBOM when required by project policy or useful to the release risk.
 
-- **Enforcement:** Use `cargo deny` (Rust) and `license-checker` (npm) in CI to block PRs introducing disallowed licenses.
-- **New Dependency Checklist:** Before adding any new dependency, verify: license compatibility, maintenance status, download count, known vulnerabilities.
+## Build and External Services
 
-## 3. Docker Base Image Policy (MANDATORY)
-- **Official Images Only:** Use ONLY official or verified publisher images from Docker Hub / container registry.
-- **Pin Versions:** ALWAYS pin exact versions or SHA digests. NEVER use `:latest` tag in production Dockerfiles.
-  - ✅ `FROM rust:1.82-slim-bookworm@sha256:abc123...`
-  - ❌ `FROM rust:latest`
-- **Minimal Images:** Use `-slim` or `-alpine` variants to reduce attack surface. Production images MUST NOT contain build tools, compilers, or debugging utilities.
-- **Scanning:** ALL Docker images MUST be scanned for vulnerabilities before deployment (see Section 1).
-- **Rebuild Frequency:** Production images MUST be rebuilt at least **monthly** to pick up base image security patches, even if application code hasn't changed.
-
-## 4. Third-Party Service Integration Security
-- **Security Review:** Before integrating any third-party API or SaaS service, document:
-  1. What data is being sent to the service?
-  2. What data classification tier? (per `data-governance.md`)
-  3. Is the service SOC 2 / ISO 27001 certified?
-  4. What happens if the service is unavailable? (circuit breaker plan)
-  5. How is authentication handled? (API keys, OAuth)
-- **Data Minimization:** Send ONLY the minimum data required for the integration. Never send full user records when only an ID is needed.
-- **Egress Monitoring:** Monitor outbound API calls to detect unexpected data exfiltration.
-
-## 5. Dependency Update Policy
-| Priority | Condition | Timeline |
-|----------|-----------|----------|
-| 🔴 Critical | Known exploited CVE | **24 hours** |
-| 🟠 High | CVE with public exploit but no known exploitation | **7 days** |
-| 🟡 Medium | CVE with no public exploit | **30 days** |
-| 🟢 Low | Non-security update (features, performance) | **Next release cycle** |
-
-- **Automated Updates:** Use Dependabot or Renovate to automate dependency update PRs.
-- **Lock Files:** `Cargo.lock` and `package-lock.json` (or `pnpm-lock.yaml`) MUST be committed and reviewed in PRs.
-- **Peer Review:** Dependency update PRs MUST be reviewed with attention to: changelog for breaking changes, new transitive dependencies introduced, license changes.
-
-## 6. Software Bill of Materials (SBOM)
-- **Generation:** Generate an SBOM (CycloneDX or SPDX format) for every production release.
-- **Storage:** SBOMs MUST be stored alongside release artifacts.
-- **Purpose:** Enables rapid identification of affected systems when a new CVE is published for any dependency.
+- Pin or otherwise control build inputs according to the project’s reproducibility and update model. Use trusted base images and scan deployment artifacts when containers are part of the system and applicable controls exist.
+- Minimize data shared with external services. Assess data sensitivity, authentication, retention, availability impact, and contractual obligations before integration.
+- Apply updates and rebuild artifacts at a cadence appropriate to exposure and support commitments; avoid fixed universal schedules.

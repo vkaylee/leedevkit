@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import json
+import shlex
 import shutil
 import sys
 import tarfile
@@ -612,7 +614,16 @@ class TestAutoSyncAfterUpdate:
         assert (
             project_root / ".claude" / "skills" / "api-patterns" / "SKILL.md"
         ).read_text() == "# API\n"
-        assert "## LeeDevKit base context" in (project_root / "CLAUDE.md").read_text()
+        settings = json.loads((project_root / ".claude" / "settings.json").read_text())
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        assert shlex.split(command) == [
+            ".leedevkit/.venv/bin/python3",
+            ".leedevkit/scripts/_model_router.py",
+        ]
+        mcp = json.loads((project_root / ".mcp.json").read_text())
+        assert mcp["mcpServers"]["leedevkit-task-assessor"]["command"] == (
+            ".leedevkit/.venv/bin/python3"
+        )
 
     def test_sync_failure_rolls_back_release_and_config(self, tmp_path, monkeypatch):
         """Post-activation sync failure restores release and project pin."""
