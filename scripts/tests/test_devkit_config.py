@@ -18,6 +18,7 @@ from _devkit_config import (
     load_project_config,
     resolve_ai_rules,
     resolve_lifecycle_dependencies,
+    resolve_test_build_policy,
     resolve_test_targets,
 )
 
@@ -380,6 +381,23 @@ class TestResolveTestTargets:
 
         assert resolve_test_targets() == ["web", "go"]
         assert resolve_test_targets() == ["web", "go"]
+
+
+class TestTestBuildPolicy:
+    def test_defaults_to_once(self):
+        assert resolve_test_build_policy({}) == "once"
+
+    @pytest.mark.parametrize("policy", ["once", "phase"])
+    def test_accepts_supported_policy(self, policy):
+        assert resolve_test_build_policy({"test": {"build_policy": policy}}) == policy
+
+    def test_rejects_invalid_policy(self):
+        with pytest.raises(ValueError, match=r"\[test\]\.build_policy"):
+            resolve_test_build_policy({"test": {"build_policy": "daily"}})
+
+    def test_rejects_non_table_test_config(self):
+        with pytest.raises(ValueError, match=r"\[test\]"):
+            resolve_test_build_policy({"test": []})
 
 
 class TestLifecycleDependencies:

@@ -111,6 +111,65 @@ _ACTIVE_SERVICES: dict[str, list[str]] = {
 }
 
 
+def _configured_service(mode: str) -> str | None:
+    """Return configured primary service for lifecycle mode, if one exists."""
+    language = (
+        "rust"
+        if mode in {"api", "lint-api", "unit-api", "int-api", "integration"}
+        else "typescript"
+        if mode in {"web", "lint-web", "unit-web", "e2e-web"}
+        else "go"
+        if mode in {"go", "lint-go", "unit-go", "int-go"}
+        else ""
+    )
+    if not language:
+        return None
+    try:
+        from _devkit_config import load_project_config
+
+        services = load_project_config().get("services", {})
+        if not isinstance(services, dict):
+            return None
+        for name, service in services.items():
+            if not isinstance(service, dict):
+                continue
+            service_language = service.get("lang")
+            if language == "typescript":
+                matches = service_language in {"typescript", "javascript", "web"}
+            else:
+                matches = service_language == language
+            if matches:
+                return str(name)
+    except (OSError, ValueError, KeyError):
+        return None
+    return None
+
+
+def _active_services(mode: str) -> list[str]:
+    """Resolve lifecycle services while preserving legacy service fallbacks."""
+    configured = _configured_service(mode)
+    if configured is None:
+        return list(_ACTIVE_SERVICES.get(mode, []))
+    if mode in {"web", "lint-web", "unit-web", "e2e-web"}:
+        return (
+            ["bun_init", configured] if configured == "webdashboard" else [configured]
+        )
+    return [configured]
+
+
+def _has_legacy_api_services() -> bool:
+    """Return whether API health checks should include legacy DB/Redis services."""
+    try:
+        from _devkit_config import load_project_config
+
+        services = load_project_config().get("services", {})
+        if not isinstance(services, dict) or not services:
+            return True
+        return "apiserver" in services
+    except (OSError, ValueError, KeyError):
+        return True
+
+
 def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
     """Bring up only services selected by mode, using Compose's image cache.
 
@@ -143,7 +202,7 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
     up_cmd = ["up", "-d", "--build" if build else "--no-build"]
     if not dependencies and (mode.startswith("lint-") or mode.startswith("unit-")):
         up_cmd.append("--no-deps")
-    services = _ACTIVE_SERVICES.get(mode, [])
+    services = _active_services(mode)
     if services:
         up_cmd.extend(services)
     up_result = _run(compose_base + profiles + up_cmd, silent=True, capture=False)
@@ -174,12 +233,12 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
             return False
     health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
-        health_services.append(
-            ("main service", f"{project_name}_bun_init_1", "bun_init")
-        )
+        service = _configured_service(mode) or "bun_init"
+        health_services.append(("main service", f"{project_name}_{service}_1", service))
         timeout = 120
     elif mode in ("go", "unit-go", "lint-go", "int-go"):
-        health_services.append(("main service", f"{project_name}_go_1", "go"))
+        service = _configured_service(mode) or "go"
+        health_services.append(("main service", f"{project_name}_{service}_1", service))
         timeout = 60
     elif (
         mode == "all"
@@ -204,10 +263,12 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
         )  # pragma: no cover
         timeout = 30  # pragma: no cover
     else:
-        health_services.append(
-            ("main service", f"{project_name}_apiserver_1", "apiserver")
-        )
-        if mode in ("api", "int-api", "integration", "all"):
+        service = _configured_service(mode) or "apiserver"
+        health_services.append(("main service", f"{project_name}_{service}_1", service))
+        if (
+            mode in ("api", "int-api", "integration", "all")
+            and _has_legacy_api_services()
+        ):
             health_services.append(
                 ("main service", f"{project_name}_db_system_1", "db_system")
             )

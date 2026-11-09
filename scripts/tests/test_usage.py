@@ -81,6 +81,11 @@ class TestCliHelp:
         assert args.json_stream is True
         assert args.quiet is True
 
+    def test_test_parser_build_flag_defaults_and_skip(self):
+        parser = __import__("_cli_parser", fromlist=["CliParser"]).CliParser({}).build()
+        assert parser.parse_args(["test", "all"]).skip_build is False
+        assert parser.parse_args(["test", "all", "--skip-build"]).skip_build is True
+
     def test_dev_help(self):
         orch = Path(__file__).resolve().parent.parent / "_orchestrator.py"
         r = subprocess.run(

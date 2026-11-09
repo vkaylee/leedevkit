@@ -52,6 +52,30 @@ Rollback restores the previous LeeDevKit runtime.
 - Ruff format/check and mypy passed.
 - Release build and acceptance passed.
 
+## [0.8.6] - 2026-11-10
+
+### Fixes
+- Build each Docker/Podman image once per `leedevkit test` invocation by default, with configurable per-phase builds through `[test].build_policy = "phase"`.
+- Keep API, web, Go, and infrastructure image families independent; failed builds remain retryable in later phases.
+- Resolve Rust-only and custom lifecycle services from project configuration while preserving legacy service fallbacks.
+- Keep `--skip-build` on `--no-build` and report focused or incomplete verification as partial.
+
+#### Compatibility
+- Existing projects default to `build_policy = "once"`; set `[test].build_policy = "phase"` to preserve per-phase build requests.
+- No project `.leedevkit/` changes required.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.5
+```
+
+Rollback restores previous LeeDevKit runtime.
+
+#### Verification
+- Full infrastructure verification: 869 passed, 1 skipped.
+- Ruff format/check and mypy passed.
+- Release artifact build and acceptance passed.
+
 ## [Unreleased]
 
 ## [0.8.2] - 2026-11-08

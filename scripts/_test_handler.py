@@ -20,7 +20,11 @@ from typing import TYPE_CHECKING
 
 
 from _bootstrap import DEVKIT_ROOT, PROJECT_ROOT, SCRIPTS_DIR
-from _devkit_config import build_mode_map, inject_rust_version_env
+from _devkit_config import (
+    build_mode_map,
+    inject_rust_version_env,
+    resolve_test_build_policy,
+)
 from _handler_base import HandlerBase
 from _lifecycle import lifecycle_down
 from _lifecycle import lifecycle_up as _lifecycle_up
@@ -81,6 +85,13 @@ class TestHandler(HandlerBase):
             self._event_sequence = 0
             self._emit_event("run_started", target=getattr(args, "target", "all"))
         target = getattr(args, "target", None)
+        if not nested:
+            try:
+                self._build_policy = resolve_test_build_policy()
+            except ValueError as exc:
+                log_error(str(exc))
+                sys.exit(2)
+            self._built_targets: set[str] = set()
         if target == "infra":
             self._run_infra_target(args)
             if not nested:
@@ -459,15 +470,15 @@ class TestHandler(HandlerBase):
             "phase_started", phase=phase_name, target=target, command=command
         )
         setup_ok = True
+        build = self._should_build(mode, args)
+        built_targets: set[str] = getattr(self, "_built_targets", set())
         try:
             if granular_mode:
                 log_info(
                     f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
                 )
                 try:
-                    setup_ok = _lifecycle_up(
-                        granular_mode, build=not self._flag(args, "skip_build")
-                    )
+                    setup_ok = _lifecycle_up(granular_mode, build=build)
                     if (
                         setup_ok
                         and phase_name == "Integration Tests"
@@ -478,13 +489,14 @@ class TestHandler(HandlerBase):
                             "infra-redis",
                             "infra-pooler",
                         ):
-                            setup_ok = (
-                                _lifecycle_up(
-                                    dependency_mode,
-                                    build=not self._flag(args, "skip_build"),
-                                )
-                                and setup_ok
+                            dependency_build = self._should_build(dependency_mode, args)
+                            dependency_ok = _lifecycle_up(
+                                dependency_mode, build=dependency_build
                             )
+                            if dependency_ok and dependency_build:
+                                built_targets.add(self._build_target(dependency_mode))
+                                self._built_targets = built_targets
+                            setup_ok = dependency_ok and setup_ok
                 except Exception as exc:
                     log_error(f"Phase setup failed: {exc}")
                     self._record_result(
@@ -497,6 +509,9 @@ class TestHandler(HandlerBase):
                         error=str(exc),
                     )
                     return
+                if setup_ok and build and not self._flag(args, "skip_build"):
+                    built_targets.add(self._build_target(mode))
+                    self._built_targets = built_targets
                 if not setup_ok:
                     self._record_result(
                         phase_name,
@@ -510,7 +525,7 @@ class TestHandler(HandlerBase):
                     return
 
             func_map: dict[str, typing.Callable[..., typing.Any]] = {
-                "Startup": lambda: _lifecycle_up(mode),
+                "Startup": lambda: _lifecycle_up(mode, build=build),
                 "Linting": lambda: leedevkit_run_lint(
                     getattr(args, "component", "") or "",
                     mode,
@@ -584,6 +599,24 @@ class TestHandler(HandlerBase):
                     f"🔹 Tearing down isolated environment for: {phase_name} ({granular_mode})"
                 )
                 lifecycle_down("all")
+
+    def _build_target(self, mode: str) -> str:
+        """Group lifecycle modes by image family for one test invocation."""
+        if mode in {"api", "lint-api", "unit-api", "int-api", "integration"}:
+            return "api"
+        if mode in {"web", "lint-web", "unit-web", "e2e-web"}:
+            return "web"
+        if mode in {"go", "lint-go", "unit-go", "int-go"}:
+            return "go"
+        return mode
+
+    def _should_build(self, mode: str, args: argparse.Namespace) -> bool:
+        """Build first phase per image family unless policy requests every phase."""
+        if self._flag(args, "skip_build"):
+            return False
+        if getattr(self, "_build_policy", "once") == "phase":
+            return True
+        return self._build_target(mode) not in getattr(self, "_built_targets", set())
 
     def handle_test_infra(self) -> None:
         """Run infra tests with production and non-gating test-source reports."""

@@ -229,6 +229,20 @@ def _read_version(project_root: Path) -> str:
     return "latest"
 
 
+def resolve_test_build_policy(config: dict[str, Any] | None = None) -> str:
+    """Return validated test image build policy, defaulting to once per run."""
+    if config is None:
+        config = load_project_config()
+    test_config = config.get("test", {})
+    if not isinstance(test_config, dict):
+        raise ValueError("[test] must be a table")
+
+    policy = test_config.get("build_policy", "once")
+    if policy not in ("once", "phase"):
+        raise ValueError('[test].build_policy must be either "once" or "phase"')
+    return policy
+
+
 def resolve_lifecycle_dependencies(
     config: dict[str, Any] | None = None,
 ) -> dict[str, list[str]]:

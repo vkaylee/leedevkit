@@ -41,6 +41,11 @@ api = ["apiserver", "agent-main"]
 web = ["webdashboard"]
 all = ["apiserver", "agent-main", "webdashboard"]
 
+# ── Test image build policy ────────────────────────────────────────────────
+# Build each image once per `leedevkit test` invocation, or once per phase.
+[test]
+build_policy = "once"
+
 # ── Lifecycle dependencies ─────────────────────────────────────────────────
 # Compose services to start and health-check for each lifecycle mode.
 # Values must match service names in the project's Compose file.

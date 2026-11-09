@@ -42,6 +42,9 @@ cargo = true
 [targets]
 all = ["rust"]
 
+[test]
+build_policy = "once"
+
 # ── AI Context ─────────────────────────────────────────────────────────────
 [ai]
 extra_rules = []

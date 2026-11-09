@@ -64,7 +64,7 @@ class CliParser:
             "  leedevkit test infra --lint-only           # Focused fast feedback (partial)\n"
             "  leedevkit test infra --lint-only --fix    # Auto-fix formatting\n"
             "\n"
-            "Normal startup runs `compose up -d --build` for active services and reuses Compose/BuildKit cache; --skip-build uses existing images and reports partial/unverified. Focused flags and --pattern never prove full regression.",
+            'Normal startup builds each image once per test invocation, then uses `--no-build`; `[test].build_policy = "phase"` restores per-phase builds. `--skip-build` always uses existing images and reports partial/unverified. Focused flags and --pattern never prove full regression.',
         )
         targets = resolve_targets()
         test_parser.add_argument(

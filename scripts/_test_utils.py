@@ -72,8 +72,9 @@ def get_last_phase_commands() -> dict[str, list[str]]:
 
 def clear_last_phase_commands() -> None:
     """Clear task metadata before a phase starts."""
-    global LAST_PHASE_COMMANDS
+    global LAST_PHASE_COMMANDS, LAST_PHASE_EXIT_CODE
     LAST_PHASE_COMMANDS = {}
+    LAST_PHASE_EXIT_CODE = None
 
 
 def _process_group_options() -> dict[str, int | bool]:

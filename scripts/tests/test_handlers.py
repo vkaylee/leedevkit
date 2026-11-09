@@ -938,6 +938,115 @@ class TestTestHandler:
         assert orch.results["BogusPhase"]["status"] == "failed"
         assert orch.results["BogusPhase"]["exit_code"] == 1
 
+    def test_build_once_reuses_image_per_target(self):
+        """Default policy builds first phase only, then reuses image."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(target="web")
+        handler._build_policy = "once"
+        handler._built_targets = set()
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+        ):
+            handler.run_phase("Unit Tests", "web", args, target_name="web")
+            handler.run_phase("Integration Tests", "web", args, target_name="web")
+
+        assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
+            True,
+            False,
+        ]
+
+    def test_phase_build_policy_builds_every_phase(self):
+        """Explicit phase policy preserves one build request per phase."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(target="web")
+        handler._build_policy = "phase"
+        handler._built_targets = set()
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+        ):
+            handler.run_phase("Unit Tests", "web", args, target_name="web")
+            handler.run_phase("Integration Tests", "web", args, target_name="web")
+
+        assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
+            True,
+            True,
+        ]
+
+    def test_build_state_is_independent_for_all_targets(self):
+        """API and web each build once when all targets run."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args()
+        handler._build_policy = "once"
+        handler._built_targets = set()
+        with (
+            patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+        ):
+            handler.run_phase("Unit Tests", "api", args, target_name="api")
+            handler.run_phase("Unit Tests", "web", args, target_name="web")
+            handler.run_phase("Integration Tests", "api", args, target_name="api")
+            handler.run_phase("Integration Tests", "web", args, target_name="web")
+
+        assert [call.args[0] for call in lifecycle.call_args_list] == [
+            "unit-api",
+            "unit-web",
+            "int-api",
+            "infra-db",
+            "infra-redis",
+            "infra-pooler",
+            "e2e-web",
+        ]
+        assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
+            True,
+            True,
+            False,
+            True,
+            True,
+            True,
+            False,
+        ]
+
+    def test_failed_build_retries_next_phase(self):
+        """Unsuccessful startup does not mark image family built."""
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        args = _test_args(target="web")
+        handler._build_policy = "once"
+        handler._built_targets = set()
+        with (
+            patch(
+                "_test_handler._lifecycle_up", side_effect=[False, True]
+            ) as lifecycle,
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_integration", return_value=True),
+        ):
+            handler.run_phase("Integration Tests", "web", args, target_name="web")
+            handler.run_phase("Integration Tests", "web", args, target_name="web")
+
+        assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
+            True,
+            True,
+        ]
+
     def test_handle_test_all_expands_server_and_web_targets(self):
         """Full regression expands configured server and web targets separately."""
         from _test_handler import TestHandler
@@ -1185,7 +1294,7 @@ class TestTestHandler:
         args.unit_only = False
         with patch("_test_handler._lifecycle_up") as mock_up:
             handler.run_phase("Startup", "all", args)
-        mock_up.assert_called_once_with("all")
+        mock_up.assert_called_once_with("all", build=True)
 
     def test_print_test_summary_with_logs(self, tmp_path):
         """print_test_summary parses log files correctly."""

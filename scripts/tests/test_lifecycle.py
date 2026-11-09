@@ -63,6 +63,22 @@ class TestLifecycleUp:
             assert startup[-2:] == ["bun_init", "webdashboard"]
             assert "--build" in startup
 
+    def test_rust_only_config_uses_configured_service(self) -> None:
+        with (
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True) as mock_health,
+            patch("_lifecycle.time.sleep"),
+            patch(
+                "_devkit_config.load_project_config",
+                return_value={"services": {"rust": {"lang": "rust"}}},
+            ),
+        ):
+            assert lifecycle_up("unit-api") is True
+
+        startup = mock_run.call_args_list[0].args[0]
+        assert startup[-1] == "rust"
+        assert any("_rust_1" in call.args[0] for call in mock_health.call_args_list)
+
     def test_skip_build_uses_no_build(self) -> None:
         with (
             patch("_lifecycle._run") as mock_run,
