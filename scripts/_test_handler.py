@@ -112,12 +112,6 @@ class TestHandler(HandlerBase):
             from _devkit_config import resolve_test_targets
 
             sub_targets = resolve_test_targets("all")
-            if any(t != "infra" for t in sub_targets) and not self._flag(
-                args, "skip_build"
-            ):
-                self.run_phase("Prebuild", "all", args, target_name="all")
-            elif any(t != "infra" for t in sub_targets):
-                self._record_result("Prebuild", "all", "compose build", "skipped", None)
             for sub_target in sub_targets:
                 args.target = sub_target
                 args._nested_test = True
@@ -126,14 +120,6 @@ class TestHandler(HandlerBase):
             args._nested_test = False
             self._finish_test(args, "all")
             return
-
-        if self._flag(args, "e2e_only") and not nested:
-            if self._flag(args, "skip_build"):
-                self._record_result(
-                    "Prebuild", target or "all", "compose build", "skipped", None
-                )
-            else:
-                self.run_phase("Prebuild", mode, args, target_name=target or "all")
 
         self._orch.needs_cleanup = True
         run_lint = not self._flag(args, "skip_lint") and not (
@@ -479,7 +465,9 @@ class TestHandler(HandlerBase):
                     f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
                 )
                 try:
-                    setup_ok = _lifecycle_up(granular_mode)
+                    setup_ok = _lifecycle_up(
+                        granular_mode, build=not self._flag(args, "skip_build")
+                    )
                     if (
                         setup_ok
                         and phase_name == "Integration Tests"
@@ -490,7 +478,13 @@ class TestHandler(HandlerBase):
                             "infra-redis",
                             "infra-pooler",
                         ):
-                            setup_ok = _lifecycle_up(dependency_mode) and setup_ok
+                            setup_ok = (
+                                _lifecycle_up(
+                                    dependency_mode,
+                                    build=not self._flag(args, "skip_build"),
+                                )
+                                and setup_ok
+                            )
                 except Exception as exc:
                     log_error(f"Phase setup failed: {exc}")
                     self._record_result(
@@ -539,7 +533,6 @@ class TestHandler(HandlerBase):
                     getattr(args, "pattern", "") or "",
                 ),
                 "Database Setup": self._orch.handle_db_setup_phase,
-                "Prebuild": self._orch.handle_prebuild_phase,
             }
             func = func_map.get(phase_name)
             if func is None:

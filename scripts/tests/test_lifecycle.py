@@ -52,12 +52,27 @@ class TestLifecycleUp:
 
     def test_web_mode_checks_webdashboard(self) -> None:
         with (
-            patch("_lifecycle._run"),
+            patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
         ):
             result = lifecycle_up("web")
             assert result is True
+            commands = [call.args[0] for call in mock_run.call_args_list]
+            startup = next(command for command in commands if "up" in command)
+            assert startup[-2:] == ["bun_init", "webdashboard"]
+            assert "--build" in startup
+
+    def test_skip_build_uses_no_build(self) -> None:
+        with (
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go", build=False) is True
+            startup = mock_run.call_args_list[0].args[0]
+            assert "--no-build" in startup
+            assert "--build" not in startup
 
     def test_lint_and_unit_modes_use_no_deps(self) -> None:
         """Verify that lint- and unit- modes append --no-deps so heavy infra is not started."""
@@ -387,7 +402,8 @@ class TestLifecycleDependencies:
         up_cmds = [
             call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
         ]
-        assert up_cmds[0][-2:] == ["up", "-d"]
+        assert "--build" in up_cmds[0]
+        assert up_cmds[0][-1] == "go"
         assert up_cmds[1][-1] == "postgres"
         assert "--no-deps" not in up_cmds[0]
         assert "--network" not in up_cmds[1]
@@ -439,8 +455,10 @@ class TestLifecycleDependencies:
         up_cmds = [
             call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
         ]
-        assert up_cmds[0][-2:] == ["up", "-d"]
+        assert "--build" in up_cmds[0]
+        assert up_cmds[0][-1] == "go"
         assert up_cmds[1][-2:] == ["postgres", "redis"]
+        assert "--build" in up_cmds[1]
         checked = [call.args[0] for call in mock_health.call_args_list]
         assert "postgres-id" in checked
         assert "redis-id" in checked

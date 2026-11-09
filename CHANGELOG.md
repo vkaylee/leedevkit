@@ -2,6 +2,32 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.8.5] - 2026-11-09
+
+### Fixes
+- Start only active test services with `compose up -d --build`, preserving Compose/BuildKit cache reuse and invalidation.
+- Remove global test prebuild and forced `build --pull` execution.
+- Make `--skip-build` use `--no-build`, fail clearly when images are missing, and report partial verification.
+- Preserve frontend `bun_init` startup synchronization and profile-specific lifecycle behavior.
+- Preserve release evidence when GitHub Actions handles hidden `.ci-artifacts` paths.
+
+#### Compatibility
+- No project `.leedevkit/` changes required.
+- Existing test profiles, dependency configuration, health checks, cleanup, and concurrent-agent isolation remain unchanged.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.4
+```
+
+Rollback restores previous LeeDevKit runtime.
+
+#### Verification
+- Focused lifecycle, handler, and orchestrator tests: 243 passed, 1 skipped.
+- Full configured regression: 858 passed, 1 skipped; production coverage 82.93%.
+- Ruff format/check and mypy passed.
+- Release artifact build and acceptance passed for `leedevkit-0.8.5.tar.gz`.
+
 ## [0.8.4] - 2026-11-08
 
 ### Fixes

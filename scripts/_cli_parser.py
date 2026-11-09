@@ -64,7 +64,7 @@ class CliParser:
             "  leedevkit test infra --lint-only           # Focused fast feedback (partial)\n"
             "  leedevkit test infra --lint-only --fix    # Auto-fix formatting\n"
             "\n"
-            "Focused flags and --pattern never prove full regression; skipped build/E2E phases are partial/unverified.",
+            "Normal startup runs `compose up -d --build` for active services and reuses Compose/BuildKit cache; --skip-build uses existing images and reports partial/unverified. Focused flags and --pattern never prove full regression.",
         )
         targets = resolve_targets()
         test_parser.add_argument(
@@ -98,7 +98,7 @@ class CliParser:
         test_parser.add_argument(
             "--skip-build",
             action="store_true",
-            help="Skip image build; result is partial/unverified",
+            help="Skip automatic image build (--no-build); missing/stale images fail; result is partial/unverified",
         )
         test_parser.add_argument(
             "--pattern",
@@ -207,7 +207,6 @@ class CliParser:
             "migrate:revert",
             "migrate:status",
             "db:setup",
-            "prebuild",
             "fmt:infra",
             "verify:infra",
         ]:

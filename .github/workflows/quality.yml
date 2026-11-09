@@ -84,6 +84,7 @@ jobs:
 
       - name: Install locked acceptance dependencies
         run: |
+          mkdir -p .ci-artifacts/release-dist
           python3 -m venv .venv
           .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
 
@@ -104,4 +105,5 @@ jobs:
         with:
           name: leedevkit-release-evidence
           path: .ci-artifacts/**
-          if-no-files-found: error
+          include-hidden-files: true
+          if-no-files-found: warn

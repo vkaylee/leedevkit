@@ -2,8 +2,8 @@
 """Database handler extracted from Orchestrator (Single Responsibility Principle).
 
 Handles: DB setup phase, DB queries, diesel commands, compose file resolution,
-and prebuild phase. Depends on an Orchestrator-like object for engine/compose
-resolution, env vars, and safe command execution.
+and Compose file resolution. Depends on an Orchestrator-like object for
+engine/compose resolution, env vars, and safe command execution.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from _bootstrap import PROJECT_ROOT, bootstrap_env
+from _bootstrap import PROJECT_ROOT
 from _handler_base import HandlerBase
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _logging import log_error, log_info, log_success
@@ -149,18 +149,6 @@ class DbHandler(HandlerBase):
             + args
         )
         self._execute_safe(cmd)
-
-    def handle_prebuild_phase(self) -> bool:
-        """Build every test-profile image from current source."""
-        log_info("Building test Docker images from current source...")
-        env = bootstrap_env("all")
-        build_cmd = env["DOCKER_COMPOSE_CMD"].split() + [
-            "build",
-            "--pull",
-        ]
-        self._execute_safe(build_cmd, env=env)
-        log_success("✅ Prebuild complete.")
-        return True
 
     def handle_db_setup_phase(self) -> bool:
         """Bring up DB containers, run migrations, and prepare a template DB.

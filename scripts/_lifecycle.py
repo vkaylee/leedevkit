@@ -75,10 +75,7 @@ def _compose_service_names(
     compose_base: list[str], profiles: list[str]
 ) -> set[str] | None:
     """Read all Compose service names when Compose metadata is available."""
-    result = _run(
-        compose_base + profiles + ["--profile", "*", "config", "--services"],
-        capture=True,
-    )
+    result = _run(compose_base + profiles + ["config", "--services"], capture=True)
     if result.returncode != 0 or not isinstance(result.stdout, str):
         return None
     services = {line.strip() for line in result.stdout.splitlines() if line.strip()}
@@ -97,8 +94,29 @@ def _compose_service_container(
     return f"{project_name}_{service}_1"
 
 
-def lifecycle_up(mode: str = "all") -> bool:
-    """Bring up test infrastructure containers for the given mode.
+_ACTIVE_SERVICES: dict[str, list[str]] = {
+    "api": ["apiserver"],
+    "lint-api": ["apiserver"],
+    "unit-api": ["apiserver"],
+    "int-api": ["apiserver"],
+    "integration": ["apiserver"],
+    "web": ["bun_init", "webdashboard"],
+    "lint-web": ["bun_init", "webdashboard"],
+    "unit-web": ["bun_init", "webdashboard"],
+    "e2e-web": ["bun_init", "webdashboard"],
+    "go": ["go"],
+    "lint-go": ["go"],
+    "unit-go": ["go"],
+    "int-go": ["go"],
+}
+
+
+def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
+    """Bring up only services selected by mode, using Compose's image cache.
+
+    ``build=True`` asks Compose to build missing or changed images with normal
+    BuildKit cache semantics. ``build=False`` uses ``--no-build`` so
+    ``--skip-build`` cannot silently trigger an image build.
 
     Returns True if all health checks pass, False otherwise.
     Idempotent — safe for concurrent agents sharing the same project.
@@ -122,9 +140,12 @@ def lifecycle_up(mode: str = "all") -> bool:
                     "Unknown lifecycle dependency service(s) "
                     f"{', '.join(unknown)} for mode {mode!r} in {env['DOCKER_COMPOSE_BASE']}"
                 )
-    up_cmd = ["up", "-d"]
+    up_cmd = ["up", "-d", "--build" if build else "--no-build"]
     if not dependencies and (mode.startswith("lint-") or mode.startswith("unit-")):
         up_cmd.append("--no-deps")
+    services = _ACTIVE_SERVICES.get(mode, [])
+    if services:
+        up_cmd.extend(services)
     up_result = _run(compose_base + profiles + up_cmd, silent=True, capture=False)
     if isinstance(up_result.returncode, int) and up_result.returncode != 0:
         print(
@@ -134,7 +155,9 @@ def lifecycle_up(mode: str = "all") -> bool:
         return False
     if dependencies:
         dependency_result = _run(
-            compose_base + profiles + ["up", "-d", *dependencies],
+            compose_base
+            + profiles
+            + ["up", "-d", "--build" if build else "--no-build", *dependencies],
             silent=True,
             capture=False,
         )

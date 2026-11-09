@@ -90,31 +90,6 @@ class TestDbHandler:
         assert "-p" in files
         assert "leedevkit" in files
 
-    def test_handle_prebuild_phase(self):
-        from _db_handler import DbHandler
-
-        orch = _mock_orchestrator()
-        handler = DbHandler(orch)
-        result = handler.handle_prebuild_phase()
-        assert result is True
-        orch.execute_safe.assert_called_once()
-
-    def test_handle_prebuild_phase_builds_current_profiles_with_cache(self):
-        from _db_handler import DbHandler
-
-        orch = _mock_orchestrator()
-        handler = DbHandler(orch)
-        env = {
-            "DOCKER_COMPOSE_CMD": "docker compose -p test -f current.yml --profile api --profile web",
-        }
-        with patch("_db_handler.bootstrap_env", return_value=env):
-            assert handler.handle_prebuild_phase() is True
-        command = orch.execute_safe.call_args.args[0]
-        assert command[:5] == ["docker", "compose", "-p", "test", "-f"]
-        assert command[5] == "current.yml"
-        assert command[6:10] == ["--profile", "api", "--profile", "web"]
-        assert command[-2:] == ["build", "--pull"]
-
     def test_handle_db_query(self):
         from _db_handler import DbHandler
 
@@ -990,7 +965,7 @@ class TestTestHandler:
         ):
             handler.handle_test(args)
 
-        assert ("Prebuild", "all", "all") in calls
+        assert not any(phase == "Prebuild" for phase, _, _ in calls)
         assert ("Unit Tests", "api", "api") in calls
         assert ("Integration Tests", "web", "web") in calls
         assert ("Linting", "web", "web") in calls
@@ -1010,7 +985,7 @@ class TestTestHandler:
         ):
             handler.handle_test(args)
 
-        mock_up.assert_called_once_with("e2e-web")
+        mock_up.assert_called_once_with("e2e-web", build=True)
         mock_down.assert_called_once_with("all")
         assert orch.results["Integration Tests"]["status"] == "passed"
 
@@ -1032,7 +1007,7 @@ class TestTestHandler:
                 target_name="web",
             )
 
-        mock_up.assert_called_once_with("e2e-web")
+        mock_up.assert_called_once_with("e2e-web", build=True)
         mock_integration.assert_not_called()
         mock_down.assert_called_once_with("all")
         assert orch.results["Integration Tests"]["status"] == "blocked"
@@ -1179,32 +1154,23 @@ class TestTestHandler:
             handler._finish_test(_test_args(pattern="auth"), "api")
         summary.assert_called_once_with("api", "partial")
 
-    def test_skip_build_records_skipped_prebuild(self):
-        """--skip-build records non-required prebuild instead of running it."""
+    def test_skip_build_passes_no_build_to_active_lifecycle(self):
+        """--skip-build disables automatic image builds for each phase."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
-        args = _test_args(target="all", skip_build=True)
+        args = _test_args(target="api", skip_build=True, unit_only=True)
         with (
-            patch("_devkit_config.resolve_test_targets", return_value=["api"]),
-            patch(
-                "_test_handler.build_mode_map",
-                return_value={"all": "all", "api": "api"},
-            ),
-            patch("_test_handler.inject_rust_version_env"),
-            patch.object(handler, "run_phase") as run_phase,
+            patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
+            patch("_test_handler.lifecycle_down"),
+            patch("_test_handler.leedevkit_run_unit", return_value=True),
             patch.object(handler, "print_test_summary"),
         ):
             handler.handle_test(args)
 
-        assert all(
-            call.kwargs.get("target_name") != "all" or call.args[0] != "Prebuild"
-            for call in run_phase.call_args_list
-        )
-        assert any(call.args[0] == "Unit Tests" for call in run_phase.call_args_list)
-        assert orch.results["all:Prebuild"]["status"] == "skipped"
-        assert orch.results["all:Prebuild"]["required"] is False
+        lifecycle.assert_called_once_with("unit-api", build=False)
+        assert not any("Prebuild" in str(result) for result in orch.results.values())
 
     def test_run_phase_startup(self):
         """run_phase 'Startup' brings up lifecycle."""

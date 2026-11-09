@@ -215,6 +215,8 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 Generated config uses built-in `container/go/` image. Override toolchain with `GO_VERSION=1.24` or `[services.go] go_version = "1.24"`.
 Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase does not duplicate `go test ./...`.
 
+Test lifecycle startup runs `compose up -d --build` only for active target services. Compose/BuildKit reuses unchanged image layers and invalidates layers when Dockerfiles, build context, or dependency manifests change; no forced `build --pull` runs. Frontend `bun_init` runs `bun install --frozen-lockfile` on every startup when provided by project Compose, with its healthcheck blocking tests on failure. `--skip-build` uses `--no-build`, so missing or stale images fail instead of being silently rebuilt; result is partial/unverified.
+
 ### Lifecycle dependencies
 
 Configure services that must start and pass healthchecks for a lifecycle mode:

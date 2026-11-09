@@ -966,15 +966,6 @@ class TestHandleCommandMocked:
             args = argparse.Namespace(subcommand="migrate:revert")
             orch.handle_command(args)
 
-    def test_handle_command_prebuild_dry(self):
-        from _orchestrator import Orchestrator
-
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            orch.dry_run = True
-            args = argparse.Namespace(subcommand="prebuild")
-            orch.handle_command(args)
-
 
 # ── Coverage gap fillers: _build_mode_map, _inject_rust_version_env, etc. ──
 
@@ -1774,17 +1765,6 @@ class TestOrchestratorCoverageGaps:
             orch = Orchestrator()
             monkeypatch.setattr(DbHandler, "handle_db_setup_phase", lambda self: True)
             result = orch.handle_db_setup_phase()
-        assert result is True
-
-    def test_handle_prebuild_phase_delegates(self, monkeypatch):
-        """handle_prebuild_phase delegates to DbHandler."""
-        from _orchestrator import Orchestrator
-        from _db_handler import DbHandler
-
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            monkeypatch.setattr(DbHandler, "handle_prebuild_phase", lambda self: True)
-            result = orch.handle_prebuild_phase()
         assert result is True
 
     def test_get_compose_files_delegates(self, monkeypatch):
