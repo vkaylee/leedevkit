@@ -2,6 +2,29 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.8.9] - 2026-11-10
+
+### Fixes
+- Stabilize freshness fingerprints for services sharing one Compose image.
+- Deduplicate shared-image freshness checks and build locks.
+- Preserve full Docker context hashing by default while supporting explicit `x-leedevkit-build-inputs` scopes for images that only use declared inputs.
+- Prevent unrelated project source changes from rebuilding built-in Go test images.
+
+### Compatibility
+- Existing Dockerfiles retain full `.dockerignore`-aware context hashing.
+- `--skip-build`, per-phase build policy, image locking, and post-build verification remain unchanged.
+- No downstream `.leedevkit/` runtime changes required.
+
+### Rollback
+```bash
+./leedevkit update --version v0.8.8
+```
+
+### Verification
+- Image cache tests: 12 passed.
+- Lifecycle and Compose tests: 43 passed, 1 skipped.
+- Full regression attempted: 885 passed, 1 skipped, 7 unrelated environment/runtime failures.
+
 ## [0.8.5] - 2026-11-09
 
 ### Fixes
