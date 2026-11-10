@@ -9,12 +9,12 @@ import hashlib
 import json
 import os
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
 import yaml
-
 
 FINGERPRINT_LABEL = "com.leedevkit.build-fingerprint"
 
@@ -27,6 +27,7 @@ class BuildMetadata:
     fingerprints: dict[str, str]
     images: list[str]
     override_file: Path | None
+    image_by_service: dict[str, str] = field(default_factory=dict)
 
 
 class _DockerIgnore:
@@ -100,37 +101,62 @@ def _read_ignore(
         return None, b"unreadable"
 
 
-def _hash_context(context: Path, dockerfile: Path | None) -> tuple[str, str]:
-    """Hash files sent to Compose, respecting Dockerignore exclusions."""
+def _hash_context(
+    context: Path,
+    dockerfile: Path | None,
+    build_inputs: list[str] | None = None,
+) -> tuple[str, str]:
+    """Hash Docker inputs, respecting Dockerignore exclusions.
+
+    By default, hash full context because any file may be consumed by a
+    Dockerfile. ``x-leedevkit-build-inputs`` opts into a narrower, explicit
+    list of paths for Dockerfiles known not to read the rest of context.
+    """
     digest = hashlib.sha256()
     if not context.is_dir():
         return "missing-context", "missing"
     ignore, ignore_bytes = _read_ignore(context, dockerfile)
     digest.update(b"dockerignore\0" + ignore_bytes)
-    for root, dirs, files in os.walk(context, followlinks=False):
-        root_path = Path(root)
-        dirs[:] = [
-            name
-            for name in sorted(dirs)
-            if ignore is None
-            or not ignore.match(
-                (root_path / name).relative_to(context).as_posix(), True
-            )
-        ]
-        for name in sorted(files):
-            path = root_path / name
-            relative = path.relative_to(context).as_posix()
-            if ignore is not None and ignore.match(relative, False):
-                continue
-            digest.update(b"path\0" + relative.encode() + b"\0")
-            try:
-                digest.update(f"mode:{path.lstat().st_mode & 0o777:o}\0".encode())
-                if path.is_symlink():
-                    digest.update(b"link\0" + os.readlink(path).encode())
-                else:
-                    digest.update(path.read_bytes())
-            except (OSError, UnicodeError):
-                return "inaccessible-context", "inaccessible"
+    selected = (
+        [context / relative for relative in build_inputs]
+        if build_inputs is not None
+        else [context]
+    )
+    for selected_path in sorted(selected, key=lambda path: str(path)):
+        if not selected_path.exists():
+            relative = selected_path.relative_to(context).as_posix()
+            digest.update(b"missing-input\0" + relative.encode() + b"\0")
+            continue
+        roots = [selected_path] if selected_path.is_dir() else [selected_path.parent]
+        for root in roots:
+            for walk_root, dirs, files in os.walk(root, followlinks=False):
+                root_path = Path(walk_root)
+                dirs[:] = [
+                    name
+                    for name in sorted(dirs)
+                    if ignore is None
+                    or not ignore.match(
+                        (root_path / name).relative_to(context).as_posix(), True
+                    )
+                ]
+                for name in sorted(files):
+                    path = root_path / name
+                    relative = path.relative_to(context).as_posix()
+                    if selected_path.is_file() and path != selected_path:
+                        continue
+                    if ignore is not None and ignore.match(relative, False):
+                        continue
+                    digest.update(b"path\0" + relative.encode() + b"\0")
+                    try:
+                        digest.update(
+                            f"mode:{path.lstat().st_mode & 0o777:o}\0".encode()
+                        )
+                        if path.is_symlink():
+                            digest.update(b"link\0" + os.readlink(path).encode())
+                        else:
+                            digest.update(path.read_bytes())
+                    except (OSError, UnicodeError):
+                        return "inaccessible-context", "inaccessible"
     return digest.hexdigest(), ignore_bytes.hex()
 
 
@@ -146,8 +172,15 @@ def _build_dict(service_config: dict[str, Any]) -> dict[str, Any]:
     return {"context": build} if isinstance(build, str) else dict(build or {})
 
 
-def build_fingerprint(service: str, service_config: dict[str, Any]) -> str:
-    """Hash effective build settings, Dockerfile, ignored context, and target."""
+def build_fingerprint(
+    service: str,
+    service_config: dict[str, Any],
+    image: str | None = None,
+) -> str:
+    """Hash effective image/build inputs, never the Compose service name."""
+    effective_image = (
+        image if image is not None else _service_image(service, service_config)
+    )
     build = _build_dict(service_config)
     context = _local_path(build.get("context", "."), Path.cwd())
     dockerfile = _local_path(build.get("dockerfile"), context or Path.cwd())
@@ -160,12 +193,27 @@ def build_fingerprint(service: str, service_config: dict[str, Any]) -> str:
             ),
             None,
         )
-    context_hash, ignore_hash = _hash_context(context or Path("."), dockerfile)
+    raw_inputs = service_config.get("x-leedevkit-build-inputs")
+    build_inputs = (
+        list(raw_inputs)
+        if isinstance(raw_inputs, list)
+        and all(
+            isinstance(item, str)
+            and not Path(item).is_absolute()
+            and ".." not in Path(item).parts
+            for item in raw_inputs
+        )
+        else None
+    )
+    context_hash, ignore_hash = _hash_context(
+        context or Path("."), dockerfile, build_inputs
+    )
     payload = {
-        "schema": 1,
-        "service": service,
+        "schema": 2,
+        "image": effective_image,
         "platform": service_config.get("platform"),
         "build": build,
+        "build_inputs": build_inputs,
         "context_hash": context_hash,
         "dockerfile_hash": _file_hash(dockerfile) if dockerfile else "missing",
         "dockerfile_path": str(dockerfile) if dockerfile else None,
@@ -174,34 +222,50 @@ def build_fingerprint(service: str, service_config: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical(payload)).hexdigest()
 
 
-def _stable_image_name(service: str, context: Path) -> str:
-    identity = hashlib.sha256(str(context.resolve()).encode()).hexdigest()[:12]
-    return f"localhost/leedevkit-test-{identity}-{service}"
+def _stable_image_name(config: dict[str, Any], context: Path) -> str:
+    identity = hashlib.sha256(
+        _canonical(
+            {
+                "context": str(context.resolve()),
+                "build": _build_dict(config),
+                "platform": config.get("platform"),
+            }
+        )
+    ).hexdigest()[:12]
+    return f"localhost/leedevkit-test-{identity}"
 
 
 def _service_image(service: str, config: dict[str, Any]) -> str:
+    del service
     configured = config.get("image")
     if isinstance(configured, str) and configured:
         return configured
     build = _build_dict(config)
     context = _local_path(build.get("context", "."), Path.cwd()) or Path.cwd()
-    return _stable_image_name(service, context)
+    return _stable_image_name(config, context)
 
 
-def _image_has_fingerprint(
-    engine: str, image: str, expected: str, run: Callable[..., Any]
-) -> bool:
+def _image_fingerprint(engine: str, image: str, run: Callable[..., Any]) -> str | None:
     try:
         result = run(
             [engine, "image", "inspect", "--format={{json .Config.Labels}}", image],
             capture=True,
         )
         if getattr(result, "returncode", 1) != 0:
-            return False
+            return None
         labels = json.loads(str(getattr(result, "stdout", "")).strip())
-        return isinstance(labels, dict) and labels.get(FINGERPRINT_LABEL) == expected
+        fingerprint = (
+            labels.get(FINGERPRINT_LABEL) if isinstance(labels, dict) else None
+        )
+        return fingerprint if isinstance(fingerprint, str) else None
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return False
+        return None
+
+
+def _image_has_fingerprint(
+    engine: str, image: str, expected: str, run: Callable[..., Any]
+) -> bool:
+    return _image_fingerprint(engine, image, run) == expected
 
 
 def _compose_config(
@@ -274,13 +338,20 @@ def resolve_build_metadata(
         if isinstance(config["services"].get(service), dict)
         and "build" in config["services"][service]
     }
+    image_by_service = {
+        service: _service_image(service, value) for service, value in services.items()
+    }
     fingerprints = {
-        service: build_fingerprint(service, value)
+        service: build_fingerprint(service, value, image_by_service[service])
         for service, value in services.items()
     }
-    images = [_service_image(service, value) for service, value in services.items()]
+    images = list(dict.fromkeys(image_by_service.values()))
     return BuildMetadata(
-        services, fingerprints, images, _write_override(services, fingerprints)
+        services,
+        fingerprints,
+        images,
+        _write_override(services, fingerprints),
+        image_by_service,
     )
 
 
@@ -308,18 +379,25 @@ def service_fingerprints_match(
     run: Callable[..., Any],
 ) -> bool:
     """Check freshness for selected Compose services only."""
-    image_by_service = {
+    image_by_service = metadata.image_by_service or {
         service: image for service, image in zip(metadata.services, metadata.images)
     }
-    selected = [service for service in services if service in metadata.fingerprints]
-    if len(selected) != len(set(services)):
+    selected = list(dict.fromkeys(services))
+    if any(
+        service not in metadata.fingerprints or service not in image_by_service
+        for service in selected
+    ):
+        return False
+    expected_by_image: dict[str, set[str]] = {}
+    for service in selected:
+        expected_by_image.setdefault(image_by_service[service], set()).add(
+            metadata.fingerprints[service]
+        )
+    if any(len(expected) != 1 for expected in expected_by_image.values()):
         return False
     return bool(selected) and all(
-        service in image_by_service
-        and _image_has_fingerprint(
-            engine, image_by_service[service], metadata.fingerprints[service], run
-        )
-        for service in selected
+        _image_has_fingerprint(engine, image, next(iter(expected)), run)
+        for image, expected in expected_by_image.items()
     )
 
 

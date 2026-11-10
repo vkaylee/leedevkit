@@ -11,8 +11,8 @@ from _image_cache import (
     build_fingerprint,
     fingerprints_match,
     image_build_lock,
-    service_fingerprints_match,
     resolve_build_metadata,
+    service_fingerprints_match,
 )
 
 
@@ -41,6 +41,28 @@ def test_context_and_dockerfile_changes_change_fingerprint(tmp_path, monkeypatch
     assert build_fingerprint("webdashboard", service) != second
 
 
+def test_service_name_does_not_change_shared_image_fingerprint(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    service = _service_config(tmp_path)
+    assert build_fingerprint("apiserver", service) == build_fingerprint("go", service)
+
+
+def test_effective_image_and_build_config_define_identity(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    base = _service_config(tmp_path, target="runtime", args={"MODE": "test"})
+    same = dict(base)
+    different_target = _service_config(
+        tmp_path, target="builder", args={"MODE": "test"}
+    )
+    different_target["image"] = "localhost/shared"
+    different_image = dict(base, image="localhost/other")
+    assert build_fingerprint("one", base) == build_fingerprint("two", same)
+    assert build_fingerprint("one", base) != build_fingerprint("two", different_target)
+    assert build_fingerprint("one", base) != build_fingerprint("two", different_image)
+
+
 def test_ignored_generated_files_do_not_change_fingerprint(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Dockerfile").write_text("FROM alpine\n")
@@ -52,6 +74,22 @@ def test_ignored_generated_files_do_not_change_fingerprint(tmp_path, monkeypatch
     (tmp_path / ".test_logs").mkdir()
     (tmp_path / ".test_logs" / "report").write_text("x")
     assert build_fingerprint("webdashboard", service) == first
+
+
+def test_narrow_build_inputs_ignore_unrelated_context_changes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    (tmp_path / ".dockerignore").write_text("ignored\n")
+    service = _service_config(tmp_path)
+    service["x-leedevkit-build-inputs"] = ["Dockerfile"]
+    first = build_fingerprint("go", service)
+    (tmp_path / "unrelated-source.go").write_text("package unrelated\n")
+    assert build_fingerprint("go", service) == first
+    (tmp_path / ".dockerignore").write_text("ignored\nother\n")
+    assert build_fingerprint("go", service) != first
+    second = build_fingerprint("go", service)
+    (tmp_path / "Dockerfile").write_text("FROM busybox\n")
+    assert build_fingerprint("go", service) != second
 
 
 def test_build_target_and_args_change_fingerprint(tmp_path, monkeypatch):
@@ -106,6 +144,47 @@ def test_matching_label_reuses_image(tmp_path, monkeypatch):
 
     metadata = resolve_build_metadata(["podman-compose"], [], ["webdashboard"], run)
     assert fingerprints_match(metadata, "podman", run)
+
+
+def test_shared_image_checks_once_and_reuses_fingerprint(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    shared = dict(_service_config(tmp_path), image="localhost/shared")
+    config = {"services": {"apiserver": shared, "go": dict(shared)}}
+    metadata = resolve_build_metadata(
+        ["podman-compose"],
+        [],
+        ["apiserver", "go"],
+        lambda command, **kwargs: _config_result(config),
+    )
+    inspected: list[str] = []
+
+    def run(command, **kwargs):
+        inspected.append(command[-1])
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({FINGERPRINT_LABEL: metadata.fingerprints["go"]}),
+        )
+
+    assert metadata.fingerprints["apiserver"] == metadata.fingerprints["go"]
+    assert service_fingerprints_match(metadata, ["apiserver"], "podman", run)
+    assert service_fingerprints_match(metadata, ["go"], "podman", run)
+    assert service_fingerprints_match(metadata, ["apiserver"], "podman", run)
+    assert inspected == ["localhost/shared"] * 3
+
+
+def test_missing_image_triggers_build(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM alpine\n")
+    config = {"services": {"go": _service_config(tmp_path)}}
+
+    def run(command, **kwargs):
+        if command[-1] == "config":
+            return _config_result(config)
+        return SimpleNamespace(returncode=1, stdout="")
+
+    metadata = resolve_build_metadata(["podman-compose"], [], ["go"], run)
+    assert not service_fingerprints_match(metadata, ["go"], "podman", run)
 
 
 def test_service_fingerprint_check_only_inspects_selected_services(

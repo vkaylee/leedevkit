@@ -1,6 +1,10 @@
 services:
   go:
     profiles: ["go"]
+    # Dockerfile and GO_VERSION are the only inputs for this image; project
+    # source is mounted at runtime and is not copied during the build.
+    x-leedevkit-build-inputs:
+      - .leedevkit/container/go/Dockerfile
     build:
       context: ../../..
       dockerfile: .leedevkit/container/go/Dockerfile
