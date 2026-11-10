@@ -23,12 +23,15 @@ PROTECTED_PATHS = (
     ".omp",
     ".pi",
 )
+RUNTIME_ARTIFACTS = {".claude/scheduled_tasks.lock"}
 
 
 def _snapshot(paths: tuple[str, ...]) -> dict[str, bytes | str]:
     """Capture protected files and symlink targets without following links."""
     snapshot: dict[str, bytes | str] = {}
     for relative in paths:
+        if relative in RUNTIME_ARTIFACTS:
+            continue
         path = REPO_ROOT / relative
         if path.is_symlink():
             snapshot[relative] = f"symlink:{path.readlink()}"
@@ -37,6 +40,8 @@ def _snapshot(paths: tuple[str, ...]) -> dict[str, bytes | str]:
         elif path.is_dir():
             for child in sorted(path.rglob("*")):
                 child_relative = child.relative_to(REPO_ROOT).as_posix()
+                if child_relative in RUNTIME_ARTIFACTS:
+                    continue
                 if child.is_symlink():
                     snapshot[child_relative] = f"symlink:{child.readlink()}"
                 elif child.is_file():

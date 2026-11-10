@@ -91,7 +91,6 @@ class TestHandler(HandlerBase):
             except ValueError as exc:
                 log_error(str(exc))
                 sys.exit(2)
-            self._built_targets: set[str] = set()
         if target == "infra":
             self._run_infra_target(args)
             if not nested:
@@ -471,14 +470,19 @@ class TestHandler(HandlerBase):
         )
         setup_ok = True
         build = self._should_build(mode, args)
-        built_targets: set[str] = getattr(self, "_built_targets", set())
+        force_build = getattr(self, "_build_policy", "once") == "phase"
         try:
             if granular_mode:
                 log_info(
                     f"🔹 Starting isolated environment for: {phase_name} ({granular_mode})"
                 )
                 try:
-                    setup_ok = _lifecycle_up(granular_mode, build=build)
+                    if force_build:
+                        setup_ok = _lifecycle_up(
+                            granular_mode, build=build, force_build=True
+                        )
+                    else:
+                        setup_ok = _lifecycle_up(granular_mode, build=build)
                     if (
                         setup_ok
                         and phase_name == "Integration Tests"
@@ -490,12 +494,16 @@ class TestHandler(HandlerBase):
                             "infra-pooler",
                         ):
                             dependency_build = self._should_build(dependency_mode, args)
-                            dependency_ok = _lifecycle_up(
-                                dependency_mode, build=dependency_build
-                            )
-                            if dependency_ok and dependency_build:
-                                built_targets.add(self._build_target(dependency_mode))
-                                self._built_targets = built_targets
+                            if force_build:
+                                dependency_ok = _lifecycle_up(
+                                    dependency_mode,
+                                    build=dependency_build,
+                                    force_build=True,
+                                )
+                            else:
+                                dependency_ok = _lifecycle_up(
+                                    dependency_mode, build=dependency_build
+                                )
                             setup_ok = dependency_ok and setup_ok
                 except Exception as exc:
                     log_error(f"Phase setup failed: {exc}")
@@ -509,9 +517,6 @@ class TestHandler(HandlerBase):
                         error=str(exc),
                     )
                     return
-                if setup_ok and build and not self._flag(args, "skip_build"):
-                    built_targets.add(self._build_target(mode))
-                    self._built_targets = built_targets
                 if not setup_ok:
                     self._record_result(
                         phase_name,
@@ -525,7 +530,11 @@ class TestHandler(HandlerBase):
                     return
 
             func_map: dict[str, typing.Callable[..., typing.Any]] = {
-                "Startup": lambda: _lifecycle_up(mode, build=build),
+                "Startup": (
+                    (lambda: _lifecycle_up(mode, build=build, force_build=True))
+                    if force_build
+                    else (lambda: _lifecycle_up(mode, build=build))
+                ),
                 "Linting": lambda: leedevkit_run_lint(
                     getattr(args, "component", "") or "",
                     mode,
@@ -611,12 +620,11 @@ class TestHandler(HandlerBase):
         return mode
 
     def _should_build(self, mode: str, args: argparse.Namespace) -> bool:
-        """Build first phase per image family unless policy requests every phase."""
+        """Ask lifecycle freshness check on every phase under ``once`` policy."""
+        del mode
         if self._flag(args, "skip_build"):
             return False
-        if getattr(self, "_build_policy", "once") == "phase":
-            return True
-        return self._build_target(mode) not in getattr(self, "_built_targets", set())
+        return True
 
     def handle_test_infra(self) -> None:
         """Run infra tests with production and non-gating test-source reports."""

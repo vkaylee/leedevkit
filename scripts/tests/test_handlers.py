@@ -938,15 +938,14 @@ class TestTestHandler:
         assert orch.results["BogusPhase"]["status"] == "failed"
         assert orch.results["BogusPhase"]["exit_code"] == 1
 
-    def test_build_once_reuses_image_per_target(self):
-        """Default policy builds first phase only, then reuses image."""
+    def test_once_policy_rechecks_freshness_per_phase(self):
+        """Once policy lets lifecycle freshness checks choose rebuild versus reuse."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
         args = _test_args(target="web")
         handler._build_policy = "once"
-        handler._built_targets = set()
         with (
             patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
             patch("_test_handler.lifecycle_down"),
@@ -958,7 +957,7 @@ class TestTestHandler:
 
         assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
             True,
-            False,
+            True,
         ]
 
     def test_phase_build_policy_builds_every_phase(self):
@@ -992,7 +991,6 @@ class TestTestHandler:
         handler = TestHandler(orch)
         args = _test_args()
         handler._build_policy = "once"
-        handler._built_targets = set()
         with (
             patch("_test_handler._lifecycle_up", return_value=True) as lifecycle,
             patch("_test_handler.lifecycle_down"),
@@ -1016,11 +1014,11 @@ class TestTestHandler:
         assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
             True,
             True,
-            False,
             True,
             True,
             True,
-            False,
+            True,
+            True,
         ]
 
     def test_failed_build_retries_next_phase(self):
@@ -1031,7 +1029,6 @@ class TestTestHandler:
         handler = TestHandler(orch)
         args = _test_args(target="web")
         handler._build_policy = "once"
-        handler._built_targets = set()
         with (
             patch(
                 "_test_handler._lifecycle_up", side_effect=[False, True]

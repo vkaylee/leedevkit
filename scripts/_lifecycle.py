@@ -22,6 +22,12 @@ from _bootstrap import (
     resolve_lifecycle_dependencies,
     resolve_lifecycle_profiles,
 )
+from _image_cache import (
+    BuildMetadata,
+    image_build_lock,
+    service_fingerprints_match,
+    resolve_build_metadata,
+)
 
 
 def _get_engine() -> str:
@@ -170,15 +176,19 @@ def _has_legacy_api_services() -> bool:
         return True
 
 
-def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
-    """Bring up only services selected by mode, using Compose's image cache.
+def lifecycle_up(
+    mode: str = "all",
+    *,
+    build: bool = True,
+    build_metadata: BuildMetadata | None = None,
+    skip_build: bool = False,
+    force_build: bool = False,
+) -> bool:
+    """Bring up selected services after native image freshness validation.
 
-    ``build=True`` asks Compose to build missing or changed images with normal
-    BuildKit cache semantics. ``build=False`` uses ``--no-build`` so
-    ``--skip-build`` cannot silently trigger an image build.
-
-    Returns True if all health checks pass, False otherwise.
-    Idempotent — safe for concurrent agents sharing the same project.
+    ``build=True`` requests Compose build only when image metadata is missing or
+    stale. ``build=False`` always uses ``--no-build``. ``skip_build`` preserves
+    the explicit unverified path and never performs freshness-triggered builds.
     """
     profiles = resolve_lifecycle_profiles(mode)
     dependencies = list(dict.fromkeys(resolve_lifecycle_dependencies(mode)))
@@ -199,24 +209,96 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
                     "Unknown lifecycle dependency service(s) "
                     f"{', '.join(unknown)} for mode {mode!r} in {env['DOCKER_COMPOSE_BASE']}"
                 )
-    up_cmd = ["up", "-d", "--build" if build else "--no-build"]
-    if not dependencies and (mode.startswith("lint-") or mode.startswith("unit-")):
-        up_cmd.append("--no-deps")
-    services = _active_services(mode)
-    if services:
-        up_cmd.extend(services)
-    up_result = _run(compose_base + profiles + up_cmd, silent=True, capture=False)
+    services = list(dict.fromkeys(_active_services(mode) + dependencies))
+    metadata = build_metadata
+    if metadata is None and build:
+        metadata = resolve_build_metadata(compose_base, profiles, services, _run)
+    elif metadata is None:
+        metadata = BuildMetadata({}, {}, [], None)
+    image_names = metadata.images
+    lock_context = (
+        image_build_lock(image_names) if image_names else contextlib.nullcontext()
+    )
+    with lock_context:
+        # Recheck after lock acquisition. Another invocation may have published a
+        # valid image while this process waited.
+        previous_override = metadata.override_file
+        if build_metadata is None and build:
+            metadata = resolve_build_metadata(compose_base, profiles, services, _run)
+            if (
+                previous_override is not None
+                and previous_override != metadata.override_file
+            ):
+                with contextlib.suppress(OSError):
+                    previous_override.unlink()
+        active_services = _active_services(mode)
+        if skip_build:
+            use_build = False
+        elif force_build:
+            use_build = True
+        elif build and metadata.images:
+            use_build = not service_fingerprints_match(
+                metadata, active_services + dependencies, _get_engine(), _run
+            )
+        else:
+            use_build = build
+        effective_compose = list(compose_base)
+        if metadata.override_file is not None:
+            effective_compose.extend(["-f", str(metadata.override_file)])
+        up_cmd = ["up", "-d", "--build" if use_build else "--no-build"]
+        if (mode.startswith("lint-") or mode.startswith("unit-")) and not dependencies:
+            up_cmd.append("--no-deps")
+        if active_services:
+            up_cmd.extend(active_services)
+        up_result = _run(
+            effective_compose + profiles + up_cmd, silent=True, capture=False
+        )
     if isinstance(up_result.returncode, int) and up_result.returncode != 0:
+        if metadata.override_file is not None:
+            with contextlib.suppress(OSError):
+                metadata.override_file.unlink()
         print(
             f"Compose startup failed: mode={mode!r}, exit={up_result.returncode}",
             file=sys.stderr if os.environ.get("LEEDEVKIT_QUIET") == "1" else sys.stdout,
         )
         return False
+    if (
+        use_build
+        and metadata.images
+        and not service_fingerprints_match(
+            metadata, active_services, _get_engine(), _run
+        )
+    ):
+        if metadata.override_file is not None:
+            with contextlib.suppress(OSError):
+                metadata.override_file.unlink()
+        print(
+            f"Compose image metadata verification failed: mode={mode!r}",
+            file=sys.stderr if os.environ.get("LEEDEVKIT_QUIET") == "1" else sys.stdout,
+        )
+        return False
     if dependencies:
+        dependency_build = False
+        if not skip_build and build:
+            dependency_build = (
+                not service_fingerprints_match(
+                    metadata, dependencies, _get_engine(), _run
+                )
+                if metadata.images
+                else True
+            )
+        dependency_compose = list(compose_base)
+        if metadata.override_file is not None:
+            dependency_compose.extend(["-f", str(metadata.override_file)])
         dependency_result = _run(
-            compose_base
+            dependency_compose
             + profiles
-            + ["up", "-d", "--build" if build else "--no-build", *dependencies],
+            + [
+                "up",
+                "-d",
+                "--build" if dependency_build else "--no-build",
+                *dependencies,
+            ],
             silent=True,
             capture=False,
         )
@@ -224,6 +306,9 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
             isinstance(dependency_result.returncode, int)
             and dependency_result.returncode != 0
         ):
+            if metadata.override_file is not None:
+                with contextlib.suppress(OSError):
+                    metadata.override_file.unlink()
             print(
                 f"Compose dependency startup failed: mode={mode!r}, exit={dependency_result.returncode}",
                 file=sys.stderr
@@ -231,6 +316,26 @@ def lifecycle_up(mode: str = "all", *, build: bool = True) -> bool:
                 else sys.stdout,
             )
             return False
+        if (
+            dependency_build
+            and metadata.fingerprints
+            and not service_fingerprints_match(
+                metadata, dependencies, _get_engine(), _run
+            )
+        ):
+            if metadata.override_file is not None:
+                with contextlib.suppress(OSError):
+                    metadata.override_file.unlink()
+            print(
+                f"Compose dependency image metadata verification failed: mode={mode!r}",
+                file=sys.stderr
+                if os.environ.get("LEEDEVKIT_QUIET") == "1"
+                else sys.stdout,
+            )
+            return False
+    if metadata.override_file is not None:
+        with contextlib.suppress(OSError):
+            metadata.override_file.unlink()
     health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
         service = _configured_service(mode) or "bun_init"

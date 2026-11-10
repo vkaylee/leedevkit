@@ -76,7 +76,31 @@ Rollback restores previous LeeDevKit runtime.
 - Ruff format/check and mypy passed.
 - Release artifact build and acceptance passed.
 
-## [Unreleased]
+## [0.8.8] - 2026-11-10
+
+### Fixes
+- Reuse unchanged test images across separate LeeDevKit invocations using deterministic build fingerprints.
+- Rebuild test images when Dockerfile, build context, Compose build settings, targets, or build arguments change.
+- Verify fingerprint labels after image builds and fail closed when metadata is missing or stale.
+- Serialize concurrent image freshness checks without pruning existing images.
+- Exclude scheduler runtime locks from checkout mutation snapshots.
+
+#### Compatibility
+- Existing projects default to `build_policy = "once"`; `build_policy = "phase"` still forces builds before each phase.
+- `--skip-build` continues to use `--no-build` and reports unverified results.
+- No project `.leedevkit/` changes required.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.7
+```
+
+Rollback restores previous LeeDevKit runtime.
+
+#### Verification
+- Freshness and lifecycle tests: 127 passed, 1 skipped.
+- Full infrastructure verification: 887 passed, 1 skipped; production coverage 83.02%.
+- Ruff format/check and mypy passed.
 
 ## [0.8.7] - 2026-11-10
 

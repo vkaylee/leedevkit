@@ -75,7 +75,9 @@ class TestLifecycleUp:
         ):
             assert lifecycle_up("unit-api") is True
 
-        startup = mock_run.call_args_list[0].args[0]
+        startup = next(
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        )
         assert startup[-1] == "rust"
         assert any("_rust_1" in call.args[0] for call in mock_health.call_args_list)
 
@@ -86,9 +88,113 @@ class TestLifecycleUp:
             patch("_lifecycle.time.sleep"),
         ):
             assert lifecycle_up("go", build=False) is True
-            startup = mock_run.call_args_list[0].args[0]
+            startup = next(
+                call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+            )
             assert "--no-build" in startup
             assert "--build" not in startup
+
+    def test_unchanged_image_uses_no_build_across_invocations(self) -> None:
+        metadata = MagicMock(images=["localhost/test"], fingerprints={"go": "fp"})
+        with (
+            patch("_lifecycle.resolve_build_metadata", return_value=metadata),
+            patch("_lifecycle.service_fingerprints_match", return_value=True),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go") is True
+            assert lifecycle_up("go") is True
+
+        startups = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert len(startups) == 2
+        assert all("--no-build" in command for command in startups)
+
+    def test_changed_image_rebuilds_once_per_lifecycle_invocation(self) -> None:
+        metadata = MagicMock(images=["localhost/test"], fingerprints={"go": "fp"})
+        with (
+            patch("_lifecycle.resolve_build_metadata", return_value=metadata),
+            patch(
+                "_lifecycle.service_fingerprints_match",
+                side_effect=[False, True],
+            ),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go") is True
+
+        startups = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert len(startups) == 1
+        assert "--build" in startups[0]
+
+    def test_changed_input_rebuilds_then_reuses_across_invocations(self) -> None:
+        metadata = MagicMock(images=["localhost/test"], fingerprints={"go": "fp"})
+        with (
+            patch("_lifecycle.resolve_build_metadata", return_value=metadata),
+            patch(
+                "_lifecycle.service_fingerprints_match",
+                side_effect=[False, True, True],
+            ),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go") is True
+            assert lifecycle_up("go") is True
+
+        startups = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert len(startups) == 2
+        assert "--build" in startups[0]
+        assert "--no-build" in startups[1]
+
+    def test_build_fails_when_label_not_published(self) -> None:
+        metadata = MagicMock(images=["localhost/test"], fingerprints={"go": "fp"})
+        with (
+            patch("_lifecycle.resolve_build_metadata", return_value=metadata),
+            patch(
+                "_lifecycle.service_fingerprints_match",
+                side_effect=[False, False],
+            ),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("go") is False
+
+        startups = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert "--build" in startups[0]
+
+    def test_dependency_reuses_fresh_image_without_build(self) -> None:
+        metadata = MagicMock(
+            images=["localhost/main", "localhost/dependency"],
+            fingerprints={"go": "main", "postgres": "dependency"},
+        )
+        with (
+            patch("_lifecycle.resolve_build_metadata", return_value=metadata),
+            patch("_lifecycle.service_fingerprints_match", return_value=True),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch("_lifecycle._compose_service_names", return_value={"go", "postgres"}),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("int-go") is True
+
+        startups = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert "--no-build" in startups[-1]
 
     def test_lint_and_unit_modes_use_no_deps(self) -> None:
         """Verify that lint- and unit- modes append --no-deps so heavy infra is not started."""
@@ -266,14 +372,15 @@ class TestLifecycleComposeCommand:
         ):
             mock_run.return_value = MagicMock(stdout="", returncode=0)
             lifecycle_up("web")
-            # Extract arguments from the first call to _run (which should be the up -d command)
-            first_call_args = mock_run.call_args_list[0]
-            up_cmd = " ".join(first_call_args[0][0])
+            # Select lifecycle startup call after metadata inspection.
+            up_call = next(
+                call for call in mock_run.call_args_list if "up" in call.args[0]
+            )
+            up_cmd = " ".join(up_call.args[0])
             assert "web" in up_cmd
 
             # Verify that silent=True is passed to prevent PTY hang
-            kwargs = first_call_args[1]
-            assert kwargs.get("silent") is True
+            assert up_call.kwargs.get("silent") is True
 
     def test_run_executes_subprocess(self) -> None:
         """Verify _run executes subprocess with correct args and handles check correctly."""
@@ -442,7 +549,9 @@ class TestLifecycleDependencies:
         ):
             assert lifecycle_up("unit-go") is True
 
-        up_cmd = mock_run.call_args_list[0].args[0]
+        up_cmd = next(
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        )
         assert "--no-deps" in up_cmd
         assert "postgres" not in up_cmd
         assert all(
