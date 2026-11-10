@@ -78,6 +78,28 @@ Rollback restores previous LeeDevKit runtime.
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-11-10
+
+### Fixes
+- Stream parallel test task stdout/stderr live with task prefixes while preserving complete per-task logs, quiet-mode behavior, timeout exit code `124`, and process-tree termination.
+- Document live test output and JSON/JSONL log handling for AI agents.
+
+#### Compatibility
+- No project `.leedevkit/` changes or configuration migration required.
+- Serial runner, log naming, `--json`, `--json-stream`, `--quiet`, stdin isolation, and exit-code behavior remain unchanged.
+
+#### Rollback
+```bash
+./leedevkit update --version v0.8.6
+```
+
+Rollback restores previous LeeDevKit runtime.
+
+#### Verification
+- Full infrastructure verification: 875 passed, 1 skipped.
+- Ruff format/check and mypy passed.
+- Release artifact build and acceptance passed.
+
 ## [0.8.2] - 2026-11-08
 
 ### Fixes

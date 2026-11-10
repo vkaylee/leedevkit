@@ -194,24 +194,67 @@ def run_single_task(
     cmd: list[str],
     log_file: Path,
     timeout: int,
+    *,
+    stream_live: bool = False,
+    output_lock: typing.Any = None,
 ) -> int:
-    """Run a single task and return its exit code."""
-    del name
+    """Run one task, optionally teeing output to terminal."""
+    import threading
+
+    if output_lock is None:
+        output_lock = threading.Lock()
+
     with log_file.open("w") as output:
         proc = subprocess.Popen(
             cmd,
             cwd=str(PROJECT_ROOT),
             stdin=subprocess.DEVNULL,
-            stdout=output,
+            stdout=subprocess.PIPE if stream_live else output,
             stderr=subprocess.STDOUT,
             **typing.cast(dict[str, typing.Any], _process_group_options()),
         )
+        if not stream_live:
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _terminate_process_tree(proc)
+                return 124
+            return proc.returncode
+
+        assert proc.stdout is not None
+
+        stream = proc.stdout
+        assert stream is not None
+
+        def stream_output() -> None:
+            pending = b""
+            for chunk in iter(lambda: stream.read(4096), b""):
+                pending += chunk
+                while b"\n" in pending:
+                    raw_line, pending = pending.split(b"\n", 1)
+                    emit_output(raw_line.decode("utf-8", errors="replace") + "\n")
+            if pending:
+                emit_output(pending.decode("utf-8", errors="replace"))
+
+        def emit_output(output_line: str) -> None:
+            with output_lock:
+                output.write(output_line)
+                output.flush()
+                if not QUIET_OUTPUT:
+                    sys.stdout.write(f"  [{name}] {output_line}")
+                    sys.stdout.flush()
+
+        reader = threading.Thread(target=stream_output)
+        reader.start()
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             _terminate_process_tree(proc)
-            return 124
-        return proc.returncode
+            exit_code = 124
+        else:
+            exit_code = proc.returncode
+        reader.join()
+        return exit_code
 
 
 def run_parallel_ordered(
@@ -331,6 +374,7 @@ def _run_tasks_parallel(
     task_queue = deque(tasks)
     results: dict[str, int] = {}
     lock = threading.Lock()
+    output_lock = threading.Lock()
     all_done = threading.Event()
 
     def worker() -> None:
@@ -341,7 +385,14 @@ def _run_tasks_parallel(
                 name, _service, cmd = task_queue.popleft()
 
             log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
-            ret = run_single_task(name, cmd, log_file, timeout)
+            ret = run_single_task(
+                name,
+                cmd,
+                log_file,
+                timeout,
+                stream_live=True,
+                output_lock=output_lock,
+            )
             with lock:
                 results[name] = ret
             if ret != 0:

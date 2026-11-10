@@ -191,6 +191,112 @@ class TestRunSingleTask:
 
 
 class TestRunParallelOrdered:
+    def test_parallel_output_streams_to_terminal_and_log(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+        script = "import sys; print('stdout line', flush=True); print('stderr line', file=sys.stderr, flush=True)"
+        result = run_parallel_ordered(
+            "Linting",
+            "",
+            [("webdashboard", "srv", [sys.executable, "-c", script])],
+            num_workers=2,
+        )
+
+        assert result is True
+        output = capsys.readouterr().out
+        assert "[webdashboard] stdout line\n" in output
+        assert "[webdashboard] stderr line\n" in output
+        assert (
+            get_run_log_dir() / "Linting_webdashboard.log"
+        ).read_text() == "stdout line\nstderr line\n"
+
+    def test_parallel_tasks_keep_prefixes_and_lines(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+        tasks = [
+            ("task-a", "srv", ["printf", "a1\na2\n"]),
+            ("task-b", "srv", ["printf", "b1\nb2\n"]),
+        ]
+
+        assert run_parallel_ordered("Linting", "", tasks, num_workers=2)
+        output = capsys.readouterr().out
+        assert output.count("[task-a] a1\n") == 1
+        assert output.count("[task-a] a2\n") == 1
+        assert output.count("[task-b] b1\n") == 1
+        assert output.count("[task-b] b2\n") == 1
+        for name, lines in (("task-a", "a1\na2\n"), ("task-b", "b1\nb2\n")):
+            assert (get_run_log_dir() / f"Linting_{name}.log").read_text() == lines
+
+    def test_parallel_quiet_keeps_log_without_live_output(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+        monkeypatch.setattr("_test_utils.QUIET_OUTPUT", True)
+
+        assert run_parallel_ordered(
+            "Linting",
+            "",
+            [("quiet-task", "srv", ["printf", "hidden\n"])],
+            num_workers=2,
+        )
+        assert capsys.readouterr().out == ""
+        assert (get_run_log_dir() / "Linting_quiet-task.log").read_text() == "hidden\n"
+
+    def test_parallel_failure_keeps_output(self, capsys, tmp_path, monkeypatch):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+        script = "import sys; print('before failure', flush=True); sys.exit(7)"
+
+        assert not run_parallel_ordered(
+            "Linting",
+            "",
+            [("failed-task", "srv", [sys.executable, "-c", script])],
+            num_workers=2,
+        )
+        assert "[failed-task] before failure\n" in capsys.readouterr().out
+        assert (
+            get_run_log_dir() / "Linting_failed-task.log"
+        ).read_text() == "before failure\n"
+
+    def test_parallel_timeout_keeps_output_and_returns_124(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+        monkeypatch.setattr("_test_utils.TIMEOUT_LINT", 1)
+        monkeypatch.setattr("_test_utils.QUIET_OUTPUT", False)
+        script = "import time; print('before timeout', flush=True); time.sleep(5)"
+
+        assert not run_parallel_ordered(
+            "Linting",
+            "",
+            [("timeout-task", "srv", [sys.executable, "-c", script])],
+            num_workers=2,
+        )
+        assert "[timeout-task] before timeout\n" in capsys.readouterr().out
+        assert (
+            get_run_log_dir() / "Linting_timeout-task.log"
+        ).read_text() == "before timeout\n"
+        from _test_utils import get_last_phase_exit_code
+
+        assert get_last_phase_exit_code() == 124
+
+    def test_parallel_output_without_trailing_newline_is_flushed(
+        self, capsys, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("_test_utils.LOG_DIR", tmp_path)
+
+        assert run_parallel_ordered(
+            "Linting",
+            "",
+            [("partial-task", "srv", ["printf", "last line"])],
+            num_workers=2,
+        )
+        assert "[partial-task] last line" in capsys.readouterr().out
+        assert (
+            get_run_log_dir() / "Linting_partial-task.log"
+        ).read_text() == "last line"
+
     def test_empty_tasks_returns_true(self):
         result = run_parallel_ordered("Linting", "", [])
         assert result is True

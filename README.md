@@ -54,6 +54,8 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 ./leedevkit test all                # all configured targets/phases
 ./leedevkit test all --json         # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents; logs stay in .test_logs/
+# Human mode streams parallel task output as [task-name] lines and tees it to .test_logs/.
+# --quiet suppresses live task output but keeps complete task logs for failure diagnosis.
 # ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
 ./leedevkit test all                # Rust targets use configured Rust verification
 

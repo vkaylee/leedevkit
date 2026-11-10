@@ -25,6 +25,8 @@ Changes here ship to downstream projects through release artifacts installed int
 ./leedevkit test all --json           # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents
 
+Human mode streams parallel task output live with `[task-name]` prefixes and tees stdout/stderr into `.test_logs/` (or `.test_logs/<compose-project>/`). `--quiet` suppresses live task output but preserves complete logs. AI agents MUST use JSON/JSONL fields and failure `log` paths, not scrape human terminal text.
+
 Machine contract: parse JSON/JSONL, not human log text. Each phase carries `phase`, `target`, `command`, timestamps, duration, exit code, status, and required flag. Failed/blocked phases carry `log`, `rerun`, and diagnostic fields. `passed`, `failed`, `blocked`, and `skipped` are distinct; focused or skipped runs report `partial` and `full_regression=false`.
 
 A dry-run constructs commands only. Its success flags are not execution evidence; report the invocation mode alongside the result.

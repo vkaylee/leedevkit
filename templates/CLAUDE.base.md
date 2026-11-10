@@ -15,6 +15,8 @@ Discover targets, environments, and budgets from project configuration, existing
 
 Start with `./leedevkit --help` and `./leedevkit test --help`. Run the applicable configured target; `./leedevkit test all --json` runs the configured suite, not every imaginable check. Focused flags are for iteration, not proof of full regression.
 
+For human-readable parallel tests, task output streams live with `[task-name]` prefixes and is also written to `.test_logs/` (or `.test_logs/<compose-project>/`). Use `--quiet` or `--json-stream --quiet` for machine-readable runs: live task output is suppressed, but logs remain complete. Read failure `log` paths from JSON/JSONL reports instead of scraping terminal output.
+
 Use the harness's available file, search, process, and delegation tools. Do not assume another harness's tool names or process capabilities. Prefer native skill discovery; if unavailable, inspect only relevant local skill metadata. Never require a router or subagent that is not exposed.
 
 ## Rulebook triggers
