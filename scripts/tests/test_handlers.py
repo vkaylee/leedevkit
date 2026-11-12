@@ -625,6 +625,32 @@ class TestTestHandler:
         # format check + lint (ruff+mypy) + test_infra
         assert orch.execute_safe.call_count >= 4
 
+    def test_handle_verify_infra_forwards_pattern(self):
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        with patch("shutil.which", return_value=None):
+            handler.handle_verify_infra("auth.*login")
+
+        commands = [" ".join(call.args[0]) for call in orch.execute_safe.call_args_list]
+        pytest_commands = [command for command in commands if "pytest" in command]
+        assert len(pytest_commands) == 2
+        assert all(
+            "--leedevkit-pattern auth.*login" in command for command in pytest_commands
+        )
+        assert all("--cov-fail-under=80" not in command for command in pytest_commands)
+
+    def test_pattern_rejects_invalid_infra_regex_before_execution(self):
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        with pytest.raises(SystemExit) as exc:
+            handler.handle_test(_test_args(target="infra", pattern="["))
+        assert exc.value.code == 2
+        orch.execute_safe.assert_not_called()
+
     def test_handle_test_infra(self):
         from _test_handler import TestHandler
 
@@ -758,6 +784,7 @@ class TestTestHandler:
         args.lint_only = False
         args.unit_only = False
         args.e2e_only = False
+        args.pattern = ""
         with patch("shutil.which", return_value=None):
             handler.handle_test(args)
         # fmt + lint + test = at least 4 calls

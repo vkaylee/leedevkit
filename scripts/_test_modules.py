@@ -195,12 +195,24 @@ def _safe_pattern(pattern: str) -> str:
     return ""
 
 
-def _safe_pattern_quoted(pattern: str) -> str:
-    """Shell-escape a test pattern that goes inside double quotes (-g \"...\")."""
-    if pattern:
-        # shlex.quote adds outer quotes, but we need inner escaped value
-        return shlex.quote(pattern)
-    return ""
+def _nextest_filter(pattern: str) -> str:
+    """Build nextest's regex test-filter expression safely."""
+    if not pattern:
+        return ""
+    # nextest uses slash-delimited Rust regex in `test(...)`; escape delimiter.
+    escaped = pattern.replace("\\", "\\\\").replace("/", "\\/")
+    expression = f"test(/{escaped}/)"
+    return f"-E {shlex.quote(expression)}"
+
+
+def _bun_name_filter(pattern: str) -> str:
+    """Return Bun's test-name option, preserving regex as one shell argument."""
+    return f"-- --test-name-pattern {_safe_pattern(pattern)}" if pattern else ""
+
+
+def _playwright_filter(pattern: str) -> str:
+    """Return Playwright's title regex filter."""
+    return f"--grep={_safe_pattern(pattern)}" if pattern else ""
 
 
 def leedevkit_run_lint(
@@ -347,7 +359,9 @@ def leedevkit_run_unit(
         rust_svc = _resolve_rust_service(component_filter)
         pkg_flag = _resolve_pkg_flag(component_filter)
         db_url = "postgres://test_user:test_password@localhost:5432/test_database?sslmode=disable"
-        backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {_safe_pattern(test_pattern)} {shard_flag} --no-tests=pass"
+        pattern_filter = _nextest_filter(test_pattern)
+        no_tests = "" if test_pattern else "--no-tests=pass"
+        backend = f"DATABASE_URL={db_url} cargo nextest run {pkg_flag} --lib {pattern_filter} {shard_flag} {no_tests}"
         backend_cmd = build_compose_exec(
             rust_svc,
             backend,
@@ -361,7 +375,9 @@ def leedevkit_run_unit(
 
     if mode in ("web",) or (mode == "all" and _has_web_service()):
         web_service = _resolve_web_service()
-        web = f"bun run test -- {_safe_pattern(test_pattern)} {shard_flag} --passWithNoTests"
+        name_filter = _bun_name_filter(test_pattern)
+        no_tests = "--passWithNoTests" if not test_pattern else ""
+        web = f"bun run test {name_filter} {shard_flag} {no_tests}".rstrip()
         web_cmd = build_compose_exec(web_service, web, mode="web")
         tasks.append((web_service, web_service, web_cmd))
 
@@ -369,17 +385,23 @@ def leedevkit_run_unit(
         go_svc = _resolve_go_service(component_filter)
         go_workdir = _resolve_go_workdir()
         run_flag = f" -run {_safe_pattern(test_pattern)}" if test_pattern else ""
+        json_flag = " -json" if test_pattern else ""
         tasks.append(
             (
                 "go-unit",
                 go_svc,
                 build_compose_exec(
-                    go_svc, f"go test ./...{run_flag}", workdir=go_workdir, mode="go"
+                    go_svc,
+                    f"go test{json_flag}{run_flag} ./...",
+                    workdir=go_workdir,
+                    mode="go",
                 ),
             )
         )
 
-    return run_parallel_ordered("Unit Tests", component_filter, tasks)
+    return run_parallel_ordered(
+        "Unit Tests", component_filter, tasks, pattern=test_pattern
+    )
 
 
 def leedevkit_run_integration(
@@ -388,7 +410,7 @@ def leedevkit_run_integration(
     """Run integration and E2E tests (cargo nextest --test, playwright)."""
     tasks: list[tuple[str, str, list[str]]] = []
 
-    no_tests_flag = "pass"
+    no_tests_flag = "pass" if not test_pattern else "fail"
     workdir = "/workspace"
 
     if (
@@ -406,8 +428,8 @@ def leedevkit_run_integration(
         jobs = os.environ.get("CARGO_BUILD_JOBS", "2")
         backend = (
             f"DATABASE_URL={db_url} "
-            f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' {_safe_pattern(test_pattern)} "
-            f"--no-tests={no_tests_flag}"
+            f"CARGO_BUILD_JOBS={jobs} cargo nextest run {pkg_flag} --test '*' "
+            f"{_nextest_filter(test_pattern)} --no-tests={no_tests_flag}"
         )
         backend_cmd = build_compose_exec(
             rust_svc, backend, workdir=workdir, mode="api" if mode == "all" else mode
@@ -421,12 +443,14 @@ def leedevkit_run_integration(
 
     if mode == "web" or (mode == "all" and _has_web_service()):
         web_service = _resolve_web_service()
-        pw_args = f"-g {_safe_pattern(test_pattern)}" if test_pattern else ""
+        pw_args = _playwright_filter(test_pattern)
         pw = f"bunx playwright test {pw_args} --workers 2"
         pw_cmd = build_compose_exec(web_service, pw, mode="e2e-web")
         tasks.append(("playwright-e2e", web_service, pw_cmd))
 
-    return run_parallel_ordered("Integration & E2E", component_filter, tasks)
+    return run_parallel_ordered(
+        "Integration & E2E", component_filter, tasks, pattern=test_pattern
+    )
 
 
 def leedevkit_run_coverage(
@@ -445,11 +469,14 @@ def leedevkit_run_coverage(
         pkg_flag = _resolve_pkg_flag(component_filter)
         test_flags = "--lib" if unit_only else "--lib --test integration"
         ignore_regex = "--ignore-filename-regex 'app_builder\\.rs|handlers/debug\\.rs|worker/runner\\.rs|worker/main\\.rs|main\\.rs|report_service_test\\.rs|handlers/custom_fields\\.rs|handlers/document_.*\\.rs|handlers/files\\.rs|handlers/signatures\\.rs|handlers/storage_config\\.rs|models/custom_field\\.rs|models/diesel/file\\.rs|models/diesel/signature\\.rs|models/signature\\.rs|models/file\\.rs|services/storage/.*|diesel_file_repository\\.rs|storage_config_repo\\.rs|diesel_custom_field_repository\\.rs|diesel_signature_repository\\.rs|custom_field_service\\.rs|signature_service\\.rs|file_scan_scheduler\\.rs|employee/mod\\.rs|crypto\\.rs|lifecycle_checklist.*|employment_phases\\.rs|tenant_manager\\.rs|job_queue\\.rs'"
+        pattern_filter = _nextest_filter(test_pattern)
+        no_tests = "--no-tests=pass" if not test_pattern else ""
         apiserver_cov = (
             f"mkdir -p /workspace/.test_logs && "
             f"{coverage_env} cargo llvm-cov nextest {test_flags} {pkg_flag} {ignore_regex} "
+            f"{pattern_filter} {no_tests} "
             f"--lcov --output-path /workspace/.test_logs/coverage-apiserver.lcov "
-            f"--no-tests=pass 2>&1 </dev/null && "
+            f"2>&1 </dev/null && "
             f"{coverage_env} cargo llvm-cov report {ignore_regex} --html "
             f"--output-dir /workspace/.test_logs/coverage-apiserver-html 2>&1 </dev/null && "
             f"{coverage_env} cargo llvm-cov report {ignore_regex} --summary-only 2>&1 </dev/null && "
@@ -480,11 +507,13 @@ def leedevkit_run_coverage(
 
     if mode == "web" or (mode == "all" and _has_web_service()):
         web_service = _resolve_web_service()
+        web_filter = _bun_name_filter(test_pattern)
+        web_cmd = f"bun run test:coverage {web_filter}".rstrip()
         tasks.append(
             (
                 f"{web_service}-coverage",
                 web_service,
-                build_compose_exec(web_service, "bun run test:coverage", mode="web"),
+                build_compose_exec(web_service, web_cmd, mode="web"),
             )
         )
 
@@ -493,7 +522,9 @@ def leedevkit_run_coverage(
         go_workdir = _resolve_go_workdir()
         coverage = (
             "mkdir -p /workspace/.test_logs && "
-            f"go test -coverprofile=/workspace/.test_logs/coverage-go.out ./...{f' -run {_safe_pattern(test_pattern)}' if test_pattern else ''} && "
+            f"go test{' -json' if test_pattern else ''} "
+            f"{f' -run={_safe_pattern(test_pattern)}' if test_pattern else ''} "
+            "-coverprofile=/workspace/.test_logs/coverage-go.out ./... && "
             "go tool cover -func=/workspace/.test_logs/coverage-go.out"
         )
         tasks.append(
@@ -504,4 +535,6 @@ def leedevkit_run_coverage(
             )
         )
 
-    return run_parallel_ordered("Coverage", component_filter, tasks)
+    return run_parallel_ordered(
+        "Coverage", component_filter, tasks, pattern=test_pattern
+    )

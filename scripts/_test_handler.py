@@ -18,7 +18,6 @@ import typing
 import uuid
 from typing import TYPE_CHECKING
 
-
 from _bootstrap import DEVKIT_ROOT, PROJECT_ROOT, SCRIPTS_DIR
 from _devkit_config import (
     build_mode_map,
@@ -69,6 +68,7 @@ class TestHandler(HandlerBase):
 
     def handle_test(self, args: argparse.Namespace) -> None:
         """Run configured phases and emit a truthful quality-gate result."""
+        self._validate_pattern_args(args)
         nested = bool(getattr(args, "_nested_test", False))
         self._event_args = args
         machine_output = self._flag(args, "json_output") or self._flag(
@@ -170,12 +170,14 @@ class TestHandler(HandlerBase):
             else "leedevkit test infra"
         )
         try:
+            pattern = getattr(args, "pattern", "")
+            pattern = pattern if isinstance(pattern, str) else ""
             if phase == "lint":
                 self.handle_lint_infra()
             elif phase == "unit":
-                self.handle_test_infra()
+                self.handle_test_infra(pattern)
             else:
-                self.handle_verify_infra()
+                self.handle_verify_infra(pattern)
         except SystemExit as exc:
             status = "failed"
             exit_code = int(exc.code) if isinstance(exc.code, int) else 1
@@ -413,6 +415,25 @@ class TestHandler(HandlerBase):
         return "full"
 
     @staticmethod
+    def _validate_pattern_args(args: argparse.Namespace) -> None:
+        """Reject pattern combinations that cannot filter selected tests."""
+        pattern = getattr(args, "pattern", None)
+        if not isinstance(pattern, str) or pattern == "":
+            return
+        if any(ord(char) < 32 or ord(char) == 127 for char in pattern):
+            log_error("--pattern cannot contain control characters")
+            raise SystemExit(2)
+        if TestHandler._flag(args, "lint_only"):
+            log_error("--pattern cannot be combined with --lint-only")
+            raise SystemExit(2)
+        if getattr(args, "target", "") == "infra":
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                log_error(f"Invalid --pattern regex for pytest: {exc}")
+                raise SystemExit(2) from exc
+
+    @staticmethod
     def _phase_command(args: argparse.Namespace, phase: str, target: str) -> str:
         command = f"./leedevkit test {target}"
         if phase == "Linting":
@@ -626,8 +647,20 @@ class TestHandler(HandlerBase):
             return False
         return True
 
-    def handle_test_infra(self) -> None:
+    def handle_test_infra(self, pattern: str = "") -> None:
         """Run infra tests with production and non-gating test-source reports."""
+        if not isinstance(pattern, str):
+            pattern = ""
+        if pattern:
+            if any(ord(char) < 32 or ord(char) == 127 for char in pattern):
+                log_error("--pattern cannot contain control characters")
+                raise SystemExit(2)
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                log_error(f"Invalid --pattern regex for pytest: {exc}")
+                raise SystemExit(2) from exc
+
         import os
 
         env = os.environ.copy()
@@ -637,25 +670,36 @@ class TestHandler(HandlerBase):
         env["PYTHONPATH"] = str(SCRIPTS_DIR)
         test_files = sorted(str(p) for p in tests_dir.glob("test_*.py"))
         venv_pytest = DEVKIT_ROOT / ".venv" / "bin" / "pytest"
-        production_cmd = [
-            str(venv_pytest),
-            "--cov=scripts",
-            "--cov-config",
-            str(SCRIPTS_DIR / ".coveragerc"),
-            "--cov-report=term-missing",
-            "--cov-report=html:.test_logs/coverage-production",
-            "--cov-fail-under=80",
-        ] + test_files
+        pattern_args = ["-p", "_pytest_pattern", "--leedevkit-pattern", pattern]
+        if not isinstance(pattern, str) or not pattern:
+            pattern_args = []
+        production_cmd = (
+            [
+                str(venv_pytest),
+                "--cov=scripts",
+                "--cov-config",
+                str(SCRIPTS_DIR / ".coveragerc"),
+                "--cov-report=term-missing",
+                "--cov-report=html:.test_logs/coverage-production",
+            ]
+            + ([] if pattern else ["--cov-fail-under=80"])
+            + pattern_args
+            + test_files
+        )
         self._execute_safe(production_cmd, env=env)
 
-        test_source_cmd = [
-            str(venv_pytest),
-            "--cov=scripts/tests",
-            "--cov-config",
-            "/dev/null",
-            "--cov-report=term-missing",
-            "--cov-report=html:.test_logs/coverage-tests",
-        ] + test_files
+        test_source_cmd = (
+            [
+                str(venv_pytest),
+                "--cov=scripts/tests",
+                "--cov-config",
+                "/dev/null",
+                "--cov-report=term-missing",
+                "--cov-report=html:.test_logs/coverage-tests",
+            ]
+            + pattern_args
+            + test_files
+        )
         self._execute_safe(test_source_cmd, env=env)
 
     def handle_lint_infra(self) -> None:
@@ -687,11 +731,11 @@ class TestHandler(HandlerBase):
         )
         log_success("✨ Infrastructure formatting verified!")
 
-    def handle_verify_infra(self) -> None:
+    def handle_verify_infra(self, pattern: str = "") -> None:
         """Run the read-only infra verification pipeline."""
         self.handle_format_check_infra()
         self.handle_lint_infra()
-        self.handle_test_infra()
+        self.handle_test_infra(pattern)
 
     def print_test_summary(self, target: str, overall: str | None = None) -> None:
         """Parse test log files and print a summary of passed/total tests.

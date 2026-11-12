@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from _test_utils import (
     _ensure_log_dir,
+    _go_pattern_evidence,
     _safe_log_name,
     build_compose_exec,
     get_last_phase_commands,
@@ -77,6 +78,23 @@ class TestBuildComposeExec:
         cmd = build_compose_exec("apiserver", "ls", workdir="/workspace", mode="api")
         assert "-w" in cmd
         assert "/workspace" in cmd
+
+
+class TestGoPatternEvidence:
+    def test_requires_matching_run_or_skip_event(self, tmp_path):
+        log = tmp_path / "go.json"
+        log.write_text('{"Action":"pass","Test":"TestOther"}\n')
+        assert not _go_pattern_evidence(log, "TestAuth")
+
+    def test_accepts_skipped_test_event(self, tmp_path):
+        log = tmp_path / "go.json"
+        log.write_text('{"Action":"skip","Test":"TestAuth"}\n')
+        assert _go_pattern_evidence(log, "Auth")
+
+    def test_ignores_package_only_events(self, tmp_path):
+        log = tmp_path / "go.json"
+        log.write_text('{"Action":"pass","Package":"example"}\n')
+        assert not _go_pattern_evidence(log, "example")
 
 
 class TestRunSingleTask:
@@ -368,9 +386,10 @@ class TestEnsureLogDir:
 
 class TestPrintSuccessFailure:
     def test_print_success(self, capsys):
-        from _test_utils import _print_success
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from _test_utils import _print_success
 
         log = Path(tempfile.gettempdir()) / "test_success.log"
         log.write_text("all good")
@@ -379,9 +398,10 @@ class TestPrintSuccessFailure:
         assert "PASSED" in captured.out
 
     def test_print_failure(self, capsys):
-        from _test_utils import _print_failure
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from _test_utils import _print_failure
 
         log = Path(tempfile.gettempdir()) / "test_fail.log"
         log.write_text("error line 1\nerror line 2")
@@ -403,9 +423,10 @@ class TestPrintSuccessFailure:
         assert "error line 35" in captured.out
 
     def test_print_failure_no_log(self, capsys):
-        from _test_utils import _print_failure
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from _test_utils import _print_failure
 
         log = Path(tempfile.gettempdir()) / "nonexistent.log"
         _print_failure("mytask", log, 1)

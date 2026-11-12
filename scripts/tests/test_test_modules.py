@@ -8,13 +8,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(PROJECT_ROOT / "scripts"))
 
 from _test_modules import (  # noqa: E402
+    _bun_name_filter,
     _has_go_service,
     _has_rust_service,
     _has_web_service,
+    _nextest_filter,
+    _playwright_filter,
     _resolve_go_service,
     _resolve_go_workdir,
     _safe_pattern,
-    _safe_pattern_quoted,
     leedevkit_run_coverage,
     leedevkit_run_integration,
     leedevkit_run_lint,
@@ -71,15 +73,18 @@ class TestSafePattern:
         assert "test" in result
 
 
-class TestSafePatternQuoted:
-    """For -g \"pattern\" in Playwright, inner quotes need special handling."""
+class TestPatternRunnerFilters:
+    def test_nextest_wraps_and_escapes_regex(self) -> None:
+        assert (
+            _nextest_filter(r"^auth/(login|logout)$")
+            == "-E 'test(/^auth\\/(login|logout)$/)'"
+        )
 
-    def test_empty_returns_empty(self) -> None:
-        assert _safe_pattern_quoted("") == ""
+    def test_web_name_filter_is_forwarded_to_test_runner(self) -> None:
+        assert _bun_name_filter("auth|login") == "-- --test-name-pattern 'auth|login'"
 
-    def test_normal_pattern(self) -> None:
-        result = _safe_pattern_quoted("auth")
-        assert "auth" in result
+    def test_playwright_uses_attached_grep_option(self) -> None:
+        assert _playwright_filter("auth|login") == "--grep='auth|login'"
 
 
 class TestRunFunctionsWithPattern:
@@ -105,8 +110,8 @@ class TestRunFunctionsWithPattern:
         for _name, _service, cmd in tasks:
             cmd_str = " ".join(cmd)
             if "cargo nextest" in cmd_str:
-                # Pattern must appear quoted
-                assert "'$(whoami)'" in cmd_str
+                # Full nextest expression must be shell-quoted.
+                assert "-E 'test(/$(whoami)/)'" in cmd_str
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_integration_with_quoted_pattern(self, mock_run: MagicMock) -> None:
@@ -119,7 +124,7 @@ class TestRunFunctionsWithPattern:
         for _name, _service, cmd in tasks:
             cmd_str = " ".join(cmd)
             if "cargo nextest" in cmd_str:
-                assert "'`id`'" in cmd_str
+                assert "-E 'test(/`id`/)'" in cmd_str
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_playwright_pattern_is_safe(self, mock_run: MagicMock) -> None:
@@ -387,7 +392,7 @@ class TestGoUnit:
         go_cmds = [c for c in cmd_strs if "go test" in c]
         assert go_cmds, "expected a go test task"
         # Pattern must be wrapped in quotes so the shell treats it literally.
-        assert " -run '$(whoami)'" in go_cmds[0]
+        assert "go test -json -run '$(whoami)' ./..." in go_cmds[0]
 
     @patch("_test_modules.run_parallel_ordered", return_value=True)
     def test_unit_go_no_extra_tasks(self, mock_run: MagicMock) -> None:

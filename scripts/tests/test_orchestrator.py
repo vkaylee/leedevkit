@@ -1545,9 +1545,12 @@ class TestOrchestratorCoverageGaps:
             orch = Orchestrator()
             orch.dry_run = False
             orch.execute_safe(["echo", "hello"])
-        assert len(fake_run_called) == 1
+        safe_run_calls = [
+            call for call in fake_run_called if "_safe_run.py" in str(call[0])
+        ]
+        assert len(safe_run_calls) == 1
         # Verify _safe_run.py was used
-        cmd = fake_run_called[0][0]
+        cmd = safe_run_calls[0][0]
         assert "_safe_run.py" in str(cmd)
 
     def test_execute_safe_merges_custom_env_with_process_environment(self, monkeypatch):

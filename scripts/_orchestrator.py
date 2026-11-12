@@ -243,7 +243,9 @@ class Orchestrator:
             "sync:api": lambda: self.execute_safe(
                 ["/bin/bash", "-c", f'source "{SCRIPTS_DIR}/_sync-api.sh"']
             ),
-            "test:infra": lambda: self._test_handler.handle_test_infra(),
+            "test:infra": lambda: self._test_handler.handle_test_infra(
+                getattr(args, "pattern", "") or ""
+            ),
             "migrate:run": lambda: self.handle_diesel(["migration", "run"]),
             "migrate:revert": lambda: self.handle_diesel(["migration", "revert"]),
             "migrate:status": lambda: self.handle_diesel(["migration", "list"]),
@@ -295,9 +297,9 @@ class Orchestrator:
             self.parser.error(f"Unknown subcommand: {sub}")
         return True
 
-    def handle_test_infra(self) -> None:
+    def handle_test_infra(self, pattern: str = "") -> None:
         """Run all test files with coverage enforcement."""
-        self._test_handler.handle_test_infra()
+        self._test_handler.handle_test_infra(pattern)
 
     def handle_run(self, args: argparse.Namespace) -> None:
         self._run_handler.handle_run(args)
@@ -310,8 +312,8 @@ class Orchestrator:
     def handle_fmt_infra(self) -> None:
         self._test_handler.handle_fmt_infra()
 
-    def handle_verify_infra(self) -> None:
-        self._test_handler.handle_verify_infra()
+    def handle_verify_infra(self, pattern: str = "") -> None:
+        self._test_handler.handle_verify_infra(pattern)
 
     def handle_init(self, force: bool = False) -> None:
         """Set up project with per-project devkit install."""

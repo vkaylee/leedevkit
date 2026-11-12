@@ -5,6 +5,7 @@ and result reporting for lint/unit/integration/coverage phases.
 """
 
 import contextlib
+import json
 import os
 import signal
 import subprocess
@@ -13,7 +14,6 @@ import typing
 from pathlib import Path
 
 import psutil
-
 from _bootstrap import PROJECT_ROOT, bootstrap_env
 
 LOG_DIR = PROJECT_ROOT / ".test_logs"
@@ -257,11 +257,39 @@ def run_single_task(
         return exit_code
 
 
+def _go_pattern_evidence(log_file: Path, pattern: str) -> bool:
+    """Require a selected Go test event when a filtered task succeeds."""
+    if not pattern:
+        return True
+    try:
+        import re
+
+        matcher = re.compile(pattern)
+        for line in log_file.read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            # `go test -run` emits only selected tests. Do not count package
+            # events; run/skip test events prove that filtering selected one.
+            if (
+                event.get("Action") in {"run", "skip"}
+                and isinstance(event.get("Test"), str)
+                and matcher.search(event["Test"])
+            ):
+                return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
 def run_parallel_ordered(
     phase_name: str,
     component_filter: str,
     tasks: list[tuple[str, str, list[str]]],
     num_workers: int | None = None,
+    *,
+    pattern: str = "",
 ) -> bool:
     global LAST_PHASE_EXIT_CODE, LAST_PHASE_COMMANDS
     LAST_PHASE_EXIT_CODE = None
@@ -299,20 +327,21 @@ def run_parallel_ordered(
     task_timeout = get_phase_timeout(phase_name)
 
     if num_workers <= 1:
-        return _run_tasks_serial(filtered, phase_name, task_timeout)
+        return _run_tasks_serial(filtered, phase_name, task_timeout, pattern)
 
-    return _run_tasks_parallel(filtered, phase_name, task_timeout, num_workers)
+    return _run_tasks_parallel(filtered, phase_name, task_timeout, num_workers, pattern)
 
 
 def _run_tasks_serial(
     tasks: list[tuple[str, str, list[str]]],
     phase_name: str,
     timeout: int,
+    pattern: str = "",
 ) -> bool:
     """Run tasks one at a time, streaming output live."""
     global LAST_PHASE_EXIT_CODE
-    import threading
     import sys as _sys
+    import threading
 
     all_passed = True
     for name, _service, cmd in tasks:
@@ -353,6 +382,13 @@ def _run_tasks_serial(
         if exit_code != 0:
             LAST_PHASE_EXIT_CODE = exit_code
             all_passed = False
+        elif (
+            pattern
+            and name.startswith("go-")
+            and not _go_pattern_evidence(log_file, pattern)
+        ):
+            LAST_PHASE_EXIT_CODE = 1
+            all_passed = False
         elif not QUIET_OUTPUT:
             _sys.stdout.write(f"\n  [{name}] PASSED\n")
             _sys.stdout.flush()
@@ -365,6 +401,7 @@ def _run_tasks_parallel(
     phase_name: str,
     timeout: int,
     num_workers: int,
+    pattern: str = "",
 ) -> bool:
     """Run tasks in parallel with a worker pool."""
     global LAST_PHASE_EXIT_CODE
@@ -393,6 +430,13 @@ def _run_tasks_parallel(
                 stream_live=True,
                 output_lock=output_lock,
             )
+            if (
+                ret == 0
+                and pattern
+                and name.startswith("go-")
+                and not _go_pattern_evidence(log_file, pattern)
+            ):
+                ret = 1
             with lock:
                 results[name] = ret
             if ret != 0:

@@ -103,7 +103,10 @@ class CliParser:
         test_parser.add_argument(
             "--pattern",
             dest="pattern",
-            help="Regex pattern to filter tests by name (e.g., 'auth' or 'user_login')",
+            help=(
+                "Regex to filter test names; syntax follows target runner "
+                "(e.g., 'auth' or 'user_login')"
+            ),
         )
         test_parser.add_argument(
             "--coverage",

@@ -2,7 +2,21 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
-## [0.8.9] - 2026-11-10
+## [0.8.9] - 2026-11-12
+
+### Added
+- Add `--pattern REGEX` name filtering across Rust, Web, Go, and infrastructure pytest tests.
+- Fail filtered runs when no test matches; matched-but-skipped tests still count as selected.
+
+### Compatibility
+- Rust uses nextest Rust-regex filters, Web uses runner-native name/grep filters, Go uses RE2, and infra uses Python `re`; regex features differ by target.
+- Filtered runs report `partial` and skip full-suite coverage thresholds. Unfiltered infra keeps its 80% gate.
+- `--pattern` cannot be combined with `--lint-only`; unsupported custom Web scripts remain unchanged and require runner-specific support.
+
+### Rollback
+```bash
+./leedevkit update --version v0.8.8
+```
 
 ### Fixes
 - Stabilize freshness fingerprints for services sharing one Compose image.
