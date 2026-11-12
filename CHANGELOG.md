@@ -2,7 +2,7 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
-## [0.8.9] - 2026-11-12
+## [0.8.11] - 2026-11-12
 
 ### Added
 - Add `--pattern REGEX` name filtering across Rust, Web, Go, and infrastructure pytest tests.
