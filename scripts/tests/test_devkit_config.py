@@ -18,6 +18,8 @@ from _devkit_config import (
     load_project_config,
     resolve_ai_rules,
     resolve_lifecycle_dependencies,
+    resolve_quality_gates,
+    resolve_version_gate,
     resolve_test_build_policy,
     resolve_test_targets,
 )
@@ -398,6 +400,179 @@ class TestTestBuildPolicy:
     def test_rejects_non_table_test_config(self):
         with pytest.raises(ValueError, match=r"\[test\]"):
             resolve_test_build_policy({"test": []})
+
+
+class TestQualityGates:
+    def test_go_defaults_are_deterministic(self):
+        assert [gate["name"] for gate in resolve_quality_gates({})] == [
+            "gofmt",
+            "go-vet",
+            "go-test",
+            "go-coverage",
+        ]
+
+    def test_custom_gate_normalizes_argv_and_metadata(self):
+        config = {
+            "quality": {
+                "gates": {
+                    "check": {
+                        "phase": "lint",
+                        "command": ["tool", "--check"],
+                        "working_dir": "service",
+                        "service": "builder",
+                        "timeout": 30,
+                        "required": False,
+                        "environment": ["CI"],
+                    }
+                },
+                "go": {"lint": ["check"]},
+            }
+        }
+        assert resolve_quality_gates(config) == [
+            {
+                "name": "check",
+                "phase": "lint",
+                "command": ["tool", "--check"],
+                "mode": "run",
+                "working_dir": "service",
+                "service": "builder",
+                "timeout": 30,
+                "required": False,
+                "condition": "always",
+                "failure_policy": "optional",
+                "environment": ["CI"],
+                "requires": [],
+                "expected_version": None,
+                "version_command": None,
+                "fix_command": None,
+                "new_findings_flag": None,
+                "setup_command": None,
+                "teardown_command": None,
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        "gate, message",
+        [
+            ({"command": []}, "command"),
+            ({"command": ["go"], "phase": "unknown"}, "phase"),
+            ({"command": ["go"], "working_dir": "../outside"}, "working_dir"),
+            ({"command": ["go"], "timeout": 0}, "timeout"),
+            ({"command": ["go"], "environment": ["BAD=VALUE"]}, "environment"),
+        ],
+    )
+    def test_rejects_invalid_gate(self, gate, message):
+        with pytest.raises(ValueError, match=message):
+            resolve_quality_gates(
+                {"quality": {"gates": {"bad": gate}, "go": {"lint": ["bad"]}}}
+            )
+
+    def test_new_findings_flag_is_normalized(self):
+        gates = resolve_quality_gates(
+            {
+                "quality": {
+                    "gates": {
+                        "lint": {
+                            "phase": "lint",
+                            "command": ["lint", "run"],
+                            "new_findings_flag": ["--new-from-rev"],
+                        }
+                    },
+                    "go": {"lint": ["lint"]},
+                }
+            }
+        )
+        assert gates[0]["new_findings_flag"] == ["--new-from-rev"]
+
+    def test_integration_setup_and_teardown_commands_normalize(self):
+        gates = resolve_quality_gates(
+            {
+                "quality": {
+                    "gates": {
+                        "integration": {
+                            "phase": "integration",
+                            "command": ["go", "test", "./..."],
+                            "setup_command": ["./setup-test-db"],
+                            "teardown_command": ["./drop-test-db"],
+                        }
+                    },
+                    "go": {"integration": ["integration"]},
+                }
+            }
+        )
+        assert gates[0]["setup_command"] == ["./setup-test-db"]
+        assert gates[0]["teardown_command"] == ["./drop-test-db"]
+
+    def test_integration_setup_command_must_be_argv_list(self):
+        with pytest.raises(ValueError, match="setup_command"):
+            resolve_quality_gates(
+                {
+                    "quality": {
+                        "gates": {
+                            "integration": {
+                                "phase": "integration",
+                                "command": ["go", "test"],
+                                "setup_command": "./setup-test-db",
+                            }
+                        },
+                        "go": {"integration": ["integration"]},
+                    }
+                }
+            )
+
+    def test_optional_failure_policy_requires_optional_gate(self):
+        with pytest.raises(ValueError, match="required must be false"):
+            resolve_quality_gates(
+                {
+                    "quality": {
+                        "gates": {
+                            "lint": {
+                                "phase": "lint",
+                                "command": ["lint"],
+                                "failure_policy": "optional",
+                            }
+                        },
+                        "go": {"lint": ["lint"]},
+                    }
+                }
+            )
+
+    def test_new_findings_flag_must_be_argv_list(self):
+        with pytest.raises(ValueError, match="new_findings_flag"):
+            resolve_quality_gates(
+                {
+                    "quality": {
+                        "gates": {
+                            "lint": {
+                                "phase": "lint",
+                                "command": ["lint"],
+                                "new_findings_flag": "--new-from-rev",
+                            }
+                        },
+                        "go": {"lint": ["lint"]},
+                    }
+                }
+            )
+
+    def test_version_gate_requires_both_fields(self):
+        with pytest.raises(ValueError, match="needs expected_version"):
+            resolve_version_gate({"name": "tool", "expected_version": "1.2"})
+
+    def test_version_gate_returns_safe_metadata(self):
+        assert resolve_version_gate(
+            {
+                "name": "tool",
+                "expected_version": "1.2",
+                "version_command": ["tool", "--version"],
+            }
+        ) == {
+            "expected_version": "1.2",
+            "version_command": ["tool", "--version"],
+        }
+
+    def test_unknown_selected_gate_fails(self):
+        with pytest.raises(ValueError, match="not defined"):
+            resolve_quality_gates({"quality": {"go": {"lint": ["missing"]}}})
 
 
 class TestLifecycleDependencies:

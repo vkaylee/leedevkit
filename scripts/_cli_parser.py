@@ -120,6 +120,11 @@ class CliParser:
             help="Test execution timeout in seconds",
         )
         test_parser.add_argument(
+            "--base-ref",
+            default=None,
+            help="Git base ref for gates that support new-findings mode",
+        )
+        test_parser.add_argument(
             "--fix",
             action="store_true",
             help="Auto-fix formatting issues (cargo fmt, eslint --fix) instead of just checking",

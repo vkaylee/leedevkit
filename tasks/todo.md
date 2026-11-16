@@ -1,35 +1,58 @@
-# TODO: `--pattern` regex-name filtering
+# TODO: Generic configurable Go quality gates
 
-Plan: [plan.md](plan.md). Implementation active; release gate remains pending.
+Plan: [plan.md](plan.md). Implementation not started.
 
-## Contract đã chốt
+## Phase 1 — Config and Go execution
 
-- [x] Regex theo tên, native engine từng runner.
-- [x] Hỗ trợ infra qua pytest collection hook, không thêm dependency.
-- [x] Zero-match fail; matched-but-skipped vẫn tính matched.
-- [x] Lưu plan và checklist; bảo toàn kế hoạch run-isolation trước đó.
+- [x] T1: Define normalized quality-gate schema, validation, compatibility defaults, and config tests.
+- [x] T2: Add Go race/integration configured execution, missing-tool status, lifecycle setup/teardown, and runner tests. Core path complete; integration setup/tool-status extensions remain.
+- [x] Checkpoint 1: Review schema, Go command evidence, no-task behavior, and Rust/TypeScript regression.
 
-## Phase 1 — Rust + infra
+## Phase 2 — Generic dispatch and reporting
 
-- [x] T1: Boundary validation và Rust unit/integration/coverage regex, native no-match, DSL/shell safety; regression + native fixture evidence (command tests; real Rust runtime blocked).
-- [x] T2: Pytest selector module và cùng filter cho hai infra coverage passes; focused coverage informational, unfiltered gate 80%; subprocess fixture evidence.
-- [x] Checkpoint 1: Review contract/escaping/zero-match/focused coverage; không vượt blocker native capability.
+- [x] T3: Dispatch configured gates through existing phases, lifecycle, runner, logs, timeout, and required/optional status. Gate command/task evidence now appears in phase reports.
+- [x] T4: Add gate-level JSON/JSONL evidence and safe base-ref/new-findings metadata. Base-ref resolution is implemented; per-tool new-findings execution remains limited.
+- [x] Checkpoint 2: Run and parse stable JSON plus JSONL; verify no false green.
 
-## Phase 2 — Web + Go
+## Phase 3 — Hooks, validation, docs
 
-- [ ] T3: Web runner capability preflight remains deferred; Playwright grep and Bun forwarding are covered by command tests only.
-- [x] T4: Go attached regex + JSON, host zero-match checker; giữ exit/timeout/signals/live output/logs; real fixture evidence.
-- [ ] Checkpoint 2: Không silent-ignore; tất cả target preflight trước lifecycle; malicious/leading-dash payload không đổi selection/execute shell.
+- [x] T5: Add generic generated-code freshness hook with check/fix separation. Generic `[quality.generated]` gate and explicit `fix_command` now supported.
+- [x] T6: Add expected tool-version validation and fail-closed false-green tests. Seeded workspace verification remains explicitly deferred.
+- [x] Checkpoint 3: Adversarial review for injection, secrets, path safety, status truthfulness, and cleanup.
+- [x] T7: Update README migration/config notes; full configured regression passed.
 
-## Phase 3 — Regression + docs
+Current limitation: seeded workspace verification now copies into isolated temporary workspace, proves seeded fail then clean pass, and cleans up. New-findings metadata records mode/skip reason; environment allowlists pass through Compose argv; integration setup/teardown commands run around Go integration gates.
 
-- [ ] T5: Edge-case matrix và native selected/excluded fixtures; JSON partial/failure truthful; sửa newline test giả.
-- [x] T6: Help, README, migration CHANGELOG, final configured regression gate và evidence report.
-- [ ] Completion: Không thêm dependency/framework/config thừa; không sửa runtime pin/install/release ngoài scope; không commit/push.
+## Test-impact matrix
 
-## Blockers / baseline
+- [ ] Config: missing section, old config, wrong type, empty command, bad path, duplicate gate.
+- [ ] Execution: success, non-zero, missing binary, timeout, cancellation, signal, large stderr, dangerous input.
+- [ ] Status: pass, required fail, optional fail, setup blocked, skipped, no task, mixed result.
+- [ ] Go: format, vet, unit, race, staticcheck, golangci-lint, govulncheck, mod verify, integration.
+- [ ] Reporting: JSON, JSONL, quiet, logs, rerun, full regression.
+- [ ] Lifecycle: build/no-build, cleanup after success/failure, dependency readiness.
+- [ ] Compatibility: Rust, TypeScript, existing Go config, existing CLI flags.
 
-- [x] Xác minh native nextest/llvm-cov DSL và từng JS runner trước khi nhận capability.
-- [x] Runtime mismatch resolved by aligning project pin with checked-out VERSION 0.8.9.
-- [x] Baseline audit focused tests: 23 passed, 98 deselected; không phải E2E.
-- [ ] Native runtime thiếu ghi blocked; direct pytest không thay full regression gate.
+## Verification commands
+
+- [ ] `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_devkit_config.py -q`
+- [ ] Focused Go/runner/handler/lifecycle pytest suites.
+- [ ] `./leedevkit --help`
+- [ ] `./leedevkit test --help`
+- [ ] `./leedevkit test infra --lint-only`
+- [ ] `./leedevkit test infra --unit-only`
+- [ ] `./leedevkit test all --json`
+- [ ] `./leedevkit test all --json-stream --quiet`
+- [ ] `ruff format --check scripts`
+- [ ] `ruff check scripts`
+- [ ] `mypy scripts`
+- [ ] Shell syntax checks for existing wrappers.
+- [ ] Release build/acceptance only if packaging/install/bootstrap/release files change.
+
+## Constraints
+
+- [ ] No LeeAttend-specific service/path/tool/database/migration/image/version hardcoding.
+- [ ] No host Go/npm/bun/cargo/Docker execution when project wrapper exists.
+- [ ] No unsafe shell string from TOML/CLI; preserve exit code/stderr/timeout/signal.
+- [ ] No required failed/blocked/skipped/no-task gate reported as passed.
+- [ ] No commit until requested.

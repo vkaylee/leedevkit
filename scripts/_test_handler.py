@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 import typing
@@ -22,6 +23,7 @@ from _bootstrap import DEVKIT_ROOT, PROJECT_ROOT, SCRIPTS_DIR
 from _devkit_config import (
     build_mode_map,
     inject_rust_version_env,
+    resolve_quality_gates,
     resolve_test_build_policy,
 )
 from _handler_base import HandlerBase
@@ -30,6 +32,7 @@ from _lifecycle import lifecycle_up as _lifecycle_up
 from _logging import log_error, log_info, log_success, log_warn
 from _test_modules import (
     leedevkit_run_coverage,
+    leedevkit_run_generated,
     leedevkit_run_integration,
     leedevkit_run_lint,
     leedevkit_run_unit,
@@ -38,6 +41,8 @@ from _test_utils import (
     clear_last_phase_commands,
     get_last_phase_commands,
     get_last_phase_exit_code,
+    changed_paths_from_log,
+    get_last_phase_task_results,
     get_run_log_dir,
     set_quiet_output,
 )
@@ -148,6 +153,11 @@ class TestHandler(HandlerBase):
             ("Integration Tests", run_e2e),
             ("Linting", run_lint),
         ]
+        if any(
+            gate["phase"] == "generated"
+            for gate in resolve_quality_gates(language="go")
+        ):
+            selected.insert(2, ("Generated", True))
         for phase, enabled in selected:
             if enabled:
                 self.run_phase(phase, mode, args, target_name=target or "all")
@@ -225,11 +235,45 @@ class TestHandler(HandlerBase):
             "status": status,
             "required": status not in ("skipped",),
         }
-        if phase in ("Linting", "Unit Tests", "Integration Tests", "Coverage"):
+        if phase in (
+            "Linting",
+            "Unit Tests",
+            "Integration Tests",
+            "Coverage",
+            "Generated",
+        ):
             commands = get_last_phase_commands()
+            task_results = get_last_phase_task_results()
             if commands:
                 result["commands"] = {
                     name: shlex.join(cmd) for name, cmd in sorted(commands.items())
+                }
+            if task_results:
+                result["gates"] = {
+                    name: {
+                        "gate": name,
+                        "command": shlex.join(commands.get(name, [])),
+                        "status": "passed" if meta["exit_code"] == 0 else "failed",
+                        "required": meta.get("required", True),
+                        "target": result["target"],
+                        "phase": result["phase"],
+                        "service": next(
+                            (
+                                command[-1]
+                                for command in [commands.get(name, [])]
+                                if command
+                            ),
+                            None,
+                        ),
+                        "working_dir": None,
+                        "changed_paths": changed_paths_from_log(
+                            PROJECT_ROOT / meta["log"]
+                        )
+                        if name == "generated"
+                        else [],
+                        **meta,
+                    }
+                    for name, meta in sorted(task_results.items())
                 }
         if error:
             result["error"] = error
@@ -252,6 +296,34 @@ class TestHandler(HandlerBase):
             except OSError:
                 pass
         self._emit_event("phase_finished", **result)
+
+    def _resolve_base_ref(self, base_ref: str | None) -> dict[str, typing.Any] | None:
+        """Resolve optional base ref without shell interpolation."""
+        if not base_ref:
+            return None
+        try:
+            resolved = subprocess.run(
+                ["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            changed = subprocess.run(
+                ["git", "diff", "--name-only", f"{resolved}...HEAD", "--"],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            return {
+                "base_ref": base_ref,
+                "resolved_commit": resolved,
+                "changed_paths": changed,
+                "new_findings": {},
+            }
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise ValueError(f"base ref {base_ref!r} could not be resolved") from exc
 
     def _finish_test(self, args: argparse.Namespace, target: str) -> None:
         statuses = [result.get("status") for result in self._results.values()]
@@ -279,8 +351,30 @@ class TestHandler(HandlerBase):
             if partial
             else "passed"
         )
+        base_ref = None
+        try:
+            base_ref = self._resolve_base_ref(getattr(args, "base_ref", None))
+        except ValueError as exc:
+            self._record_result(
+                "Base Ref",
+                target,
+                "git rev-parse --verify <base-ref>^{commit}",
+                "blocked",
+                1,
+                error=str(exc),
+            )
+            overall = "blocked"
+            failed = False
+            blocked = True
         self.print_test_summary(target, overall)
         report = self._build_report(target, overall)
+        if base_ref is not None:
+            report["base_ref"] = base_ref
+            report["new_findings_mode"] = any(
+                bool(gate.get("new_findings_flag"))
+                for gate in resolve_quality_gates(language="go")
+            )
+            report["new_findings_skip_reason"] = None
         if self._flag(args, "json_output") and not self._flag(args, "json_stream"):
             print(json.dumps(report, indent=2, sort_keys=True), flush=True)
         self._emit_event("run_finished", **report)
@@ -482,6 +576,7 @@ class TestHandler(HandlerBase):
             ("Unit Tests", "go"): "unit-go",
             ("Integration Tests", "go"): "int-go",
             ("Coverage", "go"): "go",
+            ("Generated", "go"): "go",
         }
         granular_mode = granular_map.get((phase_name, mode))
         started = time.time()
@@ -560,16 +655,23 @@ class TestHandler(HandlerBase):
                     getattr(args, "component", "") or "",
                     mode,
                     fix=getattr(args, "fix", False),
+                    base_ref=getattr(args, "base_ref", None),
                 ),
                 "Unit Tests": lambda: leedevkit_run_unit(
                     getattr(args, "component", "") or "",
                     mode,
                     test_pattern=getattr(args, "pattern", "") or "",
+                    base_ref=getattr(args, "base_ref", None),
                 ),
                 "Integration Tests": lambda: leedevkit_run_integration(
                     getattr(args, "component", "") or "",
                     mode,
                     test_pattern=getattr(args, "pattern", "") or "",
+                ),
+                "Generated": lambda: leedevkit_run_generated(
+                    getattr(args, "component", "") or "",
+                    mode,
+                    fix=getattr(args, "fix", False),
                 ),
                 "Coverage": lambda: leedevkit_run_coverage(
                     getattr(args, "component", "") or "",

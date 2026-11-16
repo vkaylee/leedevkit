@@ -215,7 +215,51 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 ```
 
 Generated config uses built-in `container/go/` image. Override toolchain with `GO_VERSION=1.24` or `[services.go] go_version = "1.24"`.
-Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase does not duplicate `go test ./...`.
+Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase runs only configured integration gates.
+
+### Go quality gates
+
+Existing Go projects keep `gofmt`, `go vet ./...`, and `go test ./...` defaults. Add project-owned gates without LeeDevKit knowing tool, database, or migration details:
+
+```toml
+[quality.go]
+lint = ["gofmt", "go-vet", "staticcheck"]
+unit = ["go-test", "go-test-race"]
+integration = ["go-test-integration"]
+
+[quality.gates.staticcheck]
+phase = "lint"
+command = ["staticcheck", "./..."]
+working_dir = "server"
+service = "go"
+required = false
+
+[quality.gates.go-test-race]
+phase = "unit"
+command = ["go", "test", "-race", "./..."]
+working_dir = "server"
+service = "go"
+
+[quality.gates.go-test-integration]
+phase = "integration"
+command = ["go", "test", "-tags=integration", "-count=1", "./..."]
+working_dir = "server"
+service = "go"
+requires = ["infra-db"]
+```
+
+Gate commands use argument-list config and existing container runner. Missing configured tools fail the gate; LeeDevKit never downloads tools. `required = false` keeps optional failures visible without failing phase. `--base-ref <git-ref>` records resolved commit and changed paths; new-findings filtering remains gate-specific.
+
+Generated freshness checks use same generic gate model:
+
+```toml
+[quality.generated]
+command = ["generator", "diff"]
+working_dir = "server"
+service = "go"
+```
+
+Check commands do not rewrite source. A separate `fix_command` must be declared before `--fix` can alter files.
 
 Test lifecycle startup builds each image once per `leedevkit test` invocation by default, then uses `compose up -d --no-build` for later phases. Set `[test].build_policy = "phase"` to build during every phase. Compose/BuildKit reuses unchanged image layers and invalidates layers when Dockerfiles, build context, or dependency manifests change; no forced `build --pull` runs. Frontend `bun_init` runs `bun install --frozen-lockfile` on every startup when provided by project Compose, with its healthcheck blocking tests on failure. `--skip-build` always uses `--no-build`, so missing or stale images fail instead of being silently rebuilt; result is partial/unverified.
 

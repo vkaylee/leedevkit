@@ -6,6 +6,7 @@ import sys
 import time
 
 import psutil
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -15,10 +16,14 @@ from _test_utils import (
     _safe_log_name,
     build_compose_exec,
     get_last_phase_commands,
+    get_last_phase_exit_code,
     get_phase_timeout,
     get_run_log_dir,
     run_parallel_ordered,
     run_single_task,
+    changed_paths_from_log,
+    verify_seeded_gate,
+    version_matches,
 )
 
 
@@ -78,6 +83,74 @@ class TestBuildComposeExec:
         cmd = build_compose_exec("apiserver", "ls", workdir="/workspace", mode="api")
         assert "-w" in cmd
         assert "/workspace" in cmd
+
+    def test_passes_only_declared_environment_names(self, monkeypatch):
+        monkeypatch.setenv("CONTAINER_ENGINE", "docker")
+        monkeypatch.setenv("DOCKER_COMPOSE_CMD", "docker compose")
+        cmd = build_compose_exec(
+            "go", "go test ./...", mode="go", environment=["CI", "PRIVATE_TOKEN"]
+        )
+        assert cmd[cmd.index("-e") : cmd.index("go", cmd.index("-e"))] == [
+            "-e",
+            "CI",
+            "-e",
+            "PRIVATE_TOKEN",
+        ]
+        assert "token-value" not in cmd
+
+
+class TestSeededGate:
+    def test_seeded_gate_uses_isolated_copy_then_clean_pass(self, tmp_path):
+        source = tmp_path / "source"
+        source.mkdir()
+        marker = source / "baseline.txt"
+        marker.write_text("baseline")
+        seen_roots = []
+
+        def gate(root):
+            seen_roots.append(root)
+            return not (root / "violation.txt").exists()
+
+        assert verify_seeded_gate(source, "violation.txt", gate) is True
+        assert marker.read_text() == "baseline"
+        assert not (source / "violation.txt").exists()
+        assert seen_roots[0] == seen_roots[1]
+        assert seen_roots[0] != source
+
+    def test_seeded_gate_reports_false_when_seeded_gate_passes(self, tmp_path):
+        source = tmp_path / "source"
+        source.mkdir()
+        assert verify_seeded_gate(source, "violation.txt", lambda _root: True) is False
+        assert not (source / "violation.txt").exists()
+
+    def test_seeded_gate_cleans_isolated_copy_after_exception(self, tmp_path):
+        source = tmp_path / "source"
+        source.mkdir()
+        seen_root = []
+
+        def gate(root):
+            seen_root.append(root)
+            raise RuntimeError("gate exploded")
+
+        with pytest.raises(RuntimeError, match="gate exploded"):
+            verify_seeded_gate(source, "violation.txt", gate)
+        assert seen_root[0] != source
+        assert not (source / "violation.txt").exists()
+
+
+class TestChangedPaths:
+    def test_reads_non_empty_lines(self, tmp_path):
+        log = tmp_path / "generated.log"
+        log.write_text("src/a.go\n\nsrc/b.go\n")
+        assert changed_paths_from_log(log) == ["src/a.go", "src/b.go"]
+
+
+class TestVersionMatches:
+    def test_matches_version_prefix_tokens(self):
+        assert version_matches("tool version 1.2.3", "tool version 1.2.3")
+
+    def test_rejects_mismatch(self):
+        assert not version_matches("tool version 1.2.4", "tool version 1.2.3")
 
 
 class TestGoPatternEvidence:
@@ -318,6 +391,11 @@ class TestRunParallelOrdered:
     def test_empty_tasks_returns_true(self):
         result = run_parallel_ordered("Linting", "", [])
         assert result is True
+
+    def test_required_empty_tasks_fail_closed(self):
+        result = run_parallel_ordered("Linting", "", [], require_task=True)
+        assert result is False
+        assert get_last_phase_exit_code() == 1
 
     def test_single_task_succeeds(self):
         tasks = [("echo-test", "any", ["echo", "ok"])]

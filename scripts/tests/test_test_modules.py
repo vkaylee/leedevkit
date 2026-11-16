@@ -17,11 +17,50 @@ from _test_modules import (  # noqa: E402
     _resolve_go_service,
     _resolve_go_workdir,
     _safe_pattern,
+    _gate_version_status,
     leedevkit_run_coverage,
+    leedevkit_run_generated,
     leedevkit_run_integration,
     leedevkit_run_lint,
     leedevkit_run_unit,
 )
+
+
+class TestNewFindingsCommand:
+    def test_appends_declared_flag_only_with_base_ref(self):
+        from _test_modules import _validated_gate_command
+
+        gate = {
+            "name": "lint",
+            "command": ["lint", "run"],
+            "new_findings_flag": ["--new-from-rev"],
+        }
+        assert _validated_gate_command(gate, base_ref="abc123") == (
+            "lint run --new-from-rev abc123"
+        )
+
+    def test_unsupported_gate_stays_full(self):
+        from _test_modules import _validated_gate_command
+
+        assert (
+            _validated_gate_command(
+                {"name": "lint", "command": ["lint", "run"]}, base_ref="abc123"
+            )
+            == "lint run"
+        )
+
+
+class TestGateVersion:
+    def test_unconfigured_version_passes(self):
+        assert _gate_version_status({"name": "tool"}) == (True, None)
+
+    def test_missing_expected_version_blocks(self):
+        assert (
+            _gate_version_status(
+                {"name": "tool", "version_command": ["printf", "1.2"]}
+            )[0]
+            is False
+        )
 
 
 class TestSafePattern:
@@ -337,6 +376,96 @@ class TestResolveGoService:
         assert _resolve_go_service() == "backend"
         assert _resolve_go_service("backend") == "backend"
         assert _resolve_go_service("other") == "backend"
+
+
+class TestGateEnvironment:
+    @patch("_test_modules._go_quality_gates")
+    @patch("_test_modules.run_parallel_ordered", return_value=True)
+    def test_gate_environment_is_forwarded_as_allowlist(
+        self, mock_run: MagicMock, mock_gates: MagicMock
+    ) -> None:
+        mock_gates.return_value = [
+            {
+                "name": "check",
+                "phase": "lint",
+                "command": ["check"],
+                "environment": ["CI"],
+            }
+        ]
+        assert leedevkit_run_lint(mode="go") is True
+        command = mock_run.call_args[0][2][0][2]
+        assert "-e" in command
+        assert "CI" in command
+
+
+class TestIntegrationSetup:
+    @patch("_test_modules._go_quality_gates")
+    @patch("_test_modules.run_parallel_ordered", side_effect=[False, True])
+    def test_setup_failure_still_runs_teardown(
+        self, mock_run: MagicMock, mock_gates: MagicMock
+    ) -> None:
+        mock_gates.return_value = [
+            {
+                "name": "integration",
+                "phase": "integration",
+                "command": ["go", "test", "./..."],
+                "setup_command": ["./setup"],
+                "teardown_command": ["./teardown"],
+            }
+        ]
+        assert leedevkit_run_integration(mode="go") is False
+        assert [call.args[0] for call in mock_run.call_args_list] == [
+            "Integration Setup",
+            "Integration Teardown",
+        ]
+
+    @patch("_test_modules._go_quality_gates")
+    @patch("_test_modules.run_parallel_ordered", return_value=True)
+    def test_setup_and_teardown_are_separate_serial_tasks(
+        self, mock_run: MagicMock, mock_gates: MagicMock
+    ) -> None:
+        mock_gates.return_value = [
+            {
+                "name": "integration",
+                "phase": "integration",
+                "command": ["go", "test", "./..."],
+                "setup_command": ["./setup"],
+                "teardown_command": ["./teardown"],
+            }
+        ]
+        assert leedevkit_run_integration(mode="go") is True
+        phases = [call.args[0] for call in mock_run.call_args_list]
+        assert phases == [
+            "Integration Setup",
+            "Integration & E2E",
+            "Integration Teardown",
+        ]
+        assert "./setup" in " ".join(mock_run.call_args_list[0].args[2][0][2])
+        assert "./teardown" in " ".join(mock_run.call_args_list[2].args[2][0][2])
+
+
+class TestGeneratedGates:
+    @patch("_test_modules._go_quality_gates")
+    @patch("_test_modules.run_parallel_ordered", return_value=True)
+    def test_generated_gate_uses_declared_command(
+        self, mock_run: MagicMock, mock_gates: MagicMock
+    ) -> None:
+        mock_gates.return_value = [
+            {
+                "name": "generated-check",
+                "phase": "generated",
+                "command": ["generator", "diff"],
+                "mode": "check",
+                "working_dir": "module",
+                "service": "builder",
+            }
+        ]
+        assert leedevkit_run_generated(mode="go") is True
+        task = mock_run.call_args[0][2][0]
+        assert task[0] == "generated-check"
+        assert task[1] == "builder"
+        assert "generator diff" in " ".join(task[2])
+        assert "/workspace/module" in task[2]
 
 
 class TestGoLint:

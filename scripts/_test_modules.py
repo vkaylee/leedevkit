@@ -9,11 +9,87 @@ shlex.quote() to prevent shell injection through --pattern args.
 """
 
 import shlex
+from typing import cast
 
 from _test_utils import (
     build_compose_exec,
     run_parallel_ordered,
+    run_single_task,
+    version_matches,
 )
+
+
+def _go_quality_gates() -> list[dict[str, object]]:
+    """Resolve configured Go gates, retaining current defaults on old projects."""
+    try:
+        from _devkit_config import load_project_config, resolve_quality_gates
+
+        return resolve_quality_gates(load_project_config(), "go")
+    except OSError:
+        from _devkit_config import resolve_quality_gates
+
+        return resolve_quality_gates({}, "go")
+
+
+def _gate_version_status(gate: dict[str, object]) -> tuple[bool, str | None]:
+    """Validate configured tool version in declared execution environment."""
+    expected = gate.get("expected_version")
+    version_command = gate.get("version_command")
+    if not expected and not version_command:
+        return True, None
+    if not isinstance(expected, str) or not isinstance(version_command, list):
+        return False, "version_command and expected_version are required together"
+    command = [str(part) for part in cast(list[object], version_command)]
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory(prefix="leedevkit-version-") as directory:
+        result = run_single_task(
+            f"{gate.get('name', 'gate')}-version",
+            command,
+            Path(directory) / "version.log",
+            int(str(gate.get("timeout") or 30)),
+        )
+        if result != 0:
+            return False, "tool version command failed"
+        actual = (Path(directory) / "version.log").read_text(errors="replace")
+        if not version_matches(actual, expected):
+            return False, f"expected {expected!r}, got {actual.strip()!r}"
+    return True, None
+
+
+def _go_optional_gates(phase: str) -> set[str]:
+    return {
+        str(gate["name"])
+        for gate in _go_quality_gates()
+        if str(gate["phase"]) == phase and not bool(gate.get("required", True))
+    }
+
+
+def _validated_gate_command(
+    gate: dict[str, object], fix: bool = False, base_ref: str | None = None
+) -> str:
+    valid, error = _gate_version_status(gate)
+    if not valid:
+        raise RuntimeError(error or "tool version validation failed")
+    command = _go_gate_command(gate, fix=fix)
+    flag = gate.get("new_findings_flag")
+    if base_ref and isinstance(flag, list):
+        command = f"{command} {shlex.join([str(part) for part in flag])} {shlex.quote(base_ref)}"
+    return command
+
+
+def _go_gate_command(gate: dict[str, object], fix: bool = False) -> str:
+    """Render normalized gate argv for existing container command runner."""
+    name = str(gate["name"])
+    command = [str(part) for part in cast(list[object], gate["command"])]
+    if fix and gate.get("fix_command"):
+        fix_command = cast(list[object], gate["fix_command"])
+        return shlex.join([str(part) for part in fix_command])
+    if name == "gofmt" and gate.get("mode") == "check":
+        return "gofmt -w ." if fix else 'test -z "$(gofmt -l .)"'
+    return shlex.join(command)
+
 
 # ── Known cargo package mappings (service_name → cargo_package_name) ──
 # For backward compat: these are workspace members in the leeattend monorepo.
@@ -216,7 +292,10 @@ def _playwright_filter(pattern: str) -> str:
 
 
 def leedevkit_run_lint(
-    component_filter: str = "", mode: str = "all", fix: bool = False
+    component_filter: str = "",
+    mode: str = "all",
+    fix: bool = False,
+    base_ref: str | None = None,
 ) -> bool:
     """Run linting (fmt check/clippy/eslint). Use fix=True to auto-format."""
     tasks: list[tuple[str, str, list[str]]] = []
@@ -301,24 +380,31 @@ def leedevkit_run_lint(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
-        go_workdir = _resolve_go_workdir()
-        format_cmd = "gofmt -w ." if fix else 'test -z "$(gofmt -l .)"'
-        tasks.append(
-            (
-                "go-format",
-                go_svc,
-                build_compose_exec(go_svc, format_cmd, workdir=go_workdir, mode="go"),
+        gates = _go_quality_gates()
+        for gate in gates:
+            if str(gate["phase"]) != "lint":
+                continue
+            name = str(gate["name"])
+            command = _validated_gate_command(gate, fix=fix, base_ref=base_ref)
+            workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if workdir and not workdir.startswith("/"):
+                workdir = f"/workspace/{workdir}"
+            tasks.append(
+                (
+                    name,
+                    str(gate.get("service") or go_svc),
+                    build_compose_exec(
+                        str(gate.get("service") or go_svc),
+                        command,
+                        workdir=workdir,
+                        mode="go",
+                        environment=[
+                            str(name)
+                            for name in cast(list[object], gate.get("environment", []))
+                        ],
+                    ),
+                )
             )
-        )
-        tasks.append(
-            (
-                "go-vet",
-                go_svc,
-                build_compose_exec(
-                    go_svc, "go vet ./...", workdir=go_workdir, mode="go"
-                ),
-            )
-        )
 
     if mode == "all" and _has_rust_service() and _has_web_service():
         rust_svc = _resolve_rust_service(component_filter)
@@ -340,7 +426,13 @@ def leedevkit_run_lint(
             ("api-sync", "webdashboard", ["bash", "-c", f"{cmd1_str} && {cmd2_str}"])
         )
 
-    return run_parallel_ordered("Linting", component_filter, tasks)
+    return run_parallel_ordered(
+        "Linting",
+        component_filter,
+        tasks,
+        optional_tasks=_go_optional_gates("lint"),
+        require_task=bool(tasks) and mode == "go",
+    )
 
 
 def leedevkit_run_unit(
@@ -349,6 +441,7 @@ def leedevkit_run_unit(
     test_pattern: str = "",
     shard_n: str = "",
     shard_m: str = "",
+    base_ref: str | None = None,
 ) -> bool:
     """Run unit tests (cargo nextest, bun test)."""
     tasks: list[tuple[str, str, list[str]]] = []
@@ -383,24 +476,76 @@ def leedevkit_run_unit(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
-        go_workdir = _resolve_go_workdir()
-        run_flag = f" -run {_safe_pattern(test_pattern)}" if test_pattern else ""
-        json_flag = " -json" if test_pattern else ""
-        tasks.append(
-            (
-                "go-unit",
-                go_svc,
-                build_compose_exec(
-                    go_svc,
-                    f"go test{json_flag}{run_flag} ./...",
-                    workdir=go_workdir,
-                    mode="go",
-                ),
+        gates = _go_quality_gates()
+        for gate in gates:
+            if str(gate["phase"]) != "unit":
+                continue
+            name = str(gate["name"])
+            command = _go_gate_command(gate)
+            if name in {"go-test", "go-test-race"} and test_pattern:
+                parts = ["go", "test", "-json"]
+                if name == "go-test-race":
+                    parts.insert(2, "-race")
+                parts.extend(["-run", test_pattern, "./..."])
+                command = " ".join(
+                    [
+                        parts[0],
+                        *parts[1:-3],
+                        "-run",
+                        _safe_pattern(test_pattern),
+                        "./...",
+                    ]
+                )
+            service = str(gate.get("service") or go_svc)
+            workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if workdir and not workdir.startswith("/"):
+                workdir = f"/workspace/{workdir}"
+            tasks.append(
+                (
+                    name,
+                    service,
+                    build_compose_exec(service, command, workdir=workdir, mode="go"),
+                )
             )
-        )
 
     return run_parallel_ordered(
-        "Unit Tests", component_filter, tasks, pattern=test_pattern
+        "Unit Tests",
+        component_filter,
+        tasks,
+        pattern=test_pattern,
+        optional_tasks=_go_optional_gates("unit"),
+        require_task=bool(tasks) and mode == "go",
+    )
+
+
+def leedevkit_run_generated(
+    component_filter: str = "", mode: str = "all", fix: bool = False
+) -> bool:
+    """Run configured generated-code freshness checks without writing by default."""
+    tasks: list[tuple[str, str, list[str]]] = []
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        default_service = _resolve_go_service(component_filter)
+        for gate in _go_quality_gates():
+            if str(gate["phase"]) != "generated":
+                continue
+            service = str(gate.get("service") or default_service)
+            workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if workdir and not workdir.startswith("/"):
+                workdir = f"/workspace/{workdir}"
+            command = _validated_gate_command(gate, fix=fix)
+            tasks.append(
+                (
+                    str(gate["name"]),
+                    service,
+                    build_compose_exec(service, command, workdir=workdir, mode="go"),
+                )
+            )
+    return run_parallel_ordered(
+        "Generated",
+        component_filter,
+        tasks,
+        optional_tasks=_go_optional_gates("generated"),
+        require_task=bool(tasks) and mode == "go",
     )
 
 
@@ -448,9 +593,90 @@ def leedevkit_run_integration(
         pw_cmd = build_compose_exec(web_service, pw, mode="e2e-web")
         tasks.append(("playwright-e2e", web_service, pw_cmd))
 
-    return run_parallel_ordered(
-        "Integration & E2E", component_filter, tasks, pattern=test_pattern
-    )
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        go_svc = _resolve_go_service(component_filter)
+        for gate in _go_quality_gates():
+            if str(gate["phase"]) != "integration":
+                continue
+            service = str(gate.get("service") or go_svc)
+            workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if workdir and not workdir.startswith("/"):
+                workdir = f"/workspace/{workdir}"
+            tasks.append(
+                (
+                    str(gate["name"]),
+                    service,
+                    build_compose_exec(
+                        service,
+                        _go_gate_command(gate),
+                        workdir=workdir,
+                        mode="go",
+                    ),
+                )
+            )
+
+    setup_tasks: list[tuple[str, str, list[str]]] = []
+    teardown_tasks: list[tuple[str, str, list[str]]] = []
+    if mode == "go" or (mode == "all" and _has_go_service()):
+        go_svc = _resolve_go_service(component_filter)
+        for gate in _go_quality_gates():
+            if str(gate["phase"]) != "integration":
+                continue
+            service = str(gate.get("service") or go_svc)
+            gate_workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if gate_workdir and not gate_workdir.startswith("/"):
+                gate_workdir = f"/workspace/{gate_workdir}"
+            setup = gate.get("setup_command")
+            teardown = gate.get("teardown_command")
+            if isinstance(setup, list):
+                setup_tasks.append(
+                    (
+                        f"{gate['name']}-setup",
+                        service,
+                        build_compose_exec(
+                            service,
+                            shlex.join([str(part) for part in setup]),
+                            workdir=gate_workdir,
+                            mode="go",
+                        ),
+                    )
+                )
+            if isinstance(teardown, list):
+                teardown_tasks.append(
+                    (
+                        f"{gate['name']}-teardown",
+                        service,
+                        build_compose_exec(
+                            service,
+                            shlex.join([str(part) for part in teardown]),
+                            workdir=gate_workdir,
+                            mode="go",
+                        ),
+                    )
+                )
+
+    try:
+        if setup_tasks and not run_parallel_ordered(
+            "Integration Setup",
+            component_filter,
+            setup_tasks,
+            num_workers=1,
+            require_task=True,
+        ):
+            return False
+        return run_parallel_ordered(
+            "Integration & E2E",
+            component_filter,
+            tasks,
+            pattern=test_pattern,
+            optional_tasks=_go_optional_gates("integration"),
+            require_task=bool(tasks) and mode == "go",
+        )
+    finally:
+        if teardown_tasks:
+            run_parallel_ordered(
+                "Integration Teardown", component_filter, teardown_tasks, num_workers=1
+            )
 
 
 def leedevkit_run_coverage(
@@ -519,22 +745,36 @@ def leedevkit_run_coverage(
 
     if mode == "go" or (mode == "all" and _has_go_service()):
         go_svc = _resolve_go_service(component_filter)
-        go_workdir = _resolve_go_workdir()
-        coverage = (
-            "mkdir -p /workspace/.test_logs && "
-            f"go test{' -json' if test_pattern else ''} "
-            f"{f' -run={_safe_pattern(test_pattern)}' if test_pattern else ''} "
-            "-coverprofile=/workspace/.test_logs/coverage-go.out ./... && "
-            "go tool cover -func=/workspace/.test_logs/coverage-go.out"
-        )
-        tasks.append(
-            (
-                "go-coverage",
-                go_svc,
-                build_compose_exec(go_svc, coverage, workdir=go_workdir, mode="go"),
+        gates = _go_quality_gates()
+        for gate in gates:
+            if str(gate["phase"]) != "coverage":
+                continue
+            service = str(gate.get("service") or go_svc)
+            workdir = str(gate.get("working_dir") or _resolve_go_workdir())
+            if workdir and not workdir.startswith("/"):
+                workdir = f"/workspace/{workdir}"
+            command = _go_gate_command(gate)
+            if str(gate["name"]) == "go-coverage":
+                command = (
+                    "mkdir -p /workspace/.test_logs && "
+                    f"go test{' -json' if test_pattern else ''} "
+                    f"{f' -run={_safe_pattern(test_pattern)}' if test_pattern else ''} "
+                    "-coverprofile=/workspace/.test_logs/coverage-go.out ./... && "
+                    "go tool cover -func=/workspace/.test_logs/coverage-go.out"
+                )
+            tasks.append(
+                (
+                    str(gate["name"]),
+                    service,
+                    build_compose_exec(service, command, workdir=workdir, mode="go"),
+                )
             )
-        )
 
     return run_parallel_ordered(
-        "Coverage", component_filter, tasks, pattern=test_pattern
+        "Coverage",
+        component_filter,
+        tasks,
+        pattern=test_pattern,
+        optional_tasks=_go_optional_gates("coverage"),
+        require_task=bool(tasks) and mode == "go",
     )

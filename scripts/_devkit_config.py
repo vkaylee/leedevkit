@@ -199,8 +199,11 @@ def load_project_config() -> dict[str, Any]:
     project_root = _find_project_root()
     devkit_root = _find_devkit_root()
 
-    # Layer 1: Devkit default
+    # Layer 1: Devkit default. Older releases used the dotted filename;
+    # source checkouts and current templates use the public filename.
     default_path = devkit_root / "templates" / ".devkit.default.toml"
+    if not default_path.exists():
+        default_path = devkit_root / "templates" / "leedevkit.default.toml"
     config: dict[str, Any] = {}
     if default_path.exists():
         config = _load_toml(default_path)
@@ -241,6 +244,290 @@ def resolve_test_build_policy(config: dict[str, Any] | None = None) -> str:
     if policy not in ("once", "phase"):
         raise ValueError('[test].build_policy must be either "once" or "phase"')
     return policy
+
+
+_QUALITY_PHASES = {"lint", "unit", "integration", "generated", "coverage"}
+_QUALITY_FAILURE_POLICIES = {"required", "optional", "block"}
+_GO_QUALITY_DEFAULTS: dict[str, dict[str, Any]] = {
+    "gofmt": {
+        "phase": "lint",
+        "command": ["gofmt", "-l", "."],
+        "mode": "check",
+        "required": True,
+    },
+    "go-vet": {
+        "phase": "lint",
+        "command": ["go", "vet", "./..."],
+        "required": True,
+    },
+    "go-test": {
+        "phase": "unit",
+        "command": ["go", "test", "./..."],
+        "required": True,
+    },
+    "go-test-race": {
+        "phase": "unit",
+        "command": ["go", "test", "-race", "./..."],
+        "required": True,
+    },
+    "staticcheck": {
+        "phase": "lint",
+        "command": ["staticcheck", "./..."],
+        "required": True,
+    },
+    "golangci-lint": {
+        "phase": "lint",
+        "command": ["golangci-lint", "run", "./..."],
+        "required": True,
+    },
+    "govulncheck": {
+        "phase": "lint",
+        "command": ["govulncheck", "./..."],
+        "required": True,
+    },
+    "go-mod-verify": {
+        "phase": "lint",
+        "command": ["go", "mod", "verify"],
+        "required": True,
+    },
+    "go-coverage": {
+        "phase": "coverage",
+        "command": [
+            "go",
+            "test",
+            "-coverprofile=/workspace/.test_logs/coverage-go.out",
+            "./...",
+        ],
+        "required": True,
+    },
+}
+
+
+def _validate_quality_gate(name: str, raw: Any) -> dict[str, Any]:
+    """Normalize one quality gate without interpreting command shell syntax."""
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("quality gate names must be non-empty strings")
+    if not isinstance(raw, dict):
+        raise ValueError(f'[quality.gates."{name}"] must be a table')
+    command = raw.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or any(not isinstance(part, str) or not part for part in command)
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].command must be a non-empty string list'
+        )
+    phase = raw.get("phase", "lint")
+    if not isinstance(phase, str) or phase not in _QUALITY_PHASES:
+        raise ValueError(
+            f'[quality.gates."{name}"].phase must be one of {sorted(_QUALITY_PHASES)}'
+        )
+    timeout = raw.get("timeout")
+    if timeout is not None and (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or timeout <= 0
+    ):
+        raise ValueError(f'[quality.gates."{name}"].timeout must be positive')
+    working_dir = raw.get("working_dir", "")
+    if not isinstance(working_dir, str):
+        raise ValueError(f'[quality.gates."{name}"].working_dir must be a string')
+    if working_dir.startswith("/") or any(
+        part == ".." for part in Path(working_dir).parts
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].working_dir must stay inside project'
+        )
+    service = raw.get("service", "")
+    if not isinstance(service, str):
+        raise ValueError(f'[quality.gates."{name}"].service must be a string')
+    required = raw.get("required", True)
+    if not isinstance(required, bool):
+        raise ValueError(f'[quality.gates."{name}"].required must be boolean')
+    failure_policy = raw.get("failure_policy", "required" if required else "optional")
+    if failure_policy not in _QUALITY_FAILURE_POLICIES:
+        raise ValueError(
+            f'[quality.gates."{name}"].failure_policy must be one of '
+            f"{sorted(_QUALITY_FAILURE_POLICIES)}"
+        )
+    if failure_policy == "optional" and required:
+        raise ValueError(
+            f'[quality.gates."{name}"].required must be false for optional failure_policy'
+        )
+    condition = raw.get("condition", "always")
+    if not isinstance(condition, str) or not condition.strip():
+        raise ValueError(f'[quality.gates."{name}"].condition must be non-empty')
+    requires = raw.get("requires", [])
+    if not isinstance(requires, list) or any(
+        not isinstance(item, str) or not item.strip() for item in requires
+    ):
+        raise ValueError(f'[quality.gates."{name}"].requires must be a list of names')
+    environment = raw.get("environment", [])
+    if not isinstance(environment, list) or any(
+        not isinstance(key, str) or not key or "=" in key for key in environment
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].environment must be a list of variable names'
+        )
+    mode = raw.get("mode", "run")
+    if not isinstance(mode, str) or mode not in {"run", "check", "fix"}:
+        raise ValueError(f'[quality.gates."{name}"].mode must be run, check, or fix')
+    expected_version = raw.get("expected_version")
+    if expected_version is not None and (
+        not isinstance(expected_version, str) or not expected_version.strip()
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].expected_version must be a non-empty string'
+        )
+    fix_command = raw.get("fix_command")
+    if fix_command is not None and (
+        not isinstance(fix_command, list)
+        or not fix_command
+        or any(not isinstance(part, str) or not part for part in fix_command)
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].fix_command must be a non-empty string list'
+        )
+    setup_command = raw.get("setup_command")
+    teardown_command = raw.get("teardown_command")
+    for field_name, field_value in (
+        ("setup_command", setup_command),
+        ("teardown_command", teardown_command),
+    ):
+        if field_value is not None and (
+            not isinstance(field_value, list)
+            or not field_value
+            or any(not isinstance(part, str) or not part for part in field_value)
+        ):
+            raise ValueError(
+                f'[quality.gates."{name}"].{field_name} must be a non-empty string list'
+            )
+    new_findings_flag = raw.get("new_findings_flag")
+    if new_findings_flag is not None and (
+        not isinstance(new_findings_flag, list)
+        or not new_findings_flag
+        or any(not isinstance(part, str) or not part for part in new_findings_flag)
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].new_findings_flag must be a non-empty string list'
+        )
+    version_command = raw.get("version_command")
+    if version_command is not None and (
+        not isinstance(version_command, list)
+        or not version_command
+        or any(not isinstance(part, str) or not part for part in version_command)
+    ):
+        raise ValueError(
+            f'[quality.gates."{name}"].version_command must be a non-empty string list'
+        )
+    return {
+        "name": name,
+        "phase": phase,
+        "command": list(command),
+        "mode": mode,
+        "working_dir": working_dir,
+        "service": service,
+        "timeout": timeout,
+        "required": required,
+        "condition": condition,
+        "failure_policy": failure_policy,
+        "environment": list(environment),
+        "requires": list(requires),
+        "expected_version": expected_version,
+        "version_command": list(version_command)
+        if version_command is not None
+        else None,
+        "fix_command": list(fix_command) if fix_command is not None else None,
+        "new_findings_flag": list(new_findings_flag)
+        if new_findings_flag is not None
+        else None,
+        "setup_command": list(setup_command) if setup_command is not None else None,
+        "teardown_command": list(teardown_command)
+        if teardown_command is not None
+        else None,
+    }
+
+
+def resolve_quality_gates(
+    config: dict[str, Any] | None = None, language: str = "go"
+) -> list[dict[str, Any]]:
+    """Return deterministic normalized quality gates for one language.
+
+    Existing projects get only safe Go core defaults. Extra tools run only when
+    explicitly named in ``[quality.<language>]`` and defined in ``quality.gates``.
+    """
+    if config is None:
+        config = load_project_config()
+    quality = config.get("quality", {})
+    if quality is None:
+        quality = {}
+    if not isinstance(quality, dict):
+        raise ValueError("[quality] must be a table")
+    raw_defs = quality.get("gates", {})
+    if raw_defs is None:
+        raw_defs = {}
+    if not isinstance(raw_defs, dict):
+        raise ValueError("[quality.gates] must be a table")
+
+    language_config = quality.get(language, {})
+    if language_config is None:
+        language_config = {}
+    if not isinstance(language_config, dict):
+        raise ValueError(f"[quality.{language}] must be a table")
+
+    global_generated = quality.get("generated")
+    if global_generated is not None:
+        if not isinstance(global_generated, dict):
+            raise ValueError("[quality.generated] must be a table")
+        if "command" not in global_generated:
+            raise ValueError("[quality.generated].command is required")
+        raw_defs = dict(raw_defs)
+        raw_defs["generated"] = {
+            "phase": "generated",
+            **global_generated,
+        }
+        language_config = dict(language_config)
+        language_config["generated"] = ["generated"]
+
+    selected_lists = []
+    for phase_name in ("lint", "unit", "integration", "generated"):
+        phase_gates = language_config.get(phase_name, [])
+        if not isinstance(phase_gates, list):
+            raise ValueError(f"[quality.{language}].{phase_name} must be a list")
+        selected_lists.append(phase_gates)
+    selected = sum(selected_lists, [])
+    if any(not isinstance(name, str) or not name.strip() for name in selected):
+        raise ValueError(f"[quality.{language}] gate lists must contain names")
+
+    definitions: dict[str, Any] = dict(_GO_QUALITY_DEFAULTS if language == "go" else {})
+    definitions.update(raw_defs)
+    if selected:
+        names = list(dict.fromkeys(selected))
+    elif language == "go":
+        names = ["gofmt", "go-vet", "go-test", "go-coverage"]
+    else:
+        names = []
+
+    gates: list[dict[str, Any]] = []
+    for name in names:
+        if name not in definitions:
+            raise ValueError(f'quality gate "{name}" is not defined')
+        gates.append(_validate_quality_gate(name, definitions[name]))
+    return gates
+
+
+def resolve_version_gate(gate: dict[str, Any]) -> dict[str, Any] | None:
+    """Return validated version-check metadata for a gate, if configured."""
+    expected = gate.get("expected_version")
+    command = gate.get("version_command")
+    if expected is None and command is None:
+        return None
+    if expected is None or command is None:
+        raise ValueError(
+            f'quality gate "{gate.get("name", "")}" needs expected_version and version_command'
+        )
+    return {"expected_version": expected, "version_command": list(command)}
 
 
 def resolve_lifecycle_dependencies(

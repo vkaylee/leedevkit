@@ -2,6 +2,26 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.9.0] - 2026-11-16
+
+### Added
+- Add configurable quality gates for Go projects, including race tests, generated-code freshness, tool-version checks, integration setup/teardown, environment allowlists, and gate-level JSON/JSONL evidence.
+- Add `--base-ref` support with safe commit resolution, changed-path reporting, and explicit new-findings capability flags.
+- Add isolated seeded-gate verification helper to detect false-green gates without modifying the source checkout.
+
+### Compatibility
+- Existing Rust, TypeScript, infrastructure, and legacy Go configurations preserve prior behavior when `[quality]` is absent.
+- Optional gates remain visible in reports but do not fail required overall status when `required = false`.
+- Project adapters retain ownership of database policy, migration layout, generated tools, service names, and toolchain pins.
+
+### Limitations
+- Full seeded verification still requires project-provided gate adapters.
+- New-findings filtering runs only for gates declaring `new_findings_flag`; unsupported gates run full.
+
+### Verification
+- Full configured regression: 935 passed, 1 skipped.
+- `ruff check scripts`, `mypy scripts`, and `git diff --check` passed.
+
 ## [0.8.11] - 2026-11-12
 
 ### Added

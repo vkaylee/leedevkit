@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import typing
 from pathlib import Path
 
@@ -36,7 +37,14 @@ def get_run_log_dir() -> Path:
 
 
 LAST_PHASE_COMMANDS: dict[str, list[str]] = {}
+LAST_PHASE_TASK_RESULTS: dict[str, dict[str, typing.Any]] = {}
 QUIET_OUTPUT = False
+
+
+def get_last_phase_task_results() -> dict[str, dict[str, typing.Any]]:
+    """Return per-task exit, duration, and log metadata for the last phase."""
+    return {name: dict(result) for name, result in LAST_PHASE_TASK_RESULTS.items()}
+
 
 _PROCESS_TREE_WAIT_TIMEOUT = 3.0
 
@@ -118,9 +126,12 @@ def _terminate_process_tree(proc: subprocess.Popen) -> None:
             with contextlib.suppress(psutil.Error):
                 process.terminate()
 
-    _, alive_descendants = psutil.wait_procs(
-        descendants, timeout=_PROCESS_TREE_WAIT_TIMEOUT
-    )
+    try:
+        _, alive_descendants = psutil.wait_procs(
+            descendants, timeout=_PROCESS_TREE_WAIT_TIMEOUT
+        )
+    except (psutil.Error, OSError):
+        alive_descendants = descendants
     if alive_descendants:
         if os.name == "nt":
             _taskkill_tree(proc.pid, force=True)
@@ -163,7 +174,11 @@ def _safe_log_name(phase_name: str, task_name: str) -> str:
 
 
 def build_compose_exec(
-    service: str, command: str, workdir: str = "", mode: str = "all"
+    service: str,
+    command: str,
+    workdir: str = "",
+    mode: str = "all",
+    environment: list[str] | None = None,
 ) -> list[str]:
     """Build a docker-compose exec command for running inside a container.
 
@@ -179,6 +194,8 @@ def build_compose_exec(
     ]
     if workdir:
         cmd.extend(["-w", workdir])
+    for name in environment or []:
+        cmd.extend(["-e", name])
     cmd.append(service)
 
     if sys.platform != "win32":
@@ -205,14 +222,18 @@ def run_single_task(
         output_lock = threading.Lock()
 
     with log_file.open("w") as output:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE if stream_live else output,
-            stderr=subprocess.STDOUT,
-            **typing.cast(dict[str, typing.Any], _process_group_options()),
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(PROJECT_ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if stream_live else output,
+                stderr=subprocess.STDOUT,
+                **typing.cast(dict[str, typing.Any], _process_group_options()),
+            )
+        except FileNotFoundError:
+            output.write(f"command not found: {cmd[0]}\n")
+            return 127
         if not stream_live:
             try:
                 proc.wait(timeout=timeout)
@@ -257,6 +278,56 @@ def run_single_task(
         return exit_code
 
 
+def version_matches(actual: str, expected: str) -> bool:
+    """Match configured tool version as a token, not a shell expression."""
+    actual_tokens = actual.strip().split()
+    expected_tokens = expected.strip().split()
+    return (
+        bool(expected_tokens)
+        and actual_tokens[: len(expected_tokens)] == expected_tokens
+    )
+
+
+def verify_seeded_gate(
+    workspace: Path,
+    seed_path: str | Path,
+    run_gate: typing.Callable[[Path], bool],
+) -> bool:
+    """Verify gate rejects seed in temporary copy, then accepts clean copy."""
+    import shutil
+    import tempfile
+
+    seed_relative = Path(seed_path)
+    if seed_relative.is_absolute():
+        try:
+            seed_relative = seed_relative.relative_to(workspace)
+        except ValueError:
+            return False
+    with tempfile.TemporaryDirectory(prefix="leedevkit-seeded-") as directory:
+        isolated = Path(directory) / "workspace"
+        shutil.copytree(workspace, isolated)
+        isolated_seed = isolated / seed_relative
+        isolated_seed.parent.mkdir(parents=True, exist_ok=True)
+        isolated_seed.write_text("leedevkit-seeded-violation\n")
+        try:
+            if run_gate(isolated):
+                return False
+            isolated_seed.unlink()
+            return run_gate(isolated)
+        finally:
+            isolated_seed.unlink(missing_ok=True)
+
+
+def changed_paths_from_log(log_file: Path) -> list[str]:
+    """Read safe newline-delimited changed paths from a gate log."""
+    try:
+        return [
+            line for line in log_file.read_text(errors="replace").splitlines() if line
+        ]
+    except OSError:
+        return []
+
+
 def _go_pattern_evidence(log_file: Path, pattern: str) -> bool:
     """Require a selected Go test event when a filtered task succeeds."""
     if not pattern:
@@ -283,6 +354,23 @@ def _go_pattern_evidence(log_file: Path, pattern: str) -> bool:
     return False
 
 
+def _task_result(
+    name: str,
+    exit_code: int,
+    started: float,
+    log_file: Path,
+    required: bool = True,
+) -> None:
+    LAST_PHASE_TASK_RESULTS[name] = {
+        "exit_code": exit_code,
+        "duration_s": round(time.monotonic() - started, 3),
+        "log": str(log_file.relative_to(PROJECT_ROOT))
+        if log_file.is_relative_to(PROJECT_ROOT)
+        else str(log_file),
+        "required": required,
+    }
+
+
 def run_parallel_ordered(
     phase_name: str,
     component_filter: str,
@@ -290,12 +378,16 @@ def run_parallel_ordered(
     num_workers: int | None = None,
     *,
     pattern: str = "",
+    optional_tasks: set[str] | None = None,
+    require_task: bool = False,
 ) -> bool:
-    global LAST_PHASE_EXIT_CODE, LAST_PHASE_COMMANDS
+    global LAST_PHASE_EXIT_CODE, LAST_PHASE_COMMANDS, LAST_PHASE_TASK_RESULTS
     LAST_PHASE_EXIT_CODE = None
     LAST_PHASE_COMMANDS = {}
+    LAST_PHASE_TASK_RESULTS = {}
     _ensure_log_dir()
 
+    optional_tasks = optional_tasks or set()
     if num_workers is None:
         num_workers = min(4, (os.cpu_count() or 4) // 2)
         num_workers = max(num_workers, 1)
@@ -321,15 +413,21 @@ def run_parallel_ordered(
     filtered = format_tasks + other_tasks
 
     if not filtered:
-        return True
+        if require_task:
+            LAST_PHASE_EXIT_CODE = 1
+        return not require_task
 
     LAST_PHASE_COMMANDS = {name: list(cmd) for name, _service, cmd in filtered}
     task_timeout = get_phase_timeout(phase_name)
 
     if num_workers <= 1:
-        return _run_tasks_serial(filtered, phase_name, task_timeout, pattern)
+        return _run_tasks_serial(
+            filtered, phase_name, task_timeout, pattern, optional_tasks
+        )
 
-    return _run_tasks_parallel(filtered, phase_name, task_timeout, num_workers, pattern)
+    return _run_tasks_parallel(
+        filtered, phase_name, task_timeout, num_workers, pattern, optional_tasks
+    )
 
 
 def _run_tasks_serial(
@@ -337,12 +435,14 @@ def _run_tasks_serial(
     phase_name: str,
     timeout: int,
     pattern: str = "",
+    optional_tasks: set[str] | None = None,
 ) -> bool:
     """Run tasks one at a time, streaming output live."""
     global LAST_PHASE_EXIT_CODE
     import sys as _sys
     import threading
 
+    optional_tasks = optional_tasks or set()
     all_passed = True
     for name, _service, cmd in tasks:
         log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
@@ -350,6 +450,7 @@ def _run_tasks_serial(
             _sys.stdout.write(f"\n  [{name}] Running...\n")
             _sys.stdout.flush()
 
+        started = time.monotonic()
         with log_file.open("w") as output:
             proc = subprocess.Popen(
                 cmd,
@@ -379,7 +480,8 @@ def _run_tasks_serial(
                 exit_code = 124
             reader.join()
 
-        if exit_code != 0:
+        _task_result(name, exit_code, started, log_file, name not in optional_tasks)
+        if exit_code != 0 and name not in optional_tasks:
             LAST_PHASE_EXIT_CODE = exit_code
             all_passed = False
         elif (
@@ -402,12 +504,14 @@ def _run_tasks_parallel(
     timeout: int,
     num_workers: int,
     pattern: str = "",
+    optional_tasks: set[str] | None = None,
 ) -> bool:
     """Run tasks in parallel with a worker pool."""
     global LAST_PHASE_EXIT_CODE
     import threading
     from collections import deque
 
+    optional_tasks = optional_tasks or set()
     task_queue = deque(tasks)
     results: dict[str, int] = {}
     lock = threading.Lock()
@@ -422,6 +526,7 @@ def _run_tasks_parallel(
                 name, _service, cmd = task_queue.popleft()
 
             log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
+            started = time.monotonic()
             ret = run_single_task(
                 name,
                 cmd,
@@ -437,6 +542,7 @@ def _run_tasks_parallel(
                 and not _go_pattern_evidence(log_file, pattern)
             ):
                 ret = 1
+            _task_result(name, ret, started, log_file, name not in optional_tasks)
             with lock:
                 results[name] = ret
             if ret != 0:
@@ -454,7 +560,7 @@ def _run_tasks_parallel(
 
     # Check results
     for name, exit_code in results.items():
-        if exit_code != 0:
+        if exit_code != 0 and name not in optional_tasks:
             LAST_PHASE_EXIT_CODE = exit_code
             log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
             _print_failure(name, log_file, exit_code)
@@ -462,7 +568,7 @@ def _run_tasks_parallel(
         log_file = get_run_log_dir() / _safe_log_name(phase_name, name)
         _print_success(name, log_file)
 
-    return all(v == 0 for v in results.values())
+    return all(v == 0 or name in optional_tasks for name, v in results.items())
 
 
 def _print_success(name: str, log_file: Path) -> None:

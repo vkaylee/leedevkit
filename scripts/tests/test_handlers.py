@@ -1233,6 +1233,31 @@ class TestTestHandler:
             "required",
         } <= set(phase)
 
+    def test_base_ref_report_records_new_findings_metadata(self, capsys):
+        from _test_handler import TestHandler
+
+        orch = _mock_orchestrator()
+        handler = TestHandler(orch)
+        handler._record_result("Unit Tests", "api", "unit-api", "passed", 0)
+        with (
+            patch.object(handler, "print_test_summary"),
+            patch.object(
+                handler,
+                "_resolve_base_ref",
+                return_value={
+                    "base_ref": "HEAD~1",
+                    "resolved_commit": "abc",
+                    "changed_paths": ["scripts/a.py"],
+                    "new_findings": {},
+                },
+            ),
+        ):
+            handler._finish_test(_test_args(json_output=True, base_ref="HEAD~1"), "api")
+        report = json.loads(capsys.readouterr().out)
+        assert report["base_ref"]["resolved_commit"] == "abc"
+        assert report["new_findings_mode"] is False
+        assert report["new_findings_skip_reason"] is None
+
     def test_json_report_failure_has_exit_log_and_rerun(self, capsys):
         """Failed phase exposes truthful exit, log, rerun, and next action."""
         from _test_handler import TestHandler

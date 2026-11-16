@@ -81,6 +81,13 @@ class TestCliHelp:
         assert args.json_stream is True
         assert args.quiet is True
 
+    def test_test_parser_accepts_base_ref(self):
+        parser = __import__("_cli_parser", fromlist=["CliParser"]).CliParser({}).build()
+        assert (
+            parser.parse_args(["test", "all", "--base-ref", "HEAD~1"]).base_ref
+            == "HEAD~1"
+        )
+
     def test_test_parser_build_flag_defaults_and_skip(self):
         parser = __import__("_cli_parser", fromlist=["CliParser"]).CliParser({}).build()
         assert parser.parse_args(["test", "all"]).skip_build is False
