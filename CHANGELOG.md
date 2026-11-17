@@ -2,6 +2,24 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [Unreleased]
+
+## [0.9.1] - 2026-11-17
+
+### Added
+- Add opt-in generic read-only Debug MCP with explicit environment manifests, safe service health/HTTP/log/database evidence tools, resources, and incident prompt templates.
+- Add generic Debug MCP fixture and contract/security tests.
+
+### Security
+- Reject unapproved HTTP redirects, redact credential values before MCP output, and run Debug MCP in a temporary Compose container with read-only root, non-root execution, dropped capabilities, bounded resources, and selected project-network ownership checks.
+
+### Limitations
+- Database execution remains limited to approved read-only templates; no arbitrary SQL support.
+
+### Verification
+- Full configured regression: 945 passed, 1 skipped.
+- Release build and acceptance passed for `leedevkit-0.9.1.tar.gz`.
+
 ## [0.9.0] - 2026-11-16
 
 ### Added

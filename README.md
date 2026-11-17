@@ -60,6 +60,33 @@ curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh
 ./leedevkit test all                # Rust targets use configured Rust verification
 
 # Development environment
+
+## Debug MCP
+
+LeeDevKit provides optional generic, read-only Debug MCP over stdio. It requires explicit validated environment configuration; it never infers Compose projects or attaches to every host network.
+
+Configure a versioned `[debug]` manifest in `leedevkit.toml` (see `templates/leedevkit.default.toml`), then launch:
+
+```bash
+./leedevkit debug mcp --environment <environment>
+```
+
+Configure an MCP client with placeholders only:
+
+```json
+{
+  "mcpServers": {
+    "project-debug": {
+      "command": "leedevkit",
+      "args": ["debug", "mcp", "--environment", "<environment>"]
+    }
+  }
+}
+```
+
+Tools: `debug_environment`, `service_health`, `http_get`, `recent_logs`, `database_schema`, and approved `database_query` templates. Resources: `debug://runbook`, `debug://safety`, `debug://environment`, `debug://capabilities`, `debug://evidence`. Prompt: `debug_incident`.
+
+Debug MCP rejects shell execution, writes, migrations, arbitrary URLs/networks, host filesystem/socket access, credentials, cookies/tokens, unapproved paths, cross-environment access, and production selection. Responses and diagnostics are bounded and redacted. Existing task-assessor MCP remains unchanged.
 ./leedevkit dev up                   # start dev environment
 ./leedevkit dev down                 # stop dev environment
 ./leedevkit doctor                   # health check: config, containers, devkit location

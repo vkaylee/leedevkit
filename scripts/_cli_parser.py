@@ -40,6 +40,7 @@ class CliParser:
         subparsers = parser.add_subparsers(dest="command", required=True)
         self._setup_test_parser(subparsers, parent_parser)
         self._setup_dev_parser(subparsers, parent_parser)
+        self._setup_debug_parser(subparsers, parent_parser)
         self._setup_top_level_commands(subparsers, parent_parser)
         self._setup_run_parser(subparsers, parent_parser)
         self._setup_update_parser(subparsers, parent_parser)
@@ -169,6 +170,20 @@ class CliParser:
         exec_p = dev_cmd_sub.add_parser("exec", parents=[parent_parser])
         exec_p.add_argument("service")
         exec_p.add_argument("args", nargs=argparse.REMAINDER)
+
+    def _setup_debug_parser(
+        self,
+        subparsers: typing.Any,  # noqa: ANN401
+        parent_parser: argparse.ArgumentParser,
+    ) -> None:
+        debug_parser = subparsers.add_parser(
+            "debug", parents=[parent_parser], description="Read-only Debug MCP"
+        )
+        debug_sub = debug_parser.add_subparsers(dest="debug_subcommand", required=True)
+        mcp_parser = debug_sub.add_parser("mcp", parents=[parent_parser])
+        mcp_parser.add_argument("--environment", required=True)
+        mcp_parser.add_argument("--manifest", default=None)
+        mcp_parser.add_argument("--compose-project", default=None)
 
     def _setup_top_level_commands(
         self,

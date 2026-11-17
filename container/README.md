@@ -86,6 +86,10 @@ services:
 
 Paths are relative to build context. Missing declared inputs invalidate image freshness. Do not use this field unless Dockerfile and build tooling do not read other context files; omitted field keeps safe full-context hashing.
 
+## Debug MCP isolation
+
+Debug MCP runs as a temporary read-only capability selected by explicit environment manifest. Use internal Compose DNS and approved project networks only; do not use published host ports, host network aliases, arbitrary host paths, or container sockets. Keep root filesystem read-only, use only bounded temporary writable paths, run non-root where compatible, drop capabilities, and shut down on EOF or SIGTERM. Projects must provide approved service aliases, paths, logs, limits, and database metadata in the versioned `[debug]` contract.
+
 ## Compatibility
 
 | Project type | Compose source | Service name |

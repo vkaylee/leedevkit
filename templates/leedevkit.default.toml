@@ -64,6 +64,18 @@ build_policy = "once"
 # e2e = { services = ["webdashboard"], cmd = "bunx playwright test", timeout = 900 }
 
 # ── AI Context ─────────────────────────────────────────────────────────────
+# ── Optional generic read-only Debug MCP ────────────────────────────────────
+# Configure project-specific values only in an explicit [debug] environment.
+# The server never infers an environment, Compose project, network, or service.
+
+# [debug]
+# manifest_version = 1
+# [debug.environments.test]
+# compose_project = "<compose-project>"
+# compose_files = ["<compose-file>"]
+# profiles = ["debug"]
+# approved_networks = ["<approved-network>"]
+
 [ai]
 # Rule files to load for AI agents (relative to .agent/rules/).
 # The devkit provides base rules; add project-specific ones here.

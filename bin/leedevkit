@@ -49,7 +49,7 @@ case "$COMMAND" in
         print_usage
         exit 0
         ;;
-    test|dev|init|doctor|skills|update)
+    test|dev|debug|init|doctor|skills|update)
         ;;
     *)
         echo "Unknown command: $COMMAND"
@@ -72,6 +72,9 @@ PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" "$PROFILE" | tail -n 1)
 case "$COMMAND" in
     test)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" test "$@"
+        ;;
+    debug)
+        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" debug "$@"
         ;;
     dev)
         exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" dev "$@"

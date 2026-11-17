@@ -1,0 +1,13 @@
+services:
+  fixture-api:
+    image: fixture-api
+    networks: [fixture_backend]
+  fixture-web:
+    image: fixture-web
+    networks: [fixture_frontend]
+  fixture-db:
+    image: fixture-db
+    networks: [fixture_backend]
+networks:
+  fixture_backend:
+  fixture_frontend:

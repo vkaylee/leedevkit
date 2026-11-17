@@ -162,6 +162,12 @@ class Orchestrator:
 
     def run(self) -> None:
         args = self.parser.parse_args()
+        if args.command == "debug" and getattr(args, "debug_subcommand", None) == "mcp":
+            from _debug_launcher import main as debug_main
+
+            raise SystemExit(
+                debug_main(args.manifest, args.environment, args.compose_project)
+            )
         self.dry_run = args.dry_run
         if not args.command:
             self.parser.print_help()

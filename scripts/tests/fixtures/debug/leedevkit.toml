@@ -1,0 +1,31 @@
+[debug]
+manifest_version = 1
+
+[debug.environments.fixture]
+compose_project = "fixture-project"
+compose_files = ["compose.yml"]
+profiles = ["debug"]
+approved_networks = ["fixture_backend", "fixture_frontend"]
+
+[debug.environments.fixture.services.fixture-api]
+aliases = ["fixture-api"]
+internal_host = "fixture-api"
+internal_port = 8080
+health_paths = ["/health"]
+http_get_paths = ["/status"]
+log_sources = []
+
+[debug.environments.fixture.services.fixture-web]
+aliases = ["fixture-web"]
+internal_host = "fixture-web"
+internal_port = 8081
+health_paths = ["/health"]
+http_get_paths = []
+log_sources = []
+
+[debug.environments.fixture.database]
+enabled = false
+
+[debug.environments.fixture.redaction]
+patterns = ["(?i)secret=[^& ]+"]
+sensitive_columns = []
