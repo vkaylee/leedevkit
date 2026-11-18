@@ -195,6 +195,13 @@ def lifecycle_up(
     profiles = resolve_lifecycle_profiles(mode)
     dependencies = list(dict.fromkeys(resolve_lifecycle_dependencies(mode)))
     provider = resolve_container_provider()
+    required = {"compose", "config", "up", "down", "ps"}
+    missing = sorted(required - provider.capabilities)
+    if missing:
+        raise ValueError(
+            f'container provider "{provider.name}" lacks required capabilities: '
+            + ", ".join(missing)
+        )
     native_wait = "wait" in provider.capabilities
     env = bootstrap_env(mode, provider)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()

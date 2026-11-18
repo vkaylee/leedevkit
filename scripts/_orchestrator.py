@@ -359,7 +359,7 @@ class Orchestrator:
         """Run system health check and optionally repair common project issues."""
         from _doctor import run_doctor
 
-        run_doctor(self.engine, fix=fix)
+        run_doctor(self.engine, fix=fix, provider=self.container_provider)
 
     def handle_db_query(self, args: argparse.Namespace) -> None:
         self._db_handler.handle_db_query(args)

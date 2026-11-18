@@ -535,6 +535,24 @@ class TestLifecycleDependencies:
     def _compose_result(stdout="", returncode=0):
         return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
 
+    def test_missing_lifecycle_capability_fails_before_startup(self):
+        from _devkit_config import ContainerProviderConfig
+
+        provider = ContainerProviderConfig(
+            name="custom",
+            cli=("custom",),
+            compose=("custom", "compose"),
+            capabilities=frozenset({"compose"}),
+            source="test",
+        )
+        with (
+            patch("_lifecycle.resolve_container_provider", return_value=provider),
+            patch("_lifecycle._run") as mock_run,
+            pytest.raises(ValueError, match="lacks required capabilities"),
+        ):
+            lifecycle_up("go")
+        mock_run.assert_not_called()
+
     def test_native_wait_starts_dependencies_in_one_compose_call(self):
         from _devkit_config import ContainerProviderConfig
 
