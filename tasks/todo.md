@@ -16,9 +16,9 @@ Plan: [plan.md](plan.md)
 
 ## Checkpoint 1 — Startup contract
 
-- [ ] Compose is normal startup orchestrator.
-- [ ] No direct Podman calls in normal `lifecycle_up`.
-- [ ] Build freshness, project isolation, and mode mapping tests pass.
+- [x] Compose is normal startup orchestrator.
+- [x] No direct Podman calls in normal `lifecycle_up`.
+- [x] Build freshness, project isolation, and mode mapping tests pass.
 
 ## Phase 2 — Compose-owned teardown and identity
 
@@ -35,10 +35,10 @@ Plan: [plan.md](plan.md)
 
 ## Checkpoint 2 — Lifecycle ownership
 
-- [ ] Compose owns normal up/down/health/dependency behavior.
-- [ ] LeeDevKit owns policy, lock, ownership, build decision, and reports.
-- [ ] Cleanup cannot delete unrelated containers or volumes.
-- [ ] Failure paths remain blocked/failed, never falsely passed.
+- [x] Compose owns normal up/down/health/dependency behavior.
+- [x] LeeDevKit owns policy, lock, ownership, build decision, and reports.
+- [x] Cleanup cannot delete unrelated containers or volumes.
+- [x] Failure paths remain blocked/failed, never falsely passed.
 
 ## Phase 3 — Test orchestration and provider compatibility
 
@@ -54,11 +54,12 @@ Plan: [plan.md](plan.md)
 
 ## Checkpoint 3 — End-to-end regression
 
-- [ ] `./leedevkit test all --json` passes or reports runtime limitation truthfully.
+- [ ] `./leedevkit test all --json` passes or reports runtime limitation truthfully; wrapper timeout remains.
 - [ ] `./leedevkit test all --json-stream --quiet` emits parseable JSONL only.
 - [ ] Concurrent project isolation works.
 - [ ] Shared cache volumes survive teardown.
-- [ ] Docker and Podman behavior verified separately where available.
+- [ ] Docker verified; Podman unavailable on current host.
+- [x] Direct Python suite: `959 passed, 1 skipped`.
 
 ## Phase 4 — Cleanup and migration readiness
 
