@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Iterator
 
@@ -51,16 +53,17 @@ def _snapshot(paths: tuple[str, ...]) -> dict[str, bytes | str]:
 
 
 @pytest.fixture(autouse=True)
-def provide_container_cli_paths(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Point unit tests at harmless command names without installing runtimes."""
-    real_which = shutil.which
-
-    def which(command: str) -> str | None:
-        if command in {"docker", "podman", "podman-compose"}:
-            return f"/test-bin/{command}"
-        return real_which(command)
-
-    monkeypatch.setattr(shutil, "which", which)
+def provide_container_cli_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Iterator[None]:
+    """Point unit tests at harmless local stubs, never host runtimes."""
+    bin_dir = Path(tempfile.mkdtemp(prefix="leedevkit-container-bin-"))
+    script = '#!/bin/sh\nif [ "$1" = "ps" ]; then exit 0; fi\nprintf \'%s version 0-test\\n\' "$(basename "$0")"\n'
+    for command in ("docker", "podman", "podman-compose"):
+        executable = bin_dir / command
+        executable.write_text(script)
+        executable.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
     yield
 
 

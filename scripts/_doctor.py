@@ -394,9 +394,7 @@ def run_doctor(
     if selected is not None and selected.cli:
         selected_engine = selected.cli[0]
     if selected_engine and (
-        engine
-        or shutil.which(selected_engine) is not None
-        or Path(selected_engine).is_file()
+        shutil.which(selected_engine) is not None or Path(selected_engine).is_file()
     ):
         res = subprocess.run(
             [selected_engine, "ps", "--format", "{{.Names}}"],

@@ -178,7 +178,10 @@ class TestResolveLifecycleProfiles:
 
 class TestBootstrapEnv:
     def test_default_mode_all(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("shutil.which", side_effect=lambda command: f"/test-bin/{command}"),
+        ):
             env = bootstrap_env()
             assert env["COMPOSE_PROJECT_NAME"].startswith("leeattend-test")
         assert env["PODMAN_COMPOSE_PROJECT_NAME"].startswith("leeattend-test")
@@ -204,7 +207,10 @@ class TestBootstrapEnv:
             assert env["PODMAN_COMPOSE_PROJECT_NAME"] == "my-custom-project"
 
     def test_compose_base_has_no_profiles(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("shutil.which", side_effect=lambda command: f"/test-bin/{command}"),
+        ):
             env = bootstrap_env(mode="api")
             base = env["DOCKER_COMPOSE_BASE"]
         assert "--profile" not in base
