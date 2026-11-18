@@ -42,10 +42,10 @@ Plan: [plan.md](plan.md)
 
 ## Phase 3 — Test orchestration and provider compatibility
 
-- [ ] T5: Integrate Compose-native lifecycle with `TestHandler` phases.
-  - [ ] Preserve setup-blocked, test-failed, teardown-always-runs behavior.
-  - [ ] Preserve JSON/JSONL phase fields, logs, rerun, and partial status.
-  - [ ] Consolidate redundant dependency startup where Compose owns it.
+- [x] T5: Integrate Compose-native lifecycle with `TestHandler` phases.
+  - [x] Preserve setup-blocked, test-failed, teardown-always-runs behavior.
+  - [x] Preserve JSON/JSONL phase fields, logs, rerun, and partial status.
+  - [x] Consolidate redundant dependency startup where Compose owns it.
 - [ ] T6: Verify provider capability matrix and fallback boundaries.
   - [ ] Test Docker default.
   - [ ] Test Podman without normal Podman-only lifecycle code.

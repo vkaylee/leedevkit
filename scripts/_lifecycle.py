@@ -93,7 +93,7 @@ def _compose_service_names(
 def _compose_service_container(
     compose_base: list[str], profiles: list[str], service: str, project_name: str
 ) -> str:
-    """Resolve Compose service to engine inspect target, with legacy fallback."""
+    """Resolve service identity through Compose, with legacy fallback."""
     result = _run(compose_base + profiles + ["ps", "-q", service], capture=True)
     if isinstance(result.stdout, str):
         container_id = result.stdout.strip().splitlines()
