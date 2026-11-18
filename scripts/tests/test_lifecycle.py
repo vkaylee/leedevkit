@@ -565,6 +565,31 @@ class TestLifecycleDependencies:
         assert up_cmds[0][-2:] == ["go", "postgres"]
         mock_health.assert_not_called()
 
+    def test_legacy_provider_starts_dependencies_with_compatibility_fallback(self):
+        def run(cmd, **kwargs):
+            if "config" in cmd:
+                return self._compose_result("go\npostgres\n")
+            if "ps" in cmd and "-q" in cmd:
+                return self._compose_result("postgres-container-id\n")
+            return self._compose_result()
+
+        with (
+            patch("_lifecycle._run", side_effect=run) as mock_run,
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch("_lifecycle._container_healthy", return_value=True),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("int-go") is True
+
+        up_cmds = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert len(up_cmds) == 2
+        assert up_cmds[0][-1] == "go"
+        assert up_cmds[1][-1] == "postgres"
+
     def test_int_go_starts_and_checks_dependency(self):
         def run(cmd, **kwargs):
             if "config" in cmd:
