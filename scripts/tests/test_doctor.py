@@ -230,6 +230,54 @@ class TestRunDoctor:
         out = capsys.readouterr().err
         assert "2 files loaded" in out
 
+    # ── container runtime inventory ───────────────────────────────────────
+
+    def test_runtime_inventory_reports_installed_and_missing(self, monkeypatch):
+        from _doctor import _runtime_inventory
+
+        paths = {"docker": "/usr/bin/docker", "kiri": "/opt/kiri/bin/kiri"}
+
+        def which(name):
+            return paths.get(name)
+
+        def run(command, **kwargs):
+            assert kwargs["shell"] is not True if "shell" in kwargs else True
+            return type(
+                "Result",
+                (),
+                {"returncode": 0, "stdout": f"{command[0]} version 1", "stderr": ""},
+            )()
+
+        monkeypatch.setattr("_doctor.shutil.which", which)
+        monkeypatch.setattr("_doctor.subprocess.run", run)
+        inventory = {item["name"]: item for item in _runtime_inventory()}
+
+        assert inventory["docker"]["status"] == "installed"
+        assert inventory["docker"]["path"] == "/usr/bin/docker"
+        assert inventory["podman"]["status"] == "unavailable"
+        assert inventory["kiri"]["status"] == "installed"
+
+    def test_runtime_inventory_masks_credentials(self, monkeypatch):
+        from _doctor import _runtime_inventory
+
+        monkeypatch.setattr("_doctor.shutil.which", lambda name: "/usr/bin/tool")
+        monkeypatch.setattr(
+            "_doctor.subprocess.run",
+            lambda *args, **kwargs: type(
+                "Result",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": "tool https://user:password@example.test?token=secret",
+                    "stderr": "",
+                },
+            )(),
+        )
+        version = _runtime_inventory()[0]["version"]
+        assert "user:password" not in version
+        assert "token=secret" not in version
+        assert "<redacted>" in version
+
     # ── container engine ──────────────────────────────────────────────────
 
     def test_container_engine_shown(self, tmp_path, capsys):
@@ -348,6 +396,8 @@ class TestRunDoctor:
             patch("_doctor.get_devkit_root", return_value=dk),
             patch("_doctor.resolve_ai_rules", return_value=[]),
             patch("_doctor.socket.socket", return_value=mock_sock),
+            patch("_doctor._runtime_inventory", return_value=[]),
+            patch("_doctor.resolve_container_provider", side_effect=ValueError("no provider")),
             patch("subprocess.run") as mock_run,
         ):
             run_doctor("")

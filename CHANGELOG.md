@@ -20,6 +20,34 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 - Full configured regression: 945 passed, 1 skipped.
 - Release build and acceptance passed for `leedevkit-0.9.1.tar.gz`.
 
+## [0.10.0] - 2026-11-18
+
+### Added
+- Add explicit container-provider configuration with CLI, environment, host-local, repository, and Docker-default precedence.
+- Add validated provider command declarations and safe diagnostics for Docker, Kiri, Podman, and custom provider names.
+- Add doctor runtime inventory with executable paths, version probes, selected provider source, and missing-runtime diagnostics.
+
+### Compatibility
+- Existing commands and legacy `run_doctor(engine)` callers remain supported.
+- Runtime inventory is read-only and does not start or remove containers.
+- Doctor reports installed runtimes separately from configured and selected provider; missing runtime tools remain actionable warnings.
+
+### Limitations
+- Provider adapters, capability enforcement, and Docker/Kiri integration remain separate work; Kiri command examples are not runtime compatibility claims.
+- Full regression requires Docker or Podman Compose on host; unit/config tests run without container runtime.
+
+### Rollback
+```bash
+git switch main
+git reset --hard v0.9.1
+```
+
+### Verification
+- Provider configuration and doctor tests: 31 passed.
+- Ruff check and format checks passed.
+- `./leedevkit doctor` passed with no container runtimes installed.
+- Full `./leedevkit test infra --unit-only` blocked by missing Docker/Podman Compose.
+
 ## [0.9.0] - 2026-11-16
 
 ### Added

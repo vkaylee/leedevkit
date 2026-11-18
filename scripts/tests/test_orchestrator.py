@@ -38,6 +38,36 @@ class TestOrchestratorProperties:
             assert isinstance(orch.compose_engine, list)
 
 
+class TestContainerProviderCli:
+    def test_provider_before_subcommand(self):
+        from _orchestrator import Orchestrator
+
+        with (
+            patch.object(Orchestrator, "register_traps", return_value=None),
+            patch(
+                "_orchestrator.detect_compose_cmd", return_value=["docker", "compose"]
+            ),
+        ):
+            args = Orchestrator().parser.parse_args(
+                ["--container-provider", "kiri", "test", "all"]
+            )
+        assert args.container_provider == "kiri"
+
+    def test_provider_after_subcommand(self):
+        from _orchestrator import Orchestrator
+
+        with (
+            patch.object(Orchestrator, "register_traps", return_value=None),
+            patch(
+                "_orchestrator.detect_compose_cmd", return_value=["docker", "compose"]
+            ),
+        ):
+            args = Orchestrator().parser.parse_args(
+                ["test", "all", "--container-provider", "kiri"]
+            )
+        assert args.container_provider == "kiri"
+
+
 class TestResolveTargets:
     def test_returns_list(self):
         from _devkit_config import resolve_targets
@@ -124,8 +154,8 @@ class TestOrchestratorInitFlow:
             orch.handle_init(force=False)
 
     def test_handle_skills_list(self, monkeypatch):
-        from _orchestrator import Orchestrator
         import _devkit_config
+        from _orchestrator import Orchestrator
 
         _devkit_config._DEVKIT_ROOT = None
         dk = str(__import__("pathlib").Path(__file__).resolve().parent.parent.parent)
@@ -224,7 +254,6 @@ class TestLeedevkitDir:
         (devkit / "templates").mkdir()
         monkeypatch.setenv("DEVKIT_HOME", str(devkit))
         import _devkit_config
-
         from _init_handler import InitHandler
 
         _devkit_config._DEVKIT_ROOT = None
@@ -691,8 +720,9 @@ class TestLogFunctionsMore:
         assert "careful" in capsys.readouterr().err
 
     def test_log_error_contains_cross(self):
-        from _logging import log_error
         import io
+
+        from _logging import log_error
 
         buf = io.StringIO()
         log_error("fail", file=buf)
@@ -1021,8 +1051,9 @@ class TestInjectRustVersionEnv:
         assert os.environ.get("RUST_VERSION") == "1.85"
 
     def test_env_override_wins(self):
-        from _orchestrator import Orchestrator
         import os
+
+        from _orchestrator import Orchestrator
 
         os.environ["RUST_VERSION"] = "1.99"
         try:
@@ -1212,8 +1243,9 @@ class TestHandleTestSummary:
             orch.print_test_summary("all")
 
     def test_summary_stale_log_skipped(self, tmp_path, monkeypatch):
-        from _orchestrator import Orchestrator
         import time
+
+        from _orchestrator import Orchestrator
 
         logs = tmp_path / ".test_logs"
         logs.mkdir()
@@ -1593,8 +1625,8 @@ class TestOrchestratorCoverageGaps:
 
     def test_lock_acquisition_failure_warns(self, capsys, monkeypatch):
         """When lock acquisition fails, a warning is logged."""
-        from _orchestrator import Orchestrator
         from _lock_manager import LockManager
+        from _orchestrator import Orchestrator
 
         monkeypatch.setattr(LockManager, "acquire", lambda _name: None)
         with patch.object(Orchestrator, "register_traps", return_value=None):
@@ -1761,8 +1793,8 @@ class TestOrchestratorCoverageGaps:
 
     def test_handle_db_setup_phase_delegates(self, monkeypatch):
         """handle_db_setup_phase delegates to DbHandler."""
-        from _orchestrator import Orchestrator
         from _db_handler import DbHandler
+        from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -1772,8 +1804,8 @@ class TestOrchestratorCoverageGaps:
 
     def test_get_compose_files_delegates(self, monkeypatch):
         """get_compose_files delegates to DbHandler."""
-        from _orchestrator import Orchestrator
         from _db_handler import DbHandler
+        from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -1785,8 +1817,8 @@ class TestOrchestratorCoverageGaps:
 
     def test_handle_diesel_delegates(self, monkeypatch):
         """handle_diesel delegates to DbHandler."""
-        from _orchestrator import Orchestrator
         from _db_handler import DbHandler
+        from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
@@ -1799,8 +1831,8 @@ class TestOrchestratorCoverageGaps:
 
     def test_handle_db_query_delegates(self, monkeypatch):
         """handle_db_query delegates to DbHandler."""
-        from _orchestrator import Orchestrator
         from _db_handler import DbHandler
+        from _orchestrator import Orchestrator
 
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()

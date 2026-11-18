@@ -20,10 +20,15 @@ from _bootstrap import (
     detect_compose_cmd,
     detect_engine,
 )
-from _compose_up import start_podman_compose
 from _cli_parser import CliParser
+from _compose_up import start_podman_compose
 from _db_handler import DbHandler
-from _devkit_config import inject_rust_version_env
+from _devkit_config import (
+    ContainerProviderConfig,
+    container_provider_diagnostics,
+    inject_rust_version_env,
+    resolve_container_provider,
+)
 from _init_handler import InitHandler
 from _lifecycle import lifecycle_down
 from _lock_manager import LockManager
@@ -54,13 +59,20 @@ class Orchestrator:
         # Go projects do not need Rust environment injection.
         self.parser = CliParser(self.tool_map).build()
         self.dry_run = False
+        self.container_provider = None
+        try:
+            initial_compose = self.compose_engine
+        except RuntimeError:
+            # Help/config parsing must work without a container CLI installed.
+            initial_compose = ["docker", "compose"]
+        self.container_provider: ContainerProviderConfig | None = None
         self.env_vars: dict[str, str] = {
             "USE_DOCKER": "true",
             "COMPOSE_PROJECT_NAME": "leedevkit-test",
             "PODMAN_COMPOSE_PROJECT_NAME": "leedevkit-test",
             "PROJECT_ROOT": str(PROJECT_ROOT),
             "CONTAINER_ENGINE": self.engine,
-            "DOCKER_COMPOSE_CMD": " ".join(self.compose_engine),
+            "DOCKER_COMPOSE_CMD": " ".join(initial_compose),
         }
         self.needs_cleanup = False
         self.owns_project = True
@@ -169,6 +181,15 @@ class Orchestrator:
                 debug_main(args.manifest, args.environment, args.compose_project)
             )
         self.dry_run = args.dry_run
+        self.container_provider = resolve_container_provider(
+            cli_provider=getattr(args, "container_provider", None)
+        )
+        diagnostics = container_provider_diagnostics(self.container_provider)
+        self.env_vars["CONTAINER_PROVIDER"] = self.container_provider.name
+        log_info(
+            "Container provider configuration: "
+            f"{diagnostics['provider']} (source={diagnostics['source']})"
+        )
         if not args.command:
             self.parser.print_help()
             return

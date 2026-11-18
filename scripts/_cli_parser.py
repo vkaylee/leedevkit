@@ -34,8 +34,24 @@ class CliParser:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="Examples:\n  leedevkit test all\n  leedevkit dev up\n  leedevkit dev down",
         )
+        parser.add_argument(
+            "--container-provider",
+            dest="container_provider",
+            metavar="PROVIDER",
+            help=(
+                "Select explicit container provider; precedence is CLI, environment, "
+                "host-local config, repository config, then Docker default"
+            ),
+        )
         parent_parser = argparse.ArgumentParser(add_help=False)
         parent_parser.add_argument("--dry-run", action="store_true")
+        parent_parser.add_argument(
+            "--container-provider",
+            dest="container_provider",
+            metavar="PROVIDER",
+            default=argparse.SUPPRESS,
+            help="Select explicit container provider",
+        )
 
         subparsers = parser.add_subparsers(dest="command", required=True)
         self._setup_test_parser(subparsers, parent_parser)
@@ -49,7 +65,7 @@ class CliParser:
 
     def _setup_test_parser(
         self,
-        subparsers: typing.Any,  # noqa: ANN401
+        subparsers: typing.Any,
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         test_parser = subparsers.add_parser(
@@ -149,7 +165,7 @@ class CliParser:
 
     def _setup_dev_parser(
         self,
-        subparsers: typing.Any,  # noqa: ANN401
+        subparsers: typing.Any,
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         dev_parser = subparsers.add_parser(
@@ -187,7 +203,7 @@ class CliParser:
 
     def _setup_top_level_commands(
         self,
-        subparsers: typing.Any,  # noqa: ANN401
+        subparsers: typing.Any,
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         init_p = subparsers.add_parser("init", parents=[parent_parser])
@@ -245,7 +261,7 @@ class CliParser:
 
     def _setup_run_parser(
         self,
-        subparsers: typing.Any,  # noqa: ANN401
+        subparsers: typing.Any,
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         run_p = subparsers.add_parser(
@@ -272,7 +288,7 @@ class CliParser:
 
     def _setup_update_parser(
         self,
-        subparsers: typing.Any,  # noqa: ANN401
+        subparsers: typing.Any,
         parent_parser: argparse.ArgumentParser,
     ) -> None:
         update_p = subparsers.add_parser(

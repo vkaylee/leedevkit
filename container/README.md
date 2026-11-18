@@ -1,6 +1,36 @@
 # LeeDevKit Container Mode
 
-Built-in Docker infrastructure for Rust and Go projects that need toolchains in containers without manual Dockerfile or Compose setup.
+Built-in container infrastructure for Rust and Go projects that need toolchains
+without manual Dockerfile or Compose setup. Provider selection is explicit and
+configured through LeeDevKit; built-in runtime adapters remain provider-specific.
+
+## Provider configuration
+
+```toml
+[container]
+provider = "docker"
+
+[container.providers.docker]
+cli = ["docker"]
+compose = ["docker", "compose"]
+```
+
+Selection precedence is `--container-provider`, `CONTAINER_PROVIDER`, host-local
+`$XDG_CONFIG_HOME/leedevkit/config.toml` (or `~/.config/leedevkit/config.toml`),
+repository `leedevkit.toml`, then Docker default. Kiri and custom providers need
+explicit command arrays; LeeDevKit never infers compatibility from provider names.
+Host-local files can hold absolute paths and local endpoint settings. Keep secret
+values out of repository configuration and logs.
+
+Configuration alone does not add an adapter or prove provider capabilities. Kiri
+commands in examples are placeholders until its official CLI contract is verified.
+
+| Provider | Native adapter | Docker-compatible wrapper | Required capabilities | CI status |
+|---|---:|---:|---|---|
+| Docker | yes | no | full | required |
+| Kiri | explicit declaration | only if verified | documented | conditional |
+| Podman | optional | no fake wrapper | documented | optional |
+| Unsupported tool | no | no | fail fast | unsupported |
 
 ## Language profiles
 

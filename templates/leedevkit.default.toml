@@ -11,8 +11,24 @@ source = "release"               # "release" | "git" | "local"
 
 [project]
 name = "MyProject"               # display name
-namespace = "myproject"           # docker compose project prefix
+namespace = "myproject"           # compose project prefix
 languages = ["rust", "typescript"] # ["rust", "typescript", "python", "go"]
+
+# Container selection is explicit. This config declares commands only; runtime
+# adapters and capability checks must support the selected provider.
+[container]
+provider = "docker"
+
+[container.providers.docker]
+cli = ["docker"]
+compose = ["docker", "compose"]
+
+# Example explicit adapter declaration. Replace command arrays only after
+# verifying provider semantics; provider names never imply compatibility.
+# [container.providers.kiri]
+# cli = ["kiri"]
+# compose = ["kiri", "compose"]
+# capabilities = ["compose", "config", "up", "down", "ps", "logs", "exec", "run"]
 
 # ── Services ───────────────────────────────────────────────────────────────
 # Each service maps to a Docker Compose service + build context.

@@ -16,10 +16,13 @@ from pathlib import Path
 
 from _bootstrap import PROJECT_ROOT, ensure_project_gitignore
 from _devkit_config import (
+    ContainerProviderConfig,
     _load_toml,
+    container_provider_diagnostics,
     get_devkit_root,
     load_project_config,
     resolve_ai_rules,
+    resolve_container_provider,
 )
 from _download import download_and_extract_tarball, normalize_version
 from _devkit_integrity import verify_devkit
@@ -28,6 +31,69 @@ from _logging import log_info, log_success, log_warn
 
 MUTABLE_RUNTIME_DIRS = (".venv", "skills.d")
 MUTABLE_RUNTIME_FILES = ("dev-state.json",)
+_RUNTIME_COMMANDS = {
+    "docker": ["docker", "--version"],
+    "podman": ["podman", "--version"],
+    "podman-compose": ["podman-compose", "--version"],
+    "kiri": ["kiri", "--version"],
+}
+
+
+def _mask_runtime_output(value: str) -> str:
+    """Keep runtime diagnostics safe when tools print credential-bearing URLs."""
+    import re
+
+    value = re.sub(r"(?i)(https?://)[^/@\s]+:[^/@\s]+@", r"\1<redacted>@", value)
+    return re.sub(
+        r"(?i)(token|password|secret|private[_-]?key)=\S+", r"\1=<redacted>", value
+    )
+
+
+def _runtime_inventory() -> list[dict[str, str]]:
+    """Probe known runtimes without starting containers or mutating state."""
+    inventory: list[dict[str, str]] = []
+    for name, command in _RUNTIME_COMMANDS.items():
+        executable = shutil.which(command[0])
+        item = {"name": name, "status": "unavailable", "path": "", "version": ""}
+        if executable is None:
+            inventory.append(item)
+            continue
+        item["path"] = executable
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
+            output = (result.stdout or result.stderr).strip().splitlines()
+            item["version"] = _mask_runtime_output(
+                output[0] if output else "version unavailable"
+            )
+            item["status"] = (
+                "installed" if result.returncode == 0 else "version check failed"
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            item["status"] = "version check failed"
+            item["version"] = type(error).__name__
+        inventory.append(item)
+    return inventory
+
+
+def _provider_runtime_status(provider: ContainerProviderConfig) -> str:
+    """Return selected provider executable status without command inference."""
+    missing = [
+        command[0]
+        for command in (provider.cli, provider.compose)
+        if shutil.which(command[0]) is None and not Path(command[0]).is_file()
+    ]
+    return (
+        "usable"
+        if not missing
+        else f"missing executable(s): {', '.join(dict.fromkeys(missing))}"
+    )
 
 
 def _replace_runtime_from_release(version: str, runtime: Path) -> Path:
@@ -204,11 +270,15 @@ def _repair_environment() -> None:
         log_success(f"✅ Synchronized AI harnesses ({changed} changed)")
 
 
-def run_doctor(engine: str, fix: bool = False) -> None:
-    """Run a full system health check and report findings.
+def run_doctor(
+    engine: str = "",
+    fix: bool = False,
+    provider: ContainerProviderConfig | None = None,
+) -> None:
+    """Run health checks and report installed plus selected runtimes.
 
-    Args:
-        engine: Container engine name ('podman' or 'docker').
+    ``engine`` remains accepted for compatibility with older callers. New
+    callers should pass the resolved provider; doctor never auto-switches it.
     """
     if fix:
         try:
@@ -269,7 +339,34 @@ def run_doctor(engine: str, fix: bool = False) -> None:
     except (OSError, ValueError, KeyError) as e:
         log_warn(f"⚠️  AI rules: {e}")
 
-    log_success(f"✅ Container Engine: {engine}")
+    inventory = _runtime_inventory()
+    log_info("📦 Installed container runtimes:")
+    for runtime in inventory:
+        if runtime["status"] == "unavailable":
+            log_info(f"   - {runtime['name']}: unavailable")
+        else:
+            log_info(
+                f"   - {runtime['name']}: {runtime['status']}"
+                f" ({runtime['path']}; {runtime['version']})"
+            )
+
+    selected = provider
+    if selected is None and not engine:
+        try:
+            selected = resolve_container_provider()
+        except (OSError, ValueError) as error:
+            log_warn(f"⚠️  Selected container provider: invalid configuration ({error})")
+    if selected is not None:
+        diagnostics = container_provider_diagnostics(selected)
+        status = _provider_runtime_status(selected)
+        log_info(
+            f"🎯 Selected container provider: {diagnostics['provider']} "
+            f"(source={diagnostics['source']}, {status})"
+        )
+    elif engine:
+        log_info(f"🎯 Selected container runtime: {engine} (legacy caller)")
+    else:
+        log_warn("⚠️  No selected container provider")
 
     default_ports = [3000, 8000, 5432]
     connection_timeout = 0.5
@@ -288,9 +385,16 @@ def run_doctor(engine: str, fix: bool = False) -> None:
     else:
         log_info("💡 Virtual Environment: Missing (will be created on next run)")
 
-    if engine:
+    selected_engine = engine
+    if selected is not None and selected.cli:
+        selected_engine = selected.cli[0]
+    if selected_engine and (
+        engine
+        or shutil.which(selected_engine) is not None
+        or Path(selected_engine).is_file()
+    ):
         res = subprocess.run(
-            [engine, "ps", "--format", "{{.Names}}"],
+            [selected_engine, "ps", "--format", "{{.Names}}"],
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
@@ -308,11 +412,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="leedevkit doctor")
     parser.add_argument("--fix", action="store_true")
     args = parser.parse_args()
-    engine = (
-        "podman"
-        if shutil.which("podman")
-        else "docker"
-        if shutil.which("docker")
-        else ""
-    )
-    run_doctor(engine, fix=args.fix)
+    run_doctor(fix=args.fix)

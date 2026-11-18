@@ -89,7 +89,11 @@ Tools: `debug_environment`, `service_health`, `http_get`, `recent_logs`, `databa
 Debug MCP rejects shell execution, writes, migrations, arbitrary URLs/networks, host filesystem/socket access, credentials, cookies/tokens, unapproved paths, cross-environment access, and production selection. Responses and diagnostics are bounded and redacted. Existing task-assessor MCP remains unchanged.
 ./leedevkit dev up                   # start dev environment
 ./leedevkit dev down                 # stop dev environment
-./leedevkit doctor                   # health check: config, containers, devkit location
+./leedevkit doctor                   # health check: config, installed runtimes, selected runtime, containers
+
+# Explicit container-provider selection
+./leedevkit --container-provider docker dev up
+CONTAINER_PROVIDER=kiri ./leedevkit test all
 
 # Skills catalog
 ./leedevkit skills list             # browse built-in + community catalog
@@ -165,6 +169,38 @@ my-project/
 `.claude/settings.local.json` is for local Claude Code permissions and may contain
 machine-specific paths. Keep it untracked; shared project settings belong in
 `.claude/settings.json` when needed.
+
+## Container providers
+
+Provider selection precedence:
+
+```text
+--container-provider > CONTAINER_PROVIDER > host-local config > leedevkit.toml > docker
+```
+
+Repository config stays portable:
+
+```toml
+[container]
+provider = "docker"
+
+[container.providers.docker]
+cli = ["docker"]
+compose = ["docker", "compose"]
+
+# Explicit declaration only. LeeDevKit does not infer Kiri compatibility.
+[container.providers.kiri]
+cli = ["kiri"]
+compose = ["kiri", "compose"]
+capabilities = ["compose", "config", "up", "down", "ps", "logs", "exec", "run"]
+```
+
+Host-local overrides live at `$XDG_CONFIG_HOME/leedevkit/config.toml`, or
+`~/.config/leedevkit/config.toml` when `XDG_CONFIG_HOME` is unset. Use this file
+for absolute executable paths, local socket/endpoint settings, and secret
+references. Do not commit credentials. This configuration slice selects and
+validates declarations only; provider adapters and capability enforcement must
+exist before runtime commands can use a non-default provider.
 
 ## leedevkit.toml
 

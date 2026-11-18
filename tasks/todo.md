@@ -1,5 +1,14 @@
 # TODO: Generic configurable Go quality gates
 
+## Container provider configuration slice
+
+- [x] Add explicit provider config schema and resolver with CLI/env/host/repository/default precedence.
+- [x] Add `--container-provider` parsing before and after subcommands.
+- [x] Add safe provider diagnostics and Docker/Kiri/custom declaration tests.
+- [x] Document repository and host-local configuration, migration, and current adapter limitation.
+- [ ] Follow-up: implement provider adapters, capability enforcement, and integration tests.
+
+
 Plan: [plan.md](plan.md). Implementation not started.
 
 ## Phase 1 — Config and Go execution

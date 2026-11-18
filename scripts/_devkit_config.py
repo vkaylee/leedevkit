@@ -14,10 +14,15 @@ Also resolves the AI rule override manifest (`.agent/overrides.yaml`).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
-from pathlib import Path
 import sys
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+from urllib.parse import SplitResult, urlsplit, urlunsplit
+
 from _runtime import enforce_project_venv
 
 # ── Bootstrap: locate devkit root ──────────────────────────────────────────
@@ -189,6 +194,208 @@ def deep_merge(base: dict, override: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+@dataclass(frozen=True)
+class ContainerProviderConfig:
+    """Explicit container-provider settings resolved from configuration."""
+
+    name: str
+    cli: tuple[str, ...]
+    compose: tuple[str, ...]
+    capabilities: frozenset[str] = field(default_factory=frozenset)
+    settings: Mapping[str, Any] = field(default_factory=dict)
+    source: str = "default"
+
+
+_CONTAINER_CAPABILITIES = frozenset(
+    {
+        "compose",
+        "config",
+        "up",
+        "down",
+        "ps",
+        "logs",
+        "exec",
+        "run",
+        "inspect",
+        "rm",
+        "build",
+        "pull",
+        "network",
+        "volume",
+        "image",
+        "healthcheck",
+        "project_cleanup",
+    }
+)
+_SECRET_KEY = re.compile(
+    r"(?:password|passwd|token|secret|private[_-]?key|api[_-]?key)", re.IGNORECASE
+)
+
+
+def _host_container_config_path() -> Path:
+    """Return portable host-local config path without creating it."""
+    root = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(root).expanduser() if root else Path.home() / ".config"
+    return base / "leedevkit" / "config.toml"
+
+
+def _container_section(config: Mapping[str, Any], source: str) -> dict[str, Any]:
+    raw = config.get("container", {})
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{source}: [container] must be a table")
+    return dict(raw)
+
+
+def _argv_setting(value: Any, field_name: str, source: str) -> tuple[str, ...]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or not item.strip() for item in value)
+    ):
+        raise ValueError(f"{source}: {field_name} must be a non-empty string list")
+    return tuple(value)
+
+
+def _provider_settings(raw: Any, name: str, source: str) -> ContainerProviderConfig:
+    if not isinstance(raw, dict):
+        raise ValueError(f'{source}: provider "{name}" must be a table')
+    cli = _argv_setting(raw.get("cli"), f'[container.providers."{name}"].cli', source)
+    compose = _argv_setting(
+        raw.get("compose"), f'[container.providers."{name}"].compose', source
+    )
+    capabilities_raw = raw.get("capabilities", sorted(_CONTAINER_CAPABILITIES))
+    if not isinstance(capabilities_raw, list) or any(
+        not isinstance(item, str) or item not in _CONTAINER_CAPABILITIES
+        for item in capabilities_raw
+    ):
+        raise ValueError(
+            f'{source}: [container.providers."{name}"].capabilities contains unknown names; '
+            f"choose from {sorted(_CONTAINER_CAPABILITIES)}"
+        )
+    settings = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"cli", "compose", "capabilities"}
+    }
+    return ContainerProviderConfig(
+        name=name,
+        cli=cli,
+        compose=compose,
+        capabilities=frozenset(capabilities_raw),
+        settings=settings,
+        source=source,
+    )
+
+
+def _mask_container_value(value: Any, key: str = "") -> Any:
+    """Redact secret-like values and credentials in diagnostic structures."""
+    if _SECRET_KEY.search(key):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {str(k): _mask_container_value(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_container_value(item, key) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_mask_container_value(item, key) for item in value)
+    if isinstance(value, str):
+        parsed: SplitResult = urlsplit(value)
+        if parsed.username or parsed.password:
+            host = parsed.hostname or ""
+            if parsed.port:
+                host += f":{parsed.port}"
+            return urlunsplit(
+                (parsed.scheme, host, parsed.path, parsed.query, parsed.fragment)
+            )
+    return value
+
+
+def resolve_container_provider(
+    config: Mapping[str, Any] | None = None,
+    *,
+    cli_provider: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    host_config: Mapping[str, Any] | None = None,
+    host_source: str | None = None,
+) -> ContainerProviderConfig:
+    """Resolve explicit container settings without probing or inferring tools."""
+    environ = os.environ if environ is None else environ
+    if config is None:
+        config = load_project_config()
+    repo_section = _container_section(config, "repository configuration")
+    if host_config is None:
+        host_path = _host_container_config_path()
+        host_config = _load_toml(host_path) if host_path.is_file() else {}
+        host_source = str(host_path)
+    host_section = _container_section(host_config, host_source or "host configuration")
+
+    repo_provider = repo_section.get("provider", "docker")
+    if not isinstance(repo_provider, str) or not repo_provider.strip():
+        raise ValueError(
+            "repository configuration: [container].provider must be a non-empty string"
+        )
+    host_provider = host_section.get("provider")
+    if host_provider is not None and (
+        not isinstance(host_provider, str) or not host_provider.strip()
+    ):
+        raise ValueError(
+            "host configuration: [container].provider must be a non-empty string"
+        )
+    selected = (
+        cli_provider
+        or environ.get("CONTAINER_PROVIDER")
+        or host_provider
+        or repo_provider
+    )
+    if not isinstance(selected, str) or not selected.strip():
+        raise ValueError(
+            "container provider must be a non-empty string; set --container-provider or CONTAINER_PROVIDER"
+        )
+    selected = selected.strip()
+
+    repo_providers = repo_section.get("providers", {})
+    host_providers = host_section.get("providers", {})
+    if not isinstance(repo_providers, dict):
+        raise ValueError(
+            "repository configuration: [container.providers] must be a table"
+        )
+    if not isinstance(host_providers, dict):
+        raise ValueError("host configuration: [container.providers] must be a table")
+    raw: Any = repo_providers.get(selected)
+    source = "repository configuration"
+    if selected in host_providers:
+        raw = deep_merge(raw if isinstance(raw, dict) else {}, host_providers[selected])
+        source = host_source or "host configuration"
+    if raw is None:
+        if selected == "docker":
+            raw = {"cli": ["docker"], "compose": ["docker", "compose"]}
+            source = "LeeDevKit default"
+        else:
+            raise ValueError(
+                f'container provider "{selected}" is not defined in {source}; '
+                "add [container.providers.%s] with explicit cli and compose argv"
+                % selected
+            )
+    if cli_provider or environ.get("CONTAINER_PROVIDER"):
+        source = "CLI override" if cli_provider else "CONTAINER_PROVIDER"
+    return _provider_settings(raw, selected, source)
+
+
+def container_provider_diagnostics(provider: ContainerProviderConfig) -> dict[str, Any]:
+    """Return safe provider diagnostics for logs and machine reports."""
+    return _mask_container_value(
+        {
+            "provider": provider.name,
+            "cli": list(provider.cli),
+            "compose": list(provider.compose),
+            "capabilities": sorted(provider.capabilities),
+            "settings": dict(provider.settings),
+            "source": provider.source,
+        }
+    )
 
 
 def load_project_config() -> dict[str, Any]:
