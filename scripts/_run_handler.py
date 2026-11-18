@@ -113,21 +113,12 @@ class RunHandler(HandlerBase):
                 if first_arg in ["run", "test", "nextest"]:
                     needs_db = True
 
-            if needs_db and not is_dev_project:
-                log_info(f"🔹 Bringing up backend dependencies for {tool}...")
-                _lifecycle_up("infra-db")
-
-                log_info(
-                    "ℹ️ 🔹 Bringing up backend dependencies for connection pooler..."
-                )
-                _lifecycle_up("infra-pooler")
             compose_cmd.extend(["--profile", "int-api"])
             if needs_db:
                 compose_cmd.extend(
                     ["--profile", "infra-db", "--profile", "infra-redis"]
                 )
                 if "DATABASE_POOLER_URL" in os.environ:
-                    _lifecycle_up("infra-pooler")  # pragma: no cover
                     compose_cmd.extend(
                         ["--profile", "infra-pooler"]
                     )  # pragma: no cover

@@ -388,8 +388,8 @@ class TestRunHandler:
             with patch("_run_handler._lifecycle_up") as mock_up:
                 handler.handle_run(args)
         orch.execute_safe.assert_called_once()
-        # DB + pooler profiles should have been started
-        assert mock_up.call_count >= 2
+        # Compose command carries dependency profiles; no duplicate lifecycle starts.
+        mock_up.assert_not_called()
 
     def test_handle_run_with_pooler(self):
         """pooler flag sets DATABASE_POOLER_URL env var."""
@@ -1033,15 +1033,9 @@ class TestTestHandler:
             "unit-api",
             "unit-web",
             "int-api",
-            "infra-db",
-            "infra-redis",
-            "infra-pooler",
             "e2e-web",
         ]
         assert [call.kwargs["build"] for call in lifecycle.call_args_list] == [
-            True,
-            True,
-            True,
             True,
             True,
             True,

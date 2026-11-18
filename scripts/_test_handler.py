@@ -599,28 +599,6 @@ class TestHandler(HandlerBase):
                         )
                     else:
                         setup_ok = _lifecycle_up(granular_mode, build=build)
-                    if (
-                        setup_ok
-                        and phase_name == "Integration Tests"
-                        and granular_mode == "int-api"
-                    ):
-                        for dependency_mode in (
-                            "infra-db",
-                            "infra-redis",
-                            "infra-pooler",
-                        ):
-                            dependency_build = self._should_build(dependency_mode, args)
-                            if force_build:
-                                dependency_ok = _lifecycle_up(
-                                    dependency_mode,
-                                    build=dependency_build,
-                                    force_build=True,
-                                )
-                            else:
-                                dependency_ok = _lifecycle_up(
-                                    dependency_mode, build=dependency_build
-                                )
-                            setup_ok = dependency_ok and setup_ok
                 except Exception as exc:
                     log_error(f"Phase setup failed: {exc}")
                     self._record_result(
