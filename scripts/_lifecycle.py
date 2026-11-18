@@ -360,6 +360,8 @@ def lifecycle_up(
     if native_wait:
         return True
 
+    # Legacy providers still resolve service IDs through Compose before using
+    # engine health inspection. This avoids Compose v2 name assumptions.
     health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
         service = _configured_service(mode) or "bun_init"
@@ -406,10 +408,8 @@ def lifecycle_up(
 
     containers_to_check: list[tuple[str, str]] = []
     for label, fallback, service in health_services:
-        container = (
-            _compose_service_container(compose_base, profiles, service, project_name)
-            if dependencies
-            else fallback
+        container = _compose_service_container(
+            compose_base, profiles, service, project_name
         )
         containers_to_check.append((label, container))
 
@@ -456,15 +456,15 @@ def lifecycle_up(
     return True
 
 
-def _is_project_locked(project_name: str) -> bool:
-    """Check if an OS-level file lock is held for the given project name."""
+def _project_lock_path(project_name: str):
     from pathlib import Path
 
-    # We must strip the 'pod_' prefix for podman pods
-    if project_name.startswith("pod_"):
-        project_name = project_name[4:]  # pragma: no cover
+    return Path(tempfile.gettempdir()) / f"{project_name.removeprefix('pod_')}.lock"
 
-    lock_path = Path(tempfile.gettempdir()) / f"{project_name}.lock"
+
+def _is_project_locked(project_name: str) -> bool:
+    """Check if an OS-level file lock is held for the given project name."""
+    lock_path = _project_lock_path(project_name)
     if not lock_path.exists():
         return False
 

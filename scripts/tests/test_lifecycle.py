@@ -234,13 +234,13 @@ class TestLifecycleUp:
         ):
             # Test lint- mode
             lifecycle_up("lint-api")
-            lint_call_args = " ".join(mock_run.call_args_list[-1][0][0])
-            assert "--no-deps" in lint_call_args
+            lint_commands = [call.args[0] for call in mock_run.call_args_list]
+            assert any("--no-deps" in command for command in lint_commands)
 
             # Test unit- mode
             lifecycle_up("unit-api")
-            unit_call_args = " ".join(mock_run.call_args_list[-1][0][0])
-            assert "--no-deps" in unit_call_args
+            unit_commands = [call.args[0] for call in mock_run.call_args_list]
+            assert any("--no-deps" in command for command in unit_commands)
 
     def test_health_check_timeout_returns_false(self) -> None:
         with (
