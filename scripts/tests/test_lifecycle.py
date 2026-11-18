@@ -495,39 +495,31 @@ class TestStaleSweep:
         assert _is_project_locked("proj") is True
 
     @patch("_lifecycle._run")
-    @patch("_lifecycle._get_engine")
-    @patch("_lifecycle._is_project_locked")
-    def test_sweep_stale_environments_podman(
-        self, mock_is_locked: MagicMock, mock_engine: MagicMock, mock_run: MagicMock
+    @patch("_lifecycle._is_project_locked", return_value=False)
+    def test_sweep_stale_environments_uses_compose_metadata(
+        self, mock_is_locked: MagicMock, mock_run: MagicMock
     ) -> None:
         from _lifecycle import sweep_stale_environments
-        from unittest.mock import MagicMock
-
-        mock_engine.return_value = "podman"
-        mock_is_locked.return_value = False
 
         mock_run.return_value = MagicMock(
-            stdout="pod_leeattend-test-12345678\nleeattend-test-87654321_db_system_1"
+            stdout='[{"Name":"leedevkit-test-12345678","Status":"running(1)","ConfigFiles":"/tmp/compose.yml"}]'
         )
         sweep_stale_environments()
-        # Should call pod rm -f and rm -f
-        assert mock_run.call_count == 4  # ps, rm pods, ps, rm containers
+
+        command = mock_run.call_args.args[0]
+        assert command[:2] == ["docker", "compose"]
+        assert command[-3:] == ["--all", "--format", "json"]
+        assert mock_is_locked.called
 
     @patch("_lifecycle._run")
-    @patch("_lifecycle._get_engine")
-    @patch("_lifecycle._is_project_locked")
-    def test_sweep_stale_environments_docker(
-        self, mock_is_locked: MagicMock, mock_engine: MagicMock, mock_run: MagicMock
+    def test_sweep_stale_environments_invalid_metadata_warns(
+        self, mock_run: MagicMock
     ) -> None:
         from _lifecycle import sweep_stale_environments
-        from unittest.mock import MagicMock
 
-        mock_engine.return_value = "docker"
-        mock_is_locked.return_value = False
-
-        mock_run.return_value = MagicMock(stdout="leeattend-test-12345678_db_system_1")
+        mock_run.return_value = MagicMock(stdout="not-json")
         sweep_stale_environments()
-        assert mock_run.call_count == 2  # ps, rm containers
+        assert mock_run.call_count == 1
 
     @patch("_lifecycle._run")
     def test_sweep_stale_environments_exception(self, mock_run: MagicMock) -> None:

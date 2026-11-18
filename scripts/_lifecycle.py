@@ -7,6 +7,7 @@ and force-kill fallbacks for stuck containers.
 
 import contextlib
 import fcntl
+import json
 import os
 import subprocess
 import sys
@@ -478,89 +479,33 @@ def _is_project_locked(project_name: str) -> bool:
 
 
 def sweep_stale_environments() -> None:
-    """Sweep and destroy any test pods/containers older than the configured max age.
-    This acts as a garbage collector for crashed test runs.
-    """
+    """Inspect stale candidates without deleting when age is unverifiable."""
     max_age_mins = int(os.environ.get("TEST_CLEANUP_MAX_AGE_MINUTES", "15"))
-    engine = _get_engine()
-    age_filter = f"until={max_age_mins}m"
     prefix = "leedevkit-test"
-
+    env = bootstrap_env("all")
+    compose = env["DOCKER_COMPOSE_TOOL"].split()
     try:
-        if engine == "podman":
-            # Sweep stale pods
-            res = _run(
-                [
-                    engine,
-                    "pod",
-                    "ps",
-                    "-q",
-                    "--format",
-                    "{{.Name}}",
-                    "--filter",
-                    f"name=pod_{prefix}",
-                    "--filter",
-                    age_filter,
-                ],
-                capture=True,
+        result = _run([*compose, "ls", "--all", "--format", "json"], capture=True)
+        projects = json.loads(result.stdout or "[]")
+        if not isinstance(projects, list):
+            raise ValueError("Compose project listing is not an array")
+        candidates = [
+            project.get("Name")
+            for project in projects
+            if isinstance(project, dict)
+            and isinstance(project.get("Name"), str)
+            and project["Name"].startswith(prefix)
+            and not _is_project_locked(project["Name"])
+        ]
+        candidates = [name for name in candidates if isinstance(name, str)]
+        if candidates:
+            print(
+                f"⚠️ Found {len(candidates)} unlocked Compose projects older than "
+                f"{max_age_mins}m threshold; cleanup skipped because Compose metadata "
+                "does not expose portable project age."
             )
-            pods = [p for p in res.stdout.strip().split() if not _is_project_locked(p)]
-            if pods:
-                print(
-                    f"🧹 Sweeping {len(pods)} stale test pods older than {max_age_mins}m..."
-                )
-                _run([engine, "pod", "rm", "-f"] + pods, silent=True)
-
-            # Sweep stray containers
-            res_c = _run(
-                [
-                    engine,
-                    "ps",
-                    "-aq",
-                    "--format",
-                    "{{.Names}}",
-                    "--filter",
-                    f"name={prefix}",
-                    "--filter",
-                    age_filter,
-                ],
-                capture=True,
-            )
-            containers = [
-                c
-                for c in res_c.stdout.strip().split()
-                if not _is_project_locked(c.split("_")[0])
-            ]
-            if containers:
-                _run([engine, "rm", "-f"] + containers, silent=True)
-        else:
-            # Docker: sweep stale containers
-            res_c = _run(
-                [
-                    engine,
-                    "ps",
-                    "-aq",
-                    "--format",
-                    "{{.Names}}",
-                    "--filter",
-                    f"name={prefix}",
-                    "--filter",
-                    age_filter,
-                ],
-                capture=True,
-            )
-            containers = [
-                c
-                for c in res_c.stdout.strip().split()
-                if not _is_project_locked(c.split("_")[0])
-            ]
-            if containers:
-                print(
-                    f"🧹 Sweeping {len(containers)} stale test containers older than {max_age_mins}m..."
-                )
-                _run([engine, "rm", "-f"] + containers, silent=True)
-    except Exception as e:
-        print(f"⚠️ Warning: Stale environment sweep failed: {e}")
+    except Exception as exc:
+        print(f"⚠️ Warning: Stale environment sweep failed: {exc}")
 
 
 # Containers per lifecycle profile — used for force-kill fallback
