@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Iterator
 
@@ -47,6 +48,20 @@ def _snapshot(paths: tuple[str, ...]) -> dict[str, bytes | str]:
                 elif child.is_file():
                     snapshot[child_relative] = child.read_bytes()
     return snapshot
+
+
+@pytest.fixture(autouse=True)
+def provide_container_cli_paths(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Point unit tests at harmless command names without installing runtimes."""
+    real_which = shutil.which
+
+    def which(command: str) -> str | None:
+        if command in {"docker", "podman", "podman-compose"}:
+            return f"/test-bin/{command}"
+        return real_which(command)
+
+    monkeypatch.setattr(shutil, "which", which)
+    yield
 
 
 @pytest.fixture(autouse=True)

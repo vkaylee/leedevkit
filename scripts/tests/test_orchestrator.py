@@ -428,7 +428,10 @@ class TestHandleCommandDispatch:
     def test_command_doctor_dry(self):
         from _orchestrator import Orchestrator
 
-        with patch.object(Orchestrator, "register_traps", return_value=None):
+        with (
+            patch.object(Orchestrator, "register_traps", return_value=None),
+            patch("_doctor.run_doctor"),
+        ):
             orch = Orchestrator()
             orch.dry_run = True
             args = argparse.Namespace(subcommand="doctor")

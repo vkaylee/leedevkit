@@ -68,7 +68,12 @@ def _runtime_inventory() -> list[dict[str, str]]:
                 check=False,
                 timeout=5,
             )
-            output = (result.stdout or result.stderr).strip().splitlines()
+            raw_output = (
+                result.stdout if isinstance(result.stdout, str) else result.stderr
+            )
+            output = (
+                raw_output.strip().splitlines() if isinstance(raw_output, str) else []
+            )
             item["version"] = _mask_runtime_output(
                 output[0] if output else "version unavailable"
             )
