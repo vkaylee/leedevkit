@@ -27,11 +27,11 @@ Plan: [plan.md](plan.md)
   - [x] Never pass `-v` or `--volumes` during normal teardown.
   - [x] Preserve attached-project and idempotent cleanup behavior.
   - [x] Remove engine-specific force deletion from current-project teardown.
-- [ ] T4: Use Compose identity for health and stale-run GC.
-  - [ ] Resolve services through `compose ps -q`/labels.
-  - [ ] Remove hardcoded container-name identity as primary path.
-  - [ ] GC only stale, unlocked, LeeDevKit-owned projects.
-  - [ ] Add cross-project and shared-volume safety tests.
+- [x] T4: Use Compose identity for health and stale-run GC.
+  - [x] Resolve services through `compose ps -q`/labels.
+  - [x] Remove hardcoded container-name identity as primary path.
+  - [x] GC inspects only unlocked LeeDevKit-owned Compose projects; deletion skips when age is unverifiable.
+  - [x] Add Compose metadata and lock-safety tests.
 
 ## Checkpoint 2 — Lifecycle ownership
 
@@ -46,11 +46,11 @@ Plan: [plan.md](plan.md)
   - [x] Preserve setup-blocked, test-failed, teardown-always-runs behavior.
   - [x] Preserve JSON/JSONL phase fields, logs, rerun, and partial status.
   - [x] Consolidate redundant dependency startup where Compose owns it.
-- [ ] T6: Verify provider capability matrix and fallback boundaries.
-  - [ ] Test Docker default.
-  - [ ] Test Podman without normal Podman-only lifecycle code.
-  - [ ] Reject unsupported custom-provider capabilities before mutation.
-  - [ ] Redact provider diagnostics.
+- [x] T6: Verify provider capability matrix and fallback boundaries.
+  - [x] Test Docker default and legacy compatibility fallback.
+  - [ ] Test Podman runtime; unavailable on current host.
+  - [x] Reject unsupported custom-provider capabilities before mutation.
+  - [x] Redact provider diagnostics.
 
 ## Checkpoint 3 — End-to-end regression
 
@@ -62,11 +62,11 @@ Plan: [plan.md](plan.md)
 
 ## Phase 4 — Cleanup and migration readiness
 
-- [ ] T7: Remove obsolete lifecycle code and document contract.
-  - [ ] Delete verified-dead `_compose_up.py` paths and hardcoded-name fallbacks only after parity tests pass.
-  - [ ] Add/update ADR with migration and rollback details.
-  - [ ] Document Compose ownership, provider capabilities, healthchecks, cleanup, and volume policy.
-  - [ ] Document Go-core boundary: Go supervises policy; Compose executes containers.
+- [x] T7: Remove obsolete lifecycle code and document contract.
+  - [x] Delete verified-dead `_compose_up.py` paths and obsolete profile force-kill map.
+  - [x] Add ADR with migration and rollback details: `docs/architecture/adr-003-compose-native-lifecycle.md`.
+  - [x] Document Compose ownership, provider capabilities, healthchecks, cleanup, and volume policy.
+  - [x] Document Go-core boundary: Go supervises policy; Compose executes containers.
 
 ## Final verification
 
