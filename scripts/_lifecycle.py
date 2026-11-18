@@ -515,22 +515,6 @@ def sweep_stale_environments() -> None:
         print(f"⚠️ Warning: Stale environment sweep failed: {exc}")
 
 
-# Containers per lifecycle profile — used for force-kill fallback
-# when compose down fails to stop PID 1 (e.g. tail -f /dev/null ignoring SIGTERM)
-_PROFILE_CONTAINERS: dict[str, list[str]] = {
-    "frontend": ["bun_init", "webdashboard"],
-    "backend": [
-        "apiserver",
-        "agent-main",
-        "db_system",
-        "db_init",
-        "redis",
-        "pgbouncer_tx",
-        "pgbouncer_sess",
-    ],
-}
-
-
 def lifecycle_down(mode: str = "all") -> None:
     """Tear down current project through Compose without removing volumes."""
     resolve_lifecycle_profiles(mode)
