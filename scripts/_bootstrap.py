@@ -271,7 +271,7 @@ def bootstrap_env(
                 capabilities=frozenset(),
                 source="auto-detected fallback",
             )
-    if selected.capabilities:
+    if selected.source != "auto-detected fallback":
         require_container_capabilities(
             selected, {"compose", "config", "up", "down", "ps"}
         )

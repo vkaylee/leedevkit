@@ -26,7 +26,7 @@ LEGACY_PROVIDER = ContainerProviderConfig(
     name="docker",
     cli=("docker",),
     compose=("docker", "compose"),
-    capabilities=frozenset(),
+    capabilities=frozenset({"compose", "config", "up", "down", "ps"}),
     source="test",
 )
 
