@@ -19,6 +19,7 @@ from _bootstrap import (
     SCRIPTS_DIR,
     bootstrap_env,
     detect_engine,
+    resolve_container_provider,
     resolve_lifecycle_dependencies,
     resolve_lifecycle_profiles,
 )
@@ -192,7 +193,9 @@ def lifecycle_up(
     """
     profiles = resolve_lifecycle_profiles(mode)
     dependencies = list(dict.fromkeys(resolve_lifecycle_dependencies(mode)))
-    env = bootstrap_env(mode)
+    provider = resolve_container_provider()
+    native_wait = "wait" in provider.capabilities
+    env = bootstrap_env(mode, provider)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()
     project_name = env.get(
         "COMPOSE_PROJECT_NAME", os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
@@ -232,6 +235,11 @@ def lifecycle_up(
                 with contextlib.suppress(OSError):
                     previous_override.unlink()
         active_services = _active_services(mode)
+        startup_services = list(
+            dict.fromkeys(
+                active_services + dependencies if native_wait else active_services
+            )
+        )
         if skip_build:
             use_build = False
         elif force_build:
@@ -246,10 +254,15 @@ def lifecycle_up(
         if metadata.override_file is not None:
             effective_compose.extend(["-f", str(metadata.override_file)])
         up_cmd = ["up", "-d", "--build" if use_build else "--no-build"]
+        # Compose owns dependency ordering and health readiness when provider
+        # declares native wait support. Providers without it keep legacy checks
+        # until their adapter is implemented.
+        if native_wait:
+            up_cmd.extend(["--wait", "--wait-timeout", "120"])
         if (mode.startswith("lint-") or mode.startswith("unit-")) and not dependencies:
             up_cmd.append("--no-deps")
-        if active_services:
-            up_cmd.extend(active_services)
+        if startup_services:
+            up_cmd.extend(startup_services)
         up_result = _run(
             effective_compose + profiles + up_cmd, silent=True, capture=False
         )
@@ -277,7 +290,7 @@ def lifecycle_up(
             file=sys.stderr if os.environ.get("LEEDEVKIT_QUIET") == "1" else sys.stdout,
         )
         return False
-    if dependencies:
+    if dependencies and not native_wait:
         dependency_build = False
         if not skip_build and build:
             dependency_build = (
@@ -336,6 +349,9 @@ def lifecycle_up(
     if metadata.override_file is not None:
         with contextlib.suppress(OSError):
             metadata.override_file.unlink()
+    if native_wait:
+        return True
+
     health_services: list[tuple[str, str, str]] = []
     if mode in ("web", "unit-web", "lint-web", "e2e-web"):
         service = _configured_service(mode) or "bun_init"
@@ -564,62 +580,18 @@ _PROFILE_CONTAINERS: dict[str, list[str]] = {
 
 
 def lifecycle_down(mode: str = "all") -> None:
-    """Tear down test infrastructure for the given mode.
-
-    Stops containers via compose for the specified profiles only.
-    Safe for concurrent agents — never touches containers from other profiles.
-
-    After graceful down, force-removes profile-specific containers that
-    compose could not stop (e.g. PID 1 tail -f /dev/null ignoring SIGTERM).
-    """
+    """Tear down current project through Compose without removing volumes."""
     resolve_lifecycle_profiles(mode)
     env = bootstrap_env(mode)
     compose_base = env["DOCKER_COMPOSE_BASE"].split()
-    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
-    engine = _get_engine()
-
-    # With dynamic project names (per-run isolation), we can safely and aggressively
-    # destroy all containers tied to this project to prevent any "dependent container" hangs.
-    if engine == "podman":
-        pod_name = f"pod_{project_name}"
-        _run([engine, "pod", "rm", "-f", pod_name], silent=True)
-
-        # Also catch any stray containers not in the pod but labeled with the project
-        res = _run(
-            [
-                engine,
-                "ps",
-                "-aq",
-                "--filter",
-                f"label=com.docker.compose.project={project_name}",
-            ],
-            capture=True,
-        )
-        if res.stdout.strip():  # pragma: no cover
-            _run([engine, "rm", "-f"] + res.stdout.strip().split(), silent=True)
-    else:
-        res = _run(
-            [
-                engine,
-                "ps",
-                "-aq",
-                "--filter",
-                f"label=com.docker.compose.project={project_name}",
-            ],
-            capture=True,
-        )  # pragma: no cover
-        if res.stdout.strip():  # pragma: no cover
-            _run([engine, "rm", "-f"] + res.stdout.strip().split(), silent=True)
-
-    # Finally run compose down to clean up networks and any dangling state
-    # We MUST NOT use -v here, otherwise we will delete the shared Cargo/Bun cache volumes!
-    # CRITICAL: Use silent=True to prevent PTY hang from leftover daemons.
+    # Compose owns container, network, and orphan removal. Never pass -v: shared
+    # Go/Bun/Cargo cache volumes belong to other runs and must survive.
     _run(
         compose_base + ["down", "--remove-orphans", "--timeout", "1"],
         silent=True,
     )
 
-    # Perform global garbage collection of crashed tests
+    # Keep stale-run policy separate from current project teardown.
     sweep_stale_environments()
 
 

@@ -22,8 +22,6 @@ from _devkit_config import (
     resolve_version_gate,
     resolve_test_build_policy,
     resolve_test_targets,
-    container_provider_diagnostics,
-    resolve_container_provider,
 )
 
 

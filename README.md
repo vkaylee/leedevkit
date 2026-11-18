@@ -337,10 +337,13 @@ Configure services that must start and pass healthchecks for a lifecycle mode:
 
 The key is LeeDevKit lifecycle mode. Values are service names in the project's
 Compose file. LeeDevKit starts the mode's primary service and listed dependencies
-in the same isolated Compose project, then waits for their healthchecks. Missing
-configuration preserves existing behavior. Unit and lint modes do not start these
-services unless configured for that exact mode. For a chain, list each required
-service explicitly, for example `"int-go" = ["A", "B", "C", "D"]`.
+in the same isolated Compose project. Providers declaring `wait` delegate ordering
+and health readiness to Compose via `up --wait --wait-timeout 120`; older providers
+use bounded compatibility checks. Add Compose `depends_on` conditions and
+healthchecks when dependency ordering matters. Missing configuration preserves
+existing behavior. Unit and lint modes do not start these services unless
+configured for that exact mode. For a chain, list each required service explicitly,
+for example `"int-go" = ["A", "B", "C", "D"]`.
 
 ## Rust-Only Project
 

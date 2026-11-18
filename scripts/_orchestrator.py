@@ -21,7 +21,6 @@ from _bootstrap import (
     detect_engine,
 )
 from _cli_parser import CliParser
-from _compose_up import start_podman_compose
 from _db_handler import DbHandler
 from _devkit_config import (
     ContainerProviderConfig,
@@ -59,7 +58,6 @@ class Orchestrator:
         # Go projects do not need Rust environment injection.
         self.parser = CliParser(self.tool_map).build()
         self.dry_run = False
-        self.container_provider = None
         try:
             initial_compose = self.compose_engine
         except RuntimeError:
@@ -181,11 +179,19 @@ class Orchestrator:
                 debug_main(args.manifest, args.environment, args.compose_project)
             )
         self.dry_run = args.dry_run
-        self.container_provider = resolve_container_provider(
+        provider = resolve_container_provider(
             cli_provider=getattr(args, "container_provider", None)
         )
+        self.container_provider = provider
+        # Make resolved provider available to every lifecycle helper, including
+        # handlers that only receive the orchestrator environment.
+        os.environ["CONTAINER_PROVIDER"] = self.container_provider.name
+        os.environ["CONTAINER_ENGINE"] = self.container_provider.cli[0]
+        os.environ["DOCKER_COMPOSE_TOOL"] = " ".join(self.container_provider.compose)
         diagnostics = container_provider_diagnostics(self.container_provider)
         self.env_vars["CONTAINER_PROVIDER"] = self.container_provider.name
+        self.env_vars["CONTAINER_ENGINE"] = self.container_provider.cli[0]
+        self.env_vars["DOCKER_COMPOSE_TOOL"] = " ".join(self.container_provider.compose)
         log_info(
             "Container provider configuration: "
             f"{diagnostics['provider']} (source={diagnostics['source']})"
@@ -299,9 +305,6 @@ class Orchestrator:
             files = self.get_compose_files("dev")
             if sub == "clean":
                 cmd = self.compose_engine + files + ["down", "-v"]
-            elif sub == "up" and self.engine == "podman":
-                self.execute_podman_up(self.compose_engine + files)
-                return True
             else:
                 cmd = self.compose_engine + files + [sub]
                 if sub == "up":
@@ -367,16 +370,6 @@ class Orchestrator:
 
     def get_compose_files(self, env: str) -> list[str]:
         return self._db_handler.get_compose_files(env)
-
-    def execute_podman_up(self, compose: list[str]) -> None:
-        """Sequence Podman Compose services using resolved dependency conditions."""
-        if self.dry_run:
-            log_info(f"🔍 Dry-run: Executing {' '.join([*compose, 'up', '-d'])}")
-            return
-        current_env = os.environ.copy()
-        current_env.update(self.env_vars)
-        current_env.pop("PODMAN_COMPOSE_PROJECT_NAME", None)
-        start_podman_compose(compose, current_env, self.execute_safe)
 
     def execute_safe(
         self, cmd: list[str], env: dict[str, str] | None = None, timeout: int = 1800

@@ -29,6 +29,11 @@ services:
       - CARGO_TARGET_DIR=/workspace/target
       - RUSTC_WRAPPER=
     stdin_open: true
+    healthcheck:
+      test: ["CMD", "rustc", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
 volumes:
   cargo-registry:

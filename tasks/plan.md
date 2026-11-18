@@ -1,202 +1,197 @@
-# Implementation Plan: Generic configurable Go quality gates
+# Implementation Plan: Compose-Native Lifecycle Migration
 
 ## Context
 
-LeeDevKit has fixed phase orchestration, Compose lifecycle, timeout/process cleanup, logs, and JSON/JSONL reports. Go support currently covers fixed `gofmt`, `go vet`, `go test`, and coverage paths; `int-go` maps to lifecycle but schedules no Go integration task. Config validates only build policy and lifecycle dependencies. Downstream LeeAttend currently carries project-specific Go gates that should become generic LeeDevKit capabilities without LeeAttend names, paths, credentials, migration layout, images, or tool versions.
+LeeDevKit currently splits container lifecycle ownership between Compose and engine-specific Python code. `scripts/_lifecycle.py` drives Compose `up`, but manually polls engine health, removes containers before `compose down`, and scans stale containers. `scripts/_compose_up.py` independently topologically sorts dependencies and calls `podman inspect`/`podman rm`. `scripts/_orchestrator.py` special-cases Podman. This duplicates Compose behavior, breaks provider portability, and complicates planned Go core migration.
 
-Planning inspected `CLAUDE.md`, `templates/CLAUDE.base.md`, relevant `.agent/rules/*`, CLI/config/orchestration/lifecycle/runner/reporting code, Go tests, lifecycle tests, and packaging rules. Existing tasks files described older `--pattern` work; this plan replaces them for requested quality-gate work.
+Goal: make Compose/Compose-compatible CLI own service lifecycle while LeeDevKit remains policy supervisor. Preserve test isolation, ownership locks, build-freshness policy, test phases, reports, cleanup safety, provider selection, and shared-volume protection.
 
-## Existing architecture to reuse
+## Architecture decision
 
-- `scripts/_cli_parser.py:49-142`: argparse test flags, timeout, fix, JSON/JSONL, quiet.
-- `scripts/_orchestrator.py:40-235`: target dispatch, isolated Compose project, lock, signal/atexit cleanup.
-- `scripts/_devkit_config.py:139-276,350-465`: TOML loading/cascade, deep merge, lifecycle dependencies, target expansion, mode map.
-- `scripts/_test_handler.py:69-160,196-380,457-632`: phase selection, status/report generation, JSONL events, lifecycle setup/teardown.
-- `scripts/_test_utils.py:165-257,286-490`: Compose argv construction, detached stdin, timeout/process cleanup, logs, command and exit metadata.
-- `scripts/_test_modules.py:77-177,218-343,346-405,407-539`: language detection, Go service/workdir resolution, current Go command generation.
-- `scripts/_bootstrap.py:96-183,196-277` and `scripts/_lifecycle.py:179-432,566-623`: profiles, configured dependency services, health checks, build policy, teardown.
-- Tests: `scripts/tests/test_devkit_config.py`, `test_test_modules.py`, `test_test_utils.py`, `test_handlers.py`, `test_lifecycle.py`, `test_bootstrap.py`, `test_usage.py`.
+- Compose owns service create/start/stop/remove, dependency conditions, healthcheck definitions, network, project labels, volumes, `ps`, `logs`, and `exec`.
+- LeeDevKit owns project-name generation, lock/ownership, build/no-build decision, lifecycle profile/dependency policy, phase orchestration, timeout/reporting, stale-run policy, and provider capability selection.
+- Resolve provider command once; lifecycle code invokes only resolved Compose argv. No direct `docker`, `podman`, or `kiri` calls in generic lifecycle paths.
+- Resolve service identity through `compose ps -q` or Compose labels. Hardcoded `<project>_<service>_1` is fallback only.
+- Never pass `-v`/`--volumes` during normal teardown; shared Go/Bun cache volumes must survive.
+- Prefer Compose-native readiness (`up --wait` where supported). Keep bounded health fallback only for providers without wait capability, with explicit diagnostics.
 
 ## Dependency graph
 
 ```text
-Config normalization/validation + default gate contract
-    ├── Go gate command selection and integration path
-    └── Generic configured-gate dispatch
-            └── Gate-level evidence/report contract
-                    ├── base-ref/new-findings support
-                    ├── generated freshness hook
-                    └── tool-version validation / false-green checks
-                            └── docs, migration, final verification
+provider resolution + Compose capability model
+    ├── Compose command/project/profile construction
+    │       ├── Compose-native up/readiness
+    │       ├── Compose-native down/ps/identity
+    │       └── provider fallback behavior
+    └── lifecycle policy (build freshness, ownership, lock)
+            └── TestHandler phase setup/teardown
+                    └── orchestrator cleanup and stale-run GC
+                            └── release/CI acceptance
 ```
-
-Existing command runner and lifecycle are shared foundations. Rust/TypeScript paths stay compatibility branches and must not depend on Go changes.
-
-## Architecture decisions
-
-1. Extend existing TOML config with a small normalized gate model. Do not create plugin framework or second executor.
-2. Validate command values at config/CLI trust boundaries. Preserve argv semantics; reuse existing runner and Compose lifecycle. Add tests for shell/option injection.
-3. Normalize stable name, phase, command, working directory, service, timeout, required, condition, failure policy, optional environment allowlist, base-ref capability, expected version, and setup/fix metadata only where needed.
-4. Missing quality config preserves current behavior. Optional Go tools remain opt-in; configured missing tools are `blocked` or `failed`, never passed. No runtime downloads or floating `latest`.
-5. Add gate-level evidence while preserving phase-level report fields and existing Rust/TypeScript behavior.
-6. Full seeded verification may be deferred if it requires a large new framework. Fail-closed no-op/malformed/missing-evidence tests are mandatory; deferred scope must be explicit.
 
 ## Vertical task slices
 
-### Phase 1: Config and Go execution
+### Phase 1: Provider-neutral Compose boundary
 
-#### Task 1: Define and validate quality-gate config
+#### Task 1: Define Compose lifecycle command boundary
 
-**Description:** Add normalized quality-gate resolution at the config boundary. Preserve TOML cascade, build policy, lifecycle dependencies, targets, and legacy configs. Add generic schema plus Go default declarations without project-specific values.
+**Description:** Add a small internal Compose client/helper around existing `bootstrap_env`, resolved provider command, project, Compose files, profiles, and safe runner. Do not change observable lifecycle behavior yet.
+
+**Likely files:** `scripts/_bootstrap.py`, `scripts/_devkit_config.py` if capability lookup is required, focused tests.
 
 **Acceptance criteria:**
-- [ ] Missing `[quality]` preserves current Rust/TypeScript and existing Go behavior.
-- [ ] Valid gates normalize name, phase, argv command, workdir, service, timeout, required, condition, failure policy, and optional metadata.
-- [ ] Wrong section/type, empty command, invalid path/timeout/phase/policy, duplicate name, unsafe env key, and unsupported version syntax fail before lifecycle startup.
-- [ ] Go defaults cover format, vet, unit; race/staticcheck/golangci-lint/govulncheck/mod verify/integration/generated/version remain opt-in unless configured.
-- [ ] No LeeAttend service, path, image, credential, migration path, or tool version enters defaults.
+- [ ] Generated commands use resolved provider Compose argv, project name, files, and profiles in deterministic order.
+- [ ] Commands remain argv lists; no shell interpolation.
+- [ ] Docker, Podman, and declared custom providers work without direct engine-name branching.
+- [ ] Missing/unsupported capability fails before mutation.
+- [ ] Existing config precedence and project isolation remain unchanged.
+
+**Verification:**
+- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_bootstrap.py scripts/tests/test_devkit_config.py -q`
+- Exact-argv tests for Docker, Podman, and custom provider.
 
 **Dependencies:** None.
 
-**Likely files:** `scripts/_devkit_config.py`, `templates/leedevkit.default.toml` or `templates/leedevkit.go.toml`, `scripts/tests/test_devkit_config.py`.
+#### Task 2: Move dependency ordering and startup readiness into Compose
 
-**Verification:**
-- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_devkit_config.py -q`
-- Add tests for missing section, old config, wrong type, empty command, bad path, duplicate name, deterministic ordering, Go defaults, Rust/TypeScript compatibility.
+**Description:** Make `lifecycle_up` invoke Compose-native `up` with configured profiles/services and readiness. Retire custom Podman topological startup as default.
 
-#### Task 2: Complete Go vertical path
-
-**Description:** Use normalized gates and existing runner/lifecycle to execute Go lint/unit/race/integration/coverage. Add configured setup/migration support without DB credentials, migration paths, or destructive defaults. Make `int-go` execute configured integration work and always tear down.
+**Likely files:** `scripts/_lifecycle.py`, `scripts/_compose_up.py`, `scripts/_bootstrap.py`, Compose templates, `scripts/tests/test_lifecycle.py`, `scripts/tests/test_compose_up.py`.
 
 **Acceptance criteria:**
-- [ ] Default `go test ./...` remains unit behavior; configured race gate runs only when selected/configured.
-- [ ] Integration dependencies use existing lifecycle config; setup success precedes test; setup/readiness failure is `blocked`; test non-zero is `failed`; teardown runs after all outcomes.
-- [ ] Missing tool binary reports `blocked`/`failed` with remediation evidence, never green.
-- [ ] Existing timeout, cancellation, signal, detached stdin, stderr/log capture, exit code, and rerun behavior remains intact.
-- [ ] Rust/TypeScript task generation is unchanged.
+- [ ] Normal startup uses one Compose lifecycle path for Docker, Podman, and custom providers.
+- [ ] Dependency order and `service_healthy`/`service_completed_successfully` come from Compose config, not Python graph traversal.
+- [ ] Build, `skip_build`, and phase build policies retain current semantics.
+- [ ] Readiness timeout/startup failure/unhealthy dependency become blocked/false with diagnostics.
+- [ ] Custom Podman path is removed or reduced to documented capability-gated fallback.
+
+**Verification:**
+- Mock exact-argv/readiness/timeout/build/failure tests.
+- Temporary Compose fixtures for healthy dependency, failed job, cycle/config failure, and missing service.
+- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_lifecycle.py scripts/tests/test_compose_up.py scripts/tests/test_bootstrap.py -q`
 
 **Dependencies:** Task 1.
 
-**Likely files:** `scripts/_test_modules.py`, `scripts/_test_handler.py`, `scripts/_test_utils.py`, `scripts/_bootstrap.py` only if profile mapping requires it, Go/handler tests.
+### Checkpoint 1: Startup contract
 
-**Verification:**
-- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_test_modules.py scripts/tests/test_test_utils.py scripts/tests/test_handlers.py -q`
-- Mock pass/non-zero/missing binary/timeout/cancel/signal/large stderr/dangerous input.
-- Use temporary Go fixture for unit/race/integration/malformed evidence when runtime exists; report unavailable runtime as blocked.
-- `./bin/leedevkit test go --unit-only --json` and `./bin/leedevkit test go --lint-only --json` when configured runtime exists.
+- [ ] Compose is sole normal startup orchestrator.
+- [ ] No direct Podman calls occur in normal `lifecycle_up`.
+- [ ] Build freshness and project isolation tests pass.
+- [ ] Rust, web, and Go mode mappings remain compatible.
+- [ ] Human review before teardown/GC changes.
 
-### Checkpoint 1: Config and Go contract
+### Phase 2: Compose-owned teardown and identity
 
-- [ ] Normalized schema remains small and reusable.
-- [ ] Config errors happen before Compose startup.
-- [ ] Go integration cannot silently become green with no task.
-- [ ] Rust/TypeScript regression tests pass.
+#### Task 3: Make teardown Compose-native and volume-safe
 
-### Phase 2: Generic dispatch and reporting
+**Description:** Replace preemptive engine container removal in `lifecycle_down` with Compose `down --remove-orphans --timeout N`; retain only bounded, capability-gated fallback. Preserve ownership and attached-project behavior.
 
-#### Task 3: Generic configured-gate dispatch
-
-**Description:** Run normalized gates by phase through existing `TestHandler.run_phase`, `build_compose_exec`, `run_parallel_ordered`, lifecycle profiles, and dependency resolution. Keep fixed Rust/TypeScript paths intact.
+**Likely files:** `scripts/_lifecycle.py`, `scripts/_orchestrator.py`, `scripts/tests/test_lifecycle.py`, `scripts/tests/test_orchestrator.py`.
 
 **Acceptance criteria:**
-- [ ] One custom configured gate runs end-to-end in declared phase/service/workdir.
-- [ ] Ordering, timeout, condition, required flag, and failure policy are deterministic.
-- [ ] Gate log is phase/gate-specific and report includes command, target, service/container, workdir, status, exit code, duration, log, and rerun.
-- [ ] Required failure fails overall; optional failure follows policy and remains visible; blocked/skipped stay distinct.
-- [ ] Required configured gate or phase cannot silently become empty passed task.
+- [ ] Owned teardown calls Compose with correct project/files and `--remove-orphans`.
+- [ ] Normal teardown never passes `-v` or `--volumes`.
+- [ ] External/attached projects are never torn down on process exit.
+- [ ] Cleanup is idempotent and runs after success, failure, timeout, and signal paths.
+- [ ] Fallback is project-scoped and cannot delete unrelated containers.
+- [ ] Stale sweep is not broad container-name deletion.
+
+**Verification:**
+- Mock command-order, volume-safety, ownership, idempotency, and failure-log tests.
+- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_lifecycle.py scripts/tests/test_orchestrator.py -q`
 
 **Dependencies:** Tasks 1–2.
 
-**Likely files:** `scripts/_test_handler.py`, `scripts/_test_modules.py`, `scripts/_lifecycle.py`, `scripts/_devkit_config.py`, `scripts/tests/test_handlers.py`, `scripts/tests/test_lifecycle.py`.
+#### Task 4: Use Compose identity for health and stale-run GC
 
-**Verification:**
-- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_handlers.py scripts/tests/test_test_modules.py scripts/tests/test_lifecycle.py -q`
-- Dry-run/mocked lifecycle tests for exact argv, injection safety, no-task, required/optional, setup blocked, mixed status, teardown.
+**Description:** Replace hardcoded container names and broad engine scans with Compose `ps`, project labels, lock state, age metadata, and bounded diagnostics.
 
-#### Task 4: Truthful gate-level reporting and base-ref/new-findings
-
-**Description:** Extend JSON summary and JSONL events with gate evidence and optional base-ref metadata. Add `--base-ref` only if parser scope stays small; otherwise support config first. Resolve refs with safe argument-list Git calls. Activate new-findings mode only for gates declaring support.
+**Likely files:** `scripts/_lifecycle.py`, `scripts/_test_utils.py` if helpers are reused, lifecycle/test utility tests.
 
 **Acceptance criteria:**
-- [ ] Each gate result has phase, target, gate, command, status, required, exit code, duration, log, rerun, service/container, and workdir.
-- [ ] JSON and JSONL remain parseable; JSONL sequence remains monotonic; human logs stay off machine stdout.
-- [ ] Missing/invalid base ref, failed resolution, shallow/unavailable diff, or malformed evidence is explicit `blocked`/`failed`, never pass.
-- [ ] Report records base ref, resolved commit, changed paths, whether new-findings ran, and skip reason when unsupported.
-- [ ] Unsupported gate does not receive `--new-from-rev` blindly; it runs full or skips with reason.
-- [ ] Focused/skipped/no-task runs are `partial` with `full_regression=false`; required failures never become passed/exit 0.
+- [ ] Service identity resolves through `compose ps -q` or Compose labels; hardcoded names are fallback only.
+- [ ] Health checks cannot cross project boundaries.
+- [ ] GC removes only stale LeeDevKit-owned, unlocked projects with matching labels/age.
+- [ ] Active, external, different-provider, and malformed metadata are preserved or reported safely.
+- [ ] Diagnostics include project, service, status, and rerun command without secrets.
+
+**Verification:**
+- Fixture tests for active lock, stale unlocked project, external project, missing labels, multiple services, and shared volumes.
+- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_lifecycle.py scripts/tests/test_test_utils.py -q`
 
 **Dependencies:** Task 3.
 
-**Likely files:** `scripts/_cli_parser.py`, `scripts/_test_handler.py`, `scripts/_test_utils.py`, `scripts/tests/test_handlers.py`, `scripts/tests/test_usage.py`.
+### Checkpoint 2: Lifecycle ownership
+
+- [ ] Compose owns normal up/down/health/dependency behavior.
+- [ ] LeeDevKit owns policy, lock, ownership, build decision, and reports.
+- [ ] Normal cleanup/GC cannot delete unrelated containers or volumes.
+- [ ] Failure paths preserve truthful blocked/failed status.
+
+### Phase 3: Test orchestration and provider compatibility
+
+#### Task 5: Integrate Compose-native lifecycle with test phases
+
+**Description:** Update `TestHandler` setup/teardown to consume the new lifecycle contract without changing phase/report semantics. Remove special dependency startup where Compose declarations cover it.
+
+**Likely files:** `scripts/_test_handler.py`, `scripts/_orchestrator.py`, `scripts/_lifecycle.py`, `scripts/tests/test_handlers.py`, `scripts/tests/test_orchestrator.py`.
+
+**Acceptance criteria:**
+- [ ] Lint/unit/integration/e2e phases start only declared services and dependencies.
+- [ ] Setup failure blocks phase; test failure remains failed; teardown always executes.
+- [ ] JSON and JSONL retain machine-readable phase fields, logs, and rerun evidence.
+- [ ] Rust/TypeScript/Go behavior outside lifecycle remains unchanged.
+- [ ] `--skip-build`, focused flags, and `build_policy = "phase"` retain semantics.
 
 **Verification:**
-- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_handlers.py scripts/tests/test_usage.py -q`
-- Direct `json.loads()` tests for every JSON summary/event.
-- Cases for JSONL, quiet, log/rerun, invalid/missing base ref, supported/unsupported gate, empty paths, mixed status.
+- Mock tests for pass, setup failure, timeout, signal, test failure, teardown failure, JSON, and JSONL.
+- `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_handlers.py scripts/tests/test_orchestrator.py scripts/tests/test_lifecycle.py -q`
 
-### Checkpoint 2: End-to-end reporting
+**Dependencies:** Tasks 2–4.
 
-- [ ] `./bin/leedevkit test all --json` report parses as JSON.
-- [ ] `./bin/leedevkit test all --json-stream --quiet` emits parseable JSONL only.
-- [ ] Failed/blocked/skipped required gates cannot produce green status.
-- [ ] Existing Rust/TypeScript report consumers retain required fields.
+#### Task 6: Verify provider capability matrix and fallback boundaries
 
-### Phase 3: Hooks, validation, docs
+**Description:** Define lifecycle capabilities (`config`, `up`, `down`, `ps`, health/wait, project cleanup, optional removal fallback). Fail closed for unsupported operations; never infer compatibility from provider name.
 
-#### Task 5: Generated-code freshness hook
-
-**Description:** Add generic configured generated freshness and optional explicitly declared fix command. Run in declared service/container/workdir. Check mode never overwrites generated files.
+**Likely files:** `scripts/_devkit_config.py`, `scripts/_lifecycle.py`, `scripts/_orchestrator.py`, provider/config tests, docs/templates if contract changes.
 
 **Acceptance criteria:**
-- [ ] Configured hook runs in declared container/service.
-- [ ] Diff/non-zero and missing command fail/block; check mode leaves source unchanged.
-- [ ] `--fix` exists only when project declares fix command.
-- [ ] Changed generated paths are recorded when safely obtainable.
-- [ ] No SQL/OpenAPI tool/path appears in LeeDevKit defaults.
+- [ ] Docker default path passes.
+- [ ] Podman path passes without normal Podman-only lifecycle code.
+- [ ] Custom provider is accepted only for declared supported capabilities.
+- [ ] Unsupported readiness/cleanup is explicit and bounded, never silently green.
+- [ ] Diagnostics redact secrets and expose source/capability state.
 
-**Dependencies:** Task 4.
+**Verification:**
+- Provider matrix tests with mocked command paths/capabilities.
+- `./leedevkit test infra --lint-only`
+- `./leedevkit test infra --unit-only`
+- Integration lifecycle check when runtime exists; otherwise report blocked with exact reason.
 
-**Likely files:** config, gate dispatch, focused tests, generic template/docs if needed.
+**Dependencies:** Tasks 1–5.
 
-**Verification:** Temporary workspace clean/changed/missing-tool/error/fix cases; assert check mode preserves working tree.
+### Checkpoint 3: End-to-end regression
 
-#### Task 6: Tool versions and false-green contract
+- [ ] `./leedevkit test all --json` passes or reports runtime limitation truthfully.
+- [ ] `./leedevkit test all --json-stream --quiet` emits parseable JSONL only.
+- [ ] Compose project isolation works under concurrent test invocations.
+- [ ] Shared cache volumes survive teardown.
+- [ ] Docker and Podman behavior are verified separately where available.
 
-**Description:** Validate optional expected tool versions and fail closed on empty/no-op/malformed evidence. Implement seeded isolated-workspace verification only if existing architecture supports it without a large framework; otherwise document exact deferral.
+### Phase 4: Cleanup, docs, and migration readiness
 
-**Acceptance criteria:**
-- [ ] Actual/expected versions appear in report.
-- [ ] Mismatch, missing tool, or malformed version output is blocked/failed, never passed.
-- [ ] No runtime Internet download or floating `latest`.
-- [ ] Seeded verification, if implemented, uses temporary workspace, proves seeded fail then clean pass, and cleans up all paths.
-- [ ] If deferred, false-green tests cover empty/no-op/malformed/missing evidence and plan records limitation.
+#### Task 7: Remove obsolete lifecycle code and document contract
 
-**Dependencies:** Task 4.
+**Description:** Delete verified-dead custom dependency/container deletion paths, update docs/templates, and record migration/rollback notes. Keep compatibility fallback until capability tests and release acceptance prove it unused.
 
-**Likely files:** runner/handler/config plus `scripts/tests/test_test_utils.py` and `test_handlers.py`.
-
-**Verification:** Mock version match/mismatch/missing/malformed; runner exit 0 without evidence, malformed output, non-zero, timeout, signal.
-
-### Checkpoint 3: Adversarial review
-
-- [ ] Injection, option injection, path traversal, environment leakage, and secret log exposure reviewed.
-- [ ] False-green matrix covers no task, missing binary, setup blocked, timeout, cancellation, signal, malformed evidence, optional/required.
-- [ ] Teardown runs after every failure path.
-
-#### Task 7: Documentation, migration, final verification
-
-**Description:** Document minimal schema, Go defaults, integration dependency/setup contract, base-ref semantics, generated hooks, versions, statuses, downstream migration, and limitations. Use generic placeholders only.
+**Likely files:** `scripts/_compose_up.py`, `scripts/_lifecycle.py`, `README.md`, `templates/leedevkit.default.toml`, `docs/architecture/`, tests, `CHANGELOG.md` if required by convention.
 
 **Acceptance criteria:**
-- [ ] README/templates document valid config and compatibility defaults.
-- [ ] Migration note explains replacing downstream adapter gates while retaining project-owned DB/migration/tool policy.
-- [ ] CLI help documents supported flags or states config-driven-only behavior.
-- [ ] Implemented, deferred, blocked, and skipped capabilities are distinct.
-- [ ] No unrelated dependency or packaging changes.
-
-**Dependencies:** Tasks 1–6.
-
-**Likely files:** `README.md`, generic template, `CHANGELOG.md`, `tasks/plan.md`, `tasks/todo.md`; CI only if required by report/base-ref contract.
+- [ ] Obsolete direct engine lifecycle code is removed or has documented fallback purpose.
+- [ ] Compose-native ownership, healthchecks, provider capabilities, cleanup, and volume policy are documented.
+- [ ] Rollback to prior release is executable without destroying project data/shared volumes.
+- [ ] ADR contains context, decision, alternatives, consequences, security/operations impact, migration, rollback, owner, and status.
+- [ ] Docs do not claim unsupported provider/runtime behavior.
 
 **Verification:**
 - `./leedevkit --help`
@@ -208,36 +203,32 @@ Existing command runner and lifecycle are shared foundations. Rust/TypeScript pa
 - `ruff format --check scripts`
 - `ruff check scripts`
 - `mypy scripts`
-- `bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit` for existing paths
-- If packaging/install/bootstrap/release files change, run release build and acceptance commands from `.agent/rules/devkit-internals.md`.
+- `git diff --check`
+- If packaging/runtime files change, run release build and acceptance commands from `.agent/rules/devkit-internals.md`.
 
-## Mandatory test-impact matrix
+**Dependencies:** Tasks 1–6.
 
-| Area | Scenarios | Planned coverage |
-|---|---|---|
-| Config | missing section, old config, wrong type, empty command, bad path, duplicate gate | Task 1 |
-| Execution | zero/non-zero, missing binary, timeout, cancellation, signal, large stderr, dangerous input | Tasks 2, 3, 6 |
-| Phase state | pass, required fail, optional fail, blocked setup, skipped, no task, mixed | Tasks 3, 4 |
-| Go | gofmt, vet, unit, race, staticcheck, govulncheck, mod verify, integration | Tasks 1, 2 |
-| Reporting | JSON, JSONL, quiet, logs, rerun, full regression | Task 4 |
-| Lifecycle | build/no-build, cleanup success/failure, readiness | Tasks 2, 3 |
-| Compatibility | Rust, TypeScript, current Go config, current flags | Tasks 1–4, 7 |
+### Final checkpoint
+
+- [ ] All task acceptance criteria pass.
+- [ ] Full regression and packaging evidence reported with exact commands.
+- [ ] Remaining provider/runtime limitations are explicit.
+- [ ] Human approves Go migration using this Compose boundary.
 
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Schema becomes plugin framework | High | Keep normalized fields minimal; reuse runner/lifecycle. |
-| Existing `bash -c` command boundary | High | Validate/quote dynamic data, add injection tests, avoid shell interpolation for untrusted values. |
-| Integration setup touches real DB | High | Require disposable/test lifecycle config; no destructive defaults; teardown in finally. |
-| Report consumers break | High | Preserve phase fields and statuses; add gate records compatibly; test old fields. |
-| Base ref unavailable in shallow CI | Medium | Block explicitly; never default to `origin/main`. |
-| Tool versions vary | Medium | Project declares expected versions; validate only; never install. |
-| Seeded verification too large | Medium | Fail-closed evidence tests now; explicit deferral and follow-up. |
-| Default template filename mismatch | Medium | Verify runtime path and add focused regression before changing template loading. |
+| Compose implementations differ in `--wait` and dependency semantics | High | Capability-gate wait; bounded fallback; provider matrix tests. |
+| Teardown removes another run's containers | High | Explicit project name, ownership lock, Compose labels, project-scoped cleanup tests. |
+| Shared cache volume deletion | High | Never use `-v`/`--volumes`; assert in tests. |
+| Health status becomes falsely green | High | Service-specific readiness and explicit blocked status on timeout/failure. |
+| Custom provider is treated as Docker-compatible incorrectly | High | Explicit capabilities and fail-closed validation. |
+| Existing phase/report consumers break | Medium | Preserve phase schema; test JSON and JSONL contracts. |
+| Python compatibility path becomes permanent | Medium | Record owner/removal condition; remove after acceptance evidence. |
 
-## Open decisions for implementation review
+## Open questions
 
-- Make config-driven behavior primary; add `--base-ref` only if parser/report scope remains small.
-- Keep optional Go tools opt-in; configured missing tools are blocked/failed.
-- Defer full seeded verification only with fail-closed tests and explicit limitation.
+- Which providers are release-supported: Docker Compose, Podman Compose, Kiri, or only explicitly tested subsets?
+- Should `compose up --wait` be mandatory where declared, with polling fallback only for legacy providers?
+- Should the Compose-native lifecycle ADR be added before implementation or after Task 1 validates the boundary?

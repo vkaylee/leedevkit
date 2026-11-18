@@ -1,51 +1,75 @@
-# TODO: Generic configurable Go quality gates
+# TODO: Compose-Native Lifecycle Migration
 
-## Container provider configuration slice
+Plan: [plan.md](plan.md)
 
-- [x] Add explicit provider config schema and resolver with CLI/env/host/repository/default precedence.
-- [x] Add `--container-provider` parsing before and after subcommands.
-- [x] Add safe provider diagnostics and Docker/Kiri/custom declaration tests.
-- [x] Document repository and host-local configuration, migration, and current adapter limitation.
-- [ ] Follow-up: implement provider adapters, capability enforcement, and integration tests.
+## Phase 1 — Provider-neutral Compose boundary
 
+- [x] T1: Define Compose lifecycle command boundary.
+  - [x] Wire resolved `ContainerProviderConfig` into bootstrap/lifecycle command construction.
+  - [x] Preserve project, file, profile, and argv ordering.
+  - [x] Add provider capability validation and exact-argv tests.
+- [x] T2: Move dependency ordering and startup readiness into Compose for providers declaring `wait`.
+  - [x] Use Compose-native `up --wait --wait-timeout 120` and one startup call.
+  - [x] Preserve bounded compatibility fallback for providers without native wait.
+  - [x] Preserve build freshness, `skip_build`, and phase-build semantics.
+  - [x] Remove normal direct Podman dev startup branch.
 
-Plan: [plan.md](plan.md). Implementation not started.
+## Checkpoint 1 — Startup contract
 
-## Phase 1 — Config and Go execution
+- [ ] Compose is normal startup orchestrator.
+- [ ] No direct Podman calls in normal `lifecycle_up`.
+- [ ] Build freshness, project isolation, and mode mapping tests pass.
 
-- [x] T1: Define normalized quality-gate schema, validation, compatibility defaults, and config tests.
-- [x] T2: Add Go race/integration configured execution, missing-tool status, lifecycle setup/teardown, and runner tests. Core path complete; integration setup/tool-status extensions remain.
-- [x] Checkpoint 1: Review schema, Go command evidence, no-task behavior, and Rust/TypeScript regression.
+## Phase 2 — Compose-owned teardown and identity
 
-## Phase 2 — Generic dispatch and reporting
+- [x] T3: Make teardown Compose-native and volume-safe.
+  - [x] Use project-scoped `compose down --remove-orphans --timeout N`.
+  - [x] Never pass `-v` or `--volumes` during normal teardown.
+  - [x] Preserve attached-project and idempotent cleanup behavior.
+  - [x] Remove engine-specific force deletion from current-project teardown.
+- [ ] T4: Use Compose identity for health and stale-run GC.
+  - [ ] Resolve services through `compose ps -q`/labels.
+  - [ ] Remove hardcoded container-name identity as primary path.
+  - [ ] GC only stale, unlocked, LeeDevKit-owned projects.
+  - [ ] Add cross-project and shared-volume safety tests.
 
-- [x] T3: Dispatch configured gates through existing phases, lifecycle, runner, logs, timeout, and required/optional status. Gate command/task evidence now appears in phase reports.
-- [x] T4: Add gate-level JSON/JSONL evidence and safe base-ref/new-findings metadata. Base-ref resolution is implemented; per-tool new-findings execution remains limited.
-- [x] Checkpoint 2: Run and parse stable JSON plus JSONL; verify no false green.
+## Checkpoint 2 — Lifecycle ownership
 
-## Phase 3 — Hooks, validation, docs
+- [ ] Compose owns normal up/down/health/dependency behavior.
+- [ ] LeeDevKit owns policy, lock, ownership, build decision, and reports.
+- [ ] Cleanup cannot delete unrelated containers or volumes.
+- [ ] Failure paths remain blocked/failed, never falsely passed.
 
-- [x] T5: Add generic generated-code freshness hook with check/fix separation. Generic `[quality.generated]` gate and explicit `fix_command` now supported.
-- [x] T6: Add expected tool-version validation and fail-closed false-green tests. Seeded workspace verification remains explicitly deferred.
-- [x] Checkpoint 3: Adversarial review for injection, secrets, path safety, status truthfulness, and cleanup.
-- [x] T7: Update README migration/config notes; full configured regression passed.
+## Phase 3 — Test orchestration and provider compatibility
 
-Current limitation: seeded workspace verification now copies into isolated temporary workspace, proves seeded fail then clean pass, and cleans up. New-findings metadata records mode/skip reason; environment allowlists pass through Compose argv; integration setup/teardown commands run around Go integration gates.
+- [ ] T5: Integrate Compose-native lifecycle with `TestHandler` phases.
+  - [ ] Preserve setup-blocked, test-failed, teardown-always-runs behavior.
+  - [ ] Preserve JSON/JSONL phase fields, logs, rerun, and partial status.
+  - [ ] Consolidate redundant dependency startup where Compose owns it.
+- [ ] T6: Verify provider capability matrix and fallback boundaries.
+  - [ ] Test Docker default.
+  - [ ] Test Podman without normal Podman-only lifecycle code.
+  - [ ] Reject unsupported custom-provider capabilities before mutation.
+  - [ ] Redact provider diagnostics.
 
-## Test-impact matrix
+## Checkpoint 3 — End-to-end regression
 
-- [ ] Config: missing section, old config, wrong type, empty command, bad path, duplicate gate.
-- [ ] Execution: success, non-zero, missing binary, timeout, cancellation, signal, large stderr, dangerous input.
-- [ ] Status: pass, required fail, optional fail, setup blocked, skipped, no task, mixed result.
-- [ ] Go: format, vet, unit, race, staticcheck, golangci-lint, govulncheck, mod verify, integration.
-- [ ] Reporting: JSON, JSONL, quiet, logs, rerun, full regression.
-- [ ] Lifecycle: build/no-build, cleanup after success/failure, dependency readiness.
-- [ ] Compatibility: Rust, TypeScript, existing Go config, existing CLI flags.
+- [ ] `./leedevkit test all --json` passes or reports runtime limitation truthfully.
+- [ ] `./leedevkit test all --json-stream --quiet` emits parseable JSONL only.
+- [ ] Concurrent project isolation works.
+- [ ] Shared cache volumes survive teardown.
+- [ ] Docker and Podman behavior verified separately where available.
 
-## Verification commands
+## Phase 4 — Cleanup and migration readiness
 
-- [ ] `PYTHONPATH=scripts .venv/bin/pytest scripts/tests/test_devkit_config.py -q`
-- [ ] Focused Go/runner/handler/lifecycle pytest suites.
+- [ ] T7: Remove obsolete lifecycle code and document contract.
+  - [ ] Delete verified-dead `_compose_up.py` paths and hardcoded-name fallbacks only after parity tests pass.
+  - [ ] Add/update ADR with migration and rollback details.
+  - [ ] Document Compose ownership, provider capabilities, healthchecks, cleanup, and volume policy.
+  - [ ] Document Go-core boundary: Go supervises policy; Compose executes containers.
+
+## Final verification
+
 - [ ] `./leedevkit --help`
 - [ ] `./leedevkit test --help`
 - [ ] `./leedevkit test infra --lint-only`
@@ -55,13 +79,15 @@ Current limitation: seeded workspace verification now copies into isolated tempo
 - [ ] `ruff format --check scripts`
 - [ ] `ruff check scripts`
 - [ ] `mypy scripts`
-- [ ] Shell syntax checks for existing wrappers.
-- [ ] Release build/acceptance only if packaging/install/bootstrap/release files change.
+- [ ] `git diff --check`
+- [ ] Release build/acceptance if packaging/runtime files change.
 
 ## Constraints
 
-- [ ] No LeeAttend-specific service/path/tool/database/migration/image/version hardcoding.
-- [ ] No host Go/npm/bun/cargo/Docker execution when project wrapper exists.
-- [ ] No unsafe shell string from TOML/CLI; preserve exit code/stderr/timeout/signal.
-- [ ] No required failed/blocked/skipped/no-task gate reported as passed.
-- [ ] No commit until requested.
+- [ ] No direct engine command in generic lifecycle path.
+- [ ] No `compose down -v`/`--volumes` for normal cleanup.
+- [ ] No shell interpolation for provider/config values.
+- [ ] No teardown of attached/external projects.
+- [ ] No broad stale-container deletion without ownership, lock, project, and age checks.
+- [ ] No required failed/blocked phase reported as passed.
+- [ ] No commit until explicitly requested.

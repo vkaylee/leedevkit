@@ -22,7 +22,10 @@ explicit command arrays; LeeDevKit never infers compatibility from provider name
 Host-local files can hold absolute paths and local endpoint settings. Keep secret
 values out of repository configuration and logs.
 
-Configuration alone does not add an adapter or prove provider capabilities. Kiri
+Configuration alone does not add an adapter or prove provider capabilities. Lifecycle
+commands use explicitly resolved Compose argv and fail before mutation when required
+capabilities are absent. Providers declaring `wait` receive native Compose readiness;
+others use bounded compatibility checks until their adapter is verified. Kiri
 commands in examples are placeholders until its official CLI contract is verified.
 
 | Provider | Native adapter | Docker-compatible wrapper | Required capabilities | CI status |

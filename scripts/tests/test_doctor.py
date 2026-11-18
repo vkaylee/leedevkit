@@ -397,7 +397,10 @@ class TestRunDoctor:
             patch("_doctor.resolve_ai_rules", return_value=[]),
             patch("_doctor.socket.socket", return_value=mock_sock),
             patch("_doctor._runtime_inventory", return_value=[]),
-            patch("_doctor.resolve_container_provider", side_effect=ValueError("no provider")),
+            patch(
+                "_doctor.resolve_container_provider",
+                side_effect=ValueError("no provider"),
+            ),
             patch("subprocess.run") as mock_run,
         ):
             run_doctor("")

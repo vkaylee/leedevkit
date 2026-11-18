@@ -8,6 +8,11 @@ and all other infrastructure modules.
 import os
 import shutil
 from pathlib import Path
+from _devkit_config import (
+    ContainerProviderConfig,
+    require_container_capabilities,
+    resolve_container_provider,
+)
 
 RUNTIME_GITIGNORE = (
     ".leedevkit/",
@@ -246,11 +251,32 @@ def _inject_go_version_env() -> None:
         return
 
 
-def bootstrap_env(mode: str = "all") -> dict[str, str]:
-    """Build the full environment dict for the given mode."""
+def bootstrap_env(
+    mode: str = "all", provider: "ContainerProviderConfig | None" = None
+) -> dict[str, str]:
+    """Build full environment dict, honoring explicit provider configuration."""
     _inject_go_version_env()
-    engine = detect_engine()
-    compose_cmd = detect_compose_cmd()
+    selected = provider
+    if selected is None:
+        try:
+            selected = resolve_container_provider()
+        except OSError:
+            # Lightweight helpers may run outside project discovery context;
+            # retain auto-detection there while orchestrator passes explicit
+            # provider configuration for real lifecycle operations.
+            selected = ContainerProviderConfig(
+                name=detect_engine(),
+                cli=(detect_engine(),),
+                compose=tuple(detect_compose_cmd()),
+                capabilities=frozenset(),
+                source="auto-detected fallback",
+            )
+    if selected.capabilities:
+        require_container_capabilities(
+            selected, {"compose", "config", "up", "down", "ps"}
+        )
+    engine = selected.cli[0]
+    compose_cmd = list(selected.compose)
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "leeattend-test")
     profiles = resolve_profiles(mode)
 

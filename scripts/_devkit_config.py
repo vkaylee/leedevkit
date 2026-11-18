@@ -227,6 +227,7 @@ _CONTAINER_CAPABILITIES = frozenset(
         "image",
         "healthcheck",
         "project_cleanup",
+        "wait",
     }
 )
 _SECRET_KEY = re.compile(
@@ -382,6 +383,18 @@ def resolve_container_provider(
     if cli_provider or environ.get("CONTAINER_PROVIDER"):
         source = "CLI override" if cli_provider else "CONTAINER_PROVIDER"
     return _provider_settings(raw, selected, source)
+
+
+def require_container_capabilities(
+    provider: ContainerProviderConfig, required: set[str]
+) -> None:
+    """Fail before mutation when provider lacks lifecycle capabilities."""
+    missing = sorted(required - provider.capabilities)
+    if missing:
+        raise ValueError(
+            f'container provider "{provider.name}" lacks required capabilities: '
+            + ", ".join(missing)
+        )
 
 
 def container_provider_diagnostics(provider: ContainerProviderConfig) -> dict[str, Any]:

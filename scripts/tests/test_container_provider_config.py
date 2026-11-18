@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from _devkit_config import (
     container_provider_diagnostics,
+    require_container_capabilities,
     resolve_container_provider,
 )
 
@@ -92,6 +93,34 @@ def test_unknown_capability_is_rejected() -> None:
     }
     with pytest.raises(ValueError, match="unknown names"):
         resolve_container_provider(config, environ={}, host_config={})
+
+
+def test_required_capabilities_fail_closed() -> None:
+    config = {
+        "container": {
+            "provider": "docker",
+            "providers": {"docker": {**DOCKER, "capabilities": ["compose"]}},
+        }
+    }
+    provider = resolve_container_provider(config, environ={}, host_config={})
+    with pytest.raises(ValueError, match="lacks required capabilities: config"):
+        require_container_capabilities(provider, {"compose", "config"})
+
+
+def test_required_capabilities_accept_declared_set() -> None:
+    config = {
+        "container": {
+            "provider": "docker",
+            "providers": {
+                "docker": {
+                    **DOCKER,
+                    "capabilities": ["compose", "config"],
+                }
+            },
+        }
+    }
+    provider = resolve_container_provider(config, environ={}, host_config={})
+    require_container_capabilities(provider, {"compose", "config"})
 
 
 def test_diagnostics_masks_secret_settings_and_url_credentials() -> None:

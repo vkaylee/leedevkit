@@ -20,6 +20,7 @@ from _bootstrap import (  # noqa: E402
     resolve_lifecycle_profiles,
     resolve_profiles,
 )
+from _devkit_config import ContainerProviderConfig  # noqa: E402
 
 
 class TestPaths:
@@ -223,6 +224,23 @@ class TestBootstrapEnv:
         assert isinstance(tool, str)
         # Could be "podman-compose" or "docker compose"
         assert len(tool) > 0
+
+    def test_explicit_provider_controls_compose_command(self, monkeypatch) -> None:
+        provider = ContainerProviderConfig(
+            name="custom",
+            cli=("custom-engine",),
+            compose=("custom-compose", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps"}),
+            source="test",
+        )
+        monkeypatch.setattr("_bootstrap.resolve_container_provider", lambda: provider)
+        monkeypatch.setattr("_bootstrap.detect_compose_cmd", lambda: ["wrong-compose"])
+
+        env = bootstrap_env()
+
+        assert env["DOCKER_COMPOSE_TOOL"] == "custom-compose compose"
+        assert env["DOCKER_COMPOSE_BASE"].startswith("custom-compose compose -p ")
+        assert env["CONTAINER_ENGINE"] == "custom-engine"
 
     def test_env_contains_project_root(self) -> None:
         env = bootstrap_env()

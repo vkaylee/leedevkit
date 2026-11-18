@@ -19,6 +19,23 @@ from _lifecycle import (  # noqa: E402
     lifecycle_up,
     start_watchdog,
 )
+from _devkit_config import ContainerProviderConfig  # noqa: E402
+
+
+LEGACY_PROVIDER = ContainerProviderConfig(
+    name="docker",
+    cli=("docker",),
+    compose=("docker", "compose"),
+    capabilities=frozenset(),
+    source="test",
+)
+
+
+@pytest.fixture(autouse=True)
+def legacy_provider_for_existing_lifecycle_tests(monkeypatch):
+    monkeypatch.setattr(
+        _lifecycle, "resolve_container_provider", lambda: LEGACY_PROVIDER
+    )
 
 
 class TestContainerHealthy:
@@ -41,6 +58,9 @@ class TestContainerHealthy:
 class TestLifecycleUp:
     def test_api_mode_starts_backend(self) -> None:
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -52,6 +72,9 @@ class TestLifecycleUp:
 
     def test_web_mode_checks_webdashboard(self) -> None:
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -83,6 +106,9 @@ class TestLifecycleUp:
 
     def test_skip_build_uses_no_build(self) -> None:
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -199,6 +225,9 @@ class TestLifecycleUp:
     def test_lint_and_unit_modes_use_no_deps(self) -> None:
         """Verify that lint- and unit- modes append --no-deps so heavy infra is not started."""
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -233,6 +262,9 @@ class TestLifecycleUp:
     def test_no_pre_cleanup_on_up(self) -> None:
         """lifecycle_up must NOT do a pre-down — concurrent agents share containers."""
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -282,16 +314,18 @@ class TestLifecycleUp:
             all_call_str = str(mock_run.call_args_list)
             assert "--remove-orphans" in all_call_str
 
-    def test_force_kill_pod(self) -> None:
-        """Podman cleanup force-removes the isolated pod."""
-        with (
-            patch("_lifecycle._get_engine", return_value="podman"),
-            patch("_lifecycle._run") as mock_run,
-        ):
+    @patch("_lifecycle.sweep_stale_environments")
+    def test_teardown_delegates_container_removal_to_compose(self, mock_sweep) -> None:
+        """Teardown must not remove containers through an engine-specific CLI."""
+        with patch("_lifecycle._run") as mock_run:
             mock_run.return_value = MagicMock(stdout="", returncode=0)
             lifecycle_down("web")
-            all_call_str = str(mock_run.call_args_list)
-            assert "pod" in all_call_str and "rm" in all_call_str
+            commands = [call.args[0] for call in mock_run.call_args_list]
+            assert any("down" in command for command in commands)
+            assert not any(
+                command[:2] in (["podman", "pod"], ["podman", "rm"], ["docker", "rm"])
+                for command in commands
+            )
 
     def test_no_volume_cleanup(self) -> None:
         """lifecycle_down must NOT remove shared cache volumes (used by other agents).
@@ -365,6 +399,9 @@ class TestLifecycleComposeCommand:
     ) -> None:
         """lifecycle_up(web) must use lint-web, unit-web, e2e-web (not frontend)."""
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -400,6 +437,9 @@ class TestLifecycleComposeCommand:
     def test_lifecycle_up_has_correct_compose_base(self, mock_sweep: MagicMock) -> None:
         """lifecycle_up must use DOCKER_COMPOSE_BASE with -p and -f."""
         with (
+            patch(
+                "_lifecycle.resolve_container_provider", return_value=LEGACY_PROVIDER
+            ),
             patch("_lifecycle._run") as mock_run,
             patch("_lifecycle._container_healthy", return_value=True),
             patch("_lifecycle.time.sleep"),
@@ -502,6 +542,36 @@ class TestLifecycleDependencies:
     @staticmethod
     def _compose_result(stdout="", returncode=0):
         return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+    def test_native_wait_starts_dependencies_in_one_compose_call(self):
+        from _devkit_config import ContainerProviderConfig
+
+        provider = ContainerProviderConfig(
+            name="docker",
+            cli=("docker",),
+            compose=("docker", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps", "wait"}),
+            source="test",
+        )
+        with (
+            patch("_lifecycle.resolve_container_provider", return_value=provider),
+            patch("_lifecycle._run") as mock_run,
+            patch("_lifecycle._container_healthy") as mock_health,
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "native-wait"}),
+        ):
+            assert lifecycle_up("int-go") is True
+
+        up_cmds = [
+            call.args[0] for call in mock_run.call_args_list if "up" in call.args[0]
+        ]
+        assert len(up_cmds) == 1
+        assert "--wait" in up_cmds[0]
+        assert "--wait-timeout" in up_cmds[0]
+        assert up_cmds[0][-2:] == ["go", "postgres"]
+        mock_health.assert_not_called()
 
     def test_int_go_starts_and_checks_dependency(self):
         def run(cmd, **kwargs):
