@@ -75,7 +75,7 @@ func TestRuntimeRootFindsScriptsAncestor(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(runtime, "VERSION"), []byte("0.11.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := runtimeRoot(filepath.Join(runtime, "bin", "go", "leedevkit-go-linux-amd64"))
+	got := runtimeRootFor(filepath.Join(runtime, "bin", "go", "leedevkit-go-linux-amd64"), "", nil)
 	if got != runtime {
 		t.Fatalf("runtime root = %q, want %q", got, runtime)
 	}
