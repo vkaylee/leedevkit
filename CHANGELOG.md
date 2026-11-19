@@ -4,6 +4,15 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-11-19
+
+### Fixes
+- Pin Go Compose test and release builds to Go 1.26 required by `go.mod`.
+- Keep legacy launcher fallback for source-only init fixtures without platform binary.
+
+### Verification
+- Release acceptance and init/container regression suites pass locally.
+
 ## [0.10.5] - 2026-11-19
 
 ### Fixes
