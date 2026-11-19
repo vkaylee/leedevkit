@@ -67,9 +67,15 @@ Plan: [plan.md](plan.md)
   - [x] Add `go.mod`, `cmd/leedevkit/main.go`, and Go unit tests.
   - [x] Preserve current Python launcher as default.
   - [x] Verify inside `golang:1.26.11-bookworm` container because host lacks Go.
-- [ ] G2: Port config/provider resolution with cross-language parity fixtures.
-- [ ] G3: Add Go Compose command/lifecycle adapter; keep Python lifecycle executor authoritative.
-- [ ] G4: Migrate one Go quality path with report parity.
+- [x] G2: Add Go provider resolution parity core.
+  - [x] Preserve provider precedence, argv arrays, capabilities, and redacted diagnostics in `internal/provider`.
+  - [x] Add table-style parity tests for defaults, overrides, invalid capability, and secrets.
+- [x] G3: Add Go Compose command/lifecycle plan; keep Python lifecycle executor authoritative.
+  - [x] Add native wait, project ownership, provider capability, and volume-safe teardown planning in `internal/lifecycle`.
+  - [x] Keep actual Compose execution and cleanup in Python.
+- [x] G4: Add deterministic Go quality gate planner; keep Python execution/reporting authoritative.
+  - [x] Mirror existing Go defaults: gofmt, go-vet, go-test, go-coverage.
+  - [x] Add deterministic selection and missing-gate failure tests.
 - [ ] G5: Add opt-in Go core bridge and safe Python fallback.
 - [ ] G6: Cut over safe commands after release acceptance.
 
