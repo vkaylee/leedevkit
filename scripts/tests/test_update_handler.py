@@ -237,6 +237,75 @@ class TestDownloadAndExtract:
 class TestHandleUpdateRollback:
     """Test rollback behavior when download_and_extract_tarball fails."""
 
+    def test_rollback_replaces_busy_entrypoint(self, tmp_path, monkeypatch):
+        """Rollback uses rename so a running launcher is never truncated."""
+        import _update_handler
+        from _update_handler import handle_update
+
+        root = tmp_path / "devkit"
+        root.mkdir()
+        (root / "VERSION").write_text("0.1.0")
+        entrypoint = tmp_path / "leedevkit"
+        original = b"#!/bin/sh\necho old\n"
+        entrypoint.write_bytes(original)
+        entrypoint.chmod(0o755)
+        monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
+        monkeypatch.chdir(tmp_path)
+
+        def fake_download(_url, target_dir):
+            target_dir.mkdir(parents=True)
+            (target_dir / "VERSION").write_text("0.2.0")
+            binary = target_dir / "bin" / "go" / "leedevkit-go-linux-amd64"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"new binary")
+
+        monkeypatch.setattr(
+            "_update_handler.download_and_extract_tarball", fake_download
+        )
+        monkeypatch.setattr(
+            "_update_handler.go_binary",
+            lambda release_root: (
+                release_root / "bin" / "go" / "leedevkit-go-linux-amd64"
+            ),
+        )
+        monkeypatch.setattr(
+            _update_handler,
+            "importlib",
+            type(
+                "Importlib",
+                (),
+                {
+                    "reload": staticmethod(lambda _module: None),
+                },
+            ),
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "_init_handler",
+            type(
+                "InitModule",
+                (),
+                {
+                    "InitHandler": type(
+                        "FailingInit",
+                        (),
+                        {
+                            "__init__": lambda self, _config: None,
+                            "handle_post_update_sync": lambda self: (
+                                _ for _ in ()
+                            ).throw(RuntimeError("sync failed")),
+                        },
+                    ),
+                },
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="sync failed"):
+            handle_update(target="v0.2.0")
+
+        assert entrypoint.read_bytes() == original
+        assert (root / "VERSION").read_text() == "0.1.0"
+
     def test_rollback_restores_previous_version(self, tmp_path, monkeypatch):
         """Failed update restores original devkit from backup."""
         from _update_handler import handle_update
@@ -295,8 +364,8 @@ class TestHandleUpdateRollback:
         self, tmp_path, monkeypatch
     ):
         """A failed skills migration restores the complete old installation."""
-        from _update_handler import handle_update
         import _update_handler
+        from _update_handler import handle_update
 
         root = tmp_path / "devkit"
         root.mkdir()
@@ -345,7 +414,6 @@ class TestHandleUpdateRollback:
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "VERSION").write_text("0.2.0")
             # The except block only fires if download_and_extract_tarball raises.
-            pass
 
         # Simulate success path with backup already present
         backup = root.with_name(root.name + ".bak")

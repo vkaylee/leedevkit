@@ -19,7 +19,6 @@ from _download import download_and_extract_tarball, latest_release_version
 from _logging import log_info, log_success, log_warn
 from _platform import go_binary
 
-
 DOWNLOAD_TIMEOUT = 120
 
 
@@ -43,12 +42,28 @@ def _restore_backup(root: Path, backup: Path) -> None:
         return
     backup_skills = backup / "skills.d"
     restored_skills = root / "skills.d"
-    if root.exists() and not backup_skills.exists() and not backup_skills.is_symlink():
-        if restored_skills.exists() or restored_skills.is_symlink():
-            shutil.move(str(restored_skills), str(backup_skills))
+    if (
+        root.exists()
+        and not backup_skills.exists()
+        and not backup_skills.is_symlink()
+        and (restored_skills.exists() or restored_skills.is_symlink())
+    ):
+        shutil.move(str(restored_skills), str(backup_skills))
     _remove_path(root)
     if backup.exists():
         shutil.move(str(backup), str(root))
+
+
+def _restore_entrypoint(path: Path, content: bytes) -> None:
+    """Restore executable through rename, avoiding writes to a running file."""
+    staged = path.with_name(f".{path.name}.rollback-{uuid.uuid4().hex[:8]}")
+    try:
+        staged.write_bytes(content)
+        staged.chmod(0o755)
+        staged.replace(path)
+    finally:
+        if staged.exists() or staged.is_symlink():
+            _remove_path(staged)
 
 
 def _latest_release_version() -> str:
@@ -88,9 +103,9 @@ def handle_update(target: str | None = None) -> None:
         if not version_file.is_file():
             raise RuntimeError("Downloaded devkit is missing VERSION")
         new_ver = version_file.read_text().strip()
-        selected_binary = None
+        selected_binary_name = None
         if (tmp_extract / "bin").exists():
-            selected_binary = go_binary(tmp_extract)
+            selected_binary_name = go_binary(tmp_extract).name
         if new_ver != ver:
             raise RuntimeError(
                 f"Downloaded devkit version {new_ver!r} does not match requested {ver!r}"
@@ -107,7 +122,8 @@ def handle_update(target: str | None = None) -> None:
                 _remove_path(restored)
                 shutil.move(str(preserved), str(restored))
 
-        if selected_binary is not None:
+        if selected_binary_name is not None:
+            selected_binary = root / "bin" / "go" / selected_binary_name
             staged_entrypoint = entrypoint.with_name(".leedevkit.new-entrypoint")
             shutil.copy2(selected_binary, staged_entrypoint)
             staged_entrypoint.chmod(0o755)
@@ -143,8 +159,7 @@ def handle_update(target: str | None = None) -> None:
         if original_entrypoint is None:
             _remove_path(entrypoint)
         else:
-            entrypoint.write_bytes(original_entrypoint)
-            entrypoint.chmod(0o755)
+            _restore_entrypoint(entrypoint, original_entrypoint)
         if original_config is None:
             _remove_path(config_toml)
         else:
