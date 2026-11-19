@@ -18,6 +18,7 @@ from _go_core_build import DEFAULT_TARGETS, target_binary_name
 from _go_core_matrix import build_matrix
 from _release_build import build_release
 from _runtime import enforce_project_venv
+from _platform import platform_key
 
 REQUIRED_PATHS = {
     "VERSION",
@@ -130,7 +131,7 @@ def _assert_go_core_source_contract(extracted: Path, version: str) -> None:
 def _assert_offline_fast_paths(
     extracted: Path, version: str, env: dict[str, str]
 ) -> None:
-    cli = extracted / "bin" / "leedevkit"
+    cli = extracted / "bin" / "go" / f"leedevkit-go-{platform_key()}"
     for arguments in (["version"], ["--version"], ["--help"], []):
         result = _run([str(cli), *arguments], extracted, env)
         if arguments in (["version"], ["--version"]):
@@ -143,7 +144,12 @@ def _assert_offline_fast_paths(
 
 
 def _assert_bootstrap(
-    repo_root: Path, artifact: Path, version: str, workspace: Path, env: dict[str, str]
+    repo_root: Path,
+    artifact: Path,
+    extracted: Path,
+    version: str,
+    workspace: Path,
+    env: dict[str, str],
 ) -> None:
     mirror = workspace / "mirror"
     release_dir = mirror / "download" / f"v{version}"
@@ -161,6 +167,13 @@ def _assert_bootstrap(
         **env,
         "LEEDEVKIT_RELEASE_BASE_URL": mirror.as_uri(),
     }
+    install_root = workspace / "global-runtime"
+    install_root.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(extracted, install_root, dirs_exist_ok=True)
+    native = install_root / "bin" / "go" / f"leedevkit-go-{platform_key()}"
+    shutil.copy2(native, install_root / "bin" / "leedevkit")
+    (install_root / "bin" / "leedevkit").chmod(0o755)
+    bootstrap_env["DEVKIT_HOME"] = str(install_root)
     _run(
         ["bash", str(repo_root / "bootstrap.sh"), f"v{version}"], project, bootstrap_env
     )
@@ -171,9 +184,10 @@ def _assert_bootstrap(
     verification = verify_devkit(installed)
     if not verification.is_clean:
         raise RuntimeError(verification.report())
-    result = _run([str(project / "leedevkit"), "version"], project, bootstrap_env)
+    binary = Path(bootstrap_env["DEVKIT_HOME"]) / "bin" / "leedevkit"
+    result = _run([str(binary), "version"], project, bootstrap_env)
     if result.stdout.strip() != version:
-        raise RuntimeError("bootstrapped wrapper reports the wrong version")
+        raise RuntimeError("global binary reports the wrong version after bootstrap")
     if (installed / ".venv").exists():
         raise RuntimeError("bootstrapped version command unexpectedly created .venv")
     if ".leedevkit/" not in (project / ".gitignore").read_text():
@@ -261,7 +275,7 @@ def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
             extracted = _assert_artifact_contract(artifact, version, extracted_parent)
             _assert_go_core_source_contract(extracted, version)
             _assert_offline_fast_paths(extracted, version, env)
-            _assert_bootstrap(repo_root, artifact, version, workspace, env)
+            _assert_bootstrap(repo_root, artifact, extracted, version, workspace, env)
     finally:
         if owned_workspace is not None:
             owned_workspace.cleanup()

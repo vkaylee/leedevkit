@@ -374,6 +374,7 @@ class TestUpdateVersionPin:
         project_root.mkdir()
         toml_file = project_root / "leedevkit.toml"
         toml_file.write_text('[devkit]\nversion = "0.1.0"\n')
+        monkeypatch.chdir(project_root)
 
         devkit_root = project_root / ".leedevkit"
         devkit_root.mkdir()
@@ -400,6 +401,7 @@ class TestUpdateVersionPin:
 
         project_root = tmp_path / "project"
         project_root.mkdir()
+        monkeypatch.chdir(project_root)
 
         devkit_root = project_root / ".leedevkit"
         devkit_root.mkdir()
@@ -427,6 +429,7 @@ class TestUpdateVersionPin:
         project_root.mkdir()
         toml_file = project_root / "leedevkit.toml"
         toml_file.write_text('[project]\nname = "test"\n')
+        monkeypatch.chdir(project_root)
 
         devkit_root = project_root / ".leedevkit"
         devkit_root.mkdir()
@@ -557,6 +560,7 @@ class TestAutoSyncAfterUpdate:
 
         project_root = tmp_path / "project"
         project_root.mkdir()
+        monkeypatch.chdir(project_root)
         root = project_root / ".leedevkit"
         root.mkdir()
         (root / "VERSION").write_text("0.1.0")
@@ -592,6 +596,7 @@ class TestAutoSyncAfterUpdate:
 
         project_root = tmp_path / "project"
         project_root.mkdir()
+        monkeypatch.chdir(project_root)
         toml_file = project_root / "leedevkit.toml"
         toml_file.write_text('[devkit]\nversion = "0.1.0"\n')
 
@@ -629,6 +634,7 @@ class TestAutoSyncAfterUpdate:
 
         root = tmp_path / "devkit"
         root.mkdir()
+        monkeypatch.chdir(tmp_path)
         (root / "VERSION").write_text("0.1.0")
         captured_url: list[str] = []
 

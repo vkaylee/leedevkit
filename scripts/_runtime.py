@@ -26,7 +26,7 @@ def require_project_venv() -> None:
         raise RuntimeInterpreterError(
             "LeeDevKit Python scripts require project-local interpreter "
             f"{expected}; current interpreter is {current}. "
-            "Run ./leedevkit or invoke required interpreter directly."
+            "Run leedevkit or invoke required interpreter directly."
         )
 
 

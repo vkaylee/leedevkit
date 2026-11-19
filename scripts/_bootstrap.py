@@ -45,7 +45,7 @@ DEVKIT_ROOT = SCRIPTS_DIR.parent
 
 
 def ensure_project_gitignore(project_root: Path = PROJECT_ROOT) -> None:
-    """Ignore runtime state while keeping committed ``leedevkit`` launcher."""
+    """Ignore project runtime state; global ``leedevkit`` stays outside project."""
     path = project_root / ".gitignore"
     lines = path.read_text().splitlines() if path.exists() else []
     legacy_launcher_rules = {

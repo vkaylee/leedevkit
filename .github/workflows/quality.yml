@@ -35,6 +35,10 @@ jobs:
           .venv/bin/python3 scripts/_supply_chain_check.py --lock scripts/requirements.lock --output .ci-artifacts/supply-chain.json --container-root . </dev/null
           .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" .ci-artifacts/sbom.cdx.json </dev/null
 
+      - name: Check Go core
+        run: |
+          docker run --rm -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
+
       - name: Check shell syntax
         run: |
           bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit </dev/null

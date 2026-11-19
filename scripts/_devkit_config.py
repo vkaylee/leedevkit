@@ -120,7 +120,7 @@ def _find_devkit_root() -> Path:
 
     raise FileNotFoundError(
         "No compatible LeeDevKit runtime found for project version "
-        f"{expected!r}. Run './leedevkit doctor --fix' to repair or download it, "
+        f"{expected!r}. Run 'leedevkit doctor --fix' to repair or download it, "
         "or set DEVKIT_HOME to a runtime with the same VERSION."
     )
 

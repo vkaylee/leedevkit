@@ -224,7 +224,8 @@ class TestLeedevkitDir:
         with patch.object(Orchestrator, "register_traps", return_value=None):
             orch = Orchestrator()
             orch.handle_init(force=True)
-            assert (tmp_path / "leedevkit").exists()
+            assert (tmp_path / ".leedevkit").is_dir()
+            assert not (tmp_path / "leedevkit").exists()
             assert (tmp_path / "leedevkit.toml").exists()
 
     def test_init_uses_installed_venv_bootstrap(self, tmp_path, monkeypatch):
@@ -262,7 +263,8 @@ class TestLeedevkitDir:
                 orch = Orchestrator()
                 orch.handle_init(force=False)
         install.assert_not_called()
-        assert (project / "leedevkit").exists()
+        assert (project / ".leedevkit").is_dir()
+        assert not (project / "leedevkit").exists()
 
     def test_init_rejects_venv_path_outside_devkit(self, tmp_path, monkeypatch):
         from _orchestrator import Orchestrator

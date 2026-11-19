@@ -4,7 +4,7 @@ Covers the new handle_init() flow:
   - Installs devkit into .leedevkit/ from local source fallback
   - Creates project-local .venv inside .leedevkit/
   - Copies rules to project (not symlinks)
-  - Creates ./leedevkit wrapper
+  - Uses global `leedevkit` command without creating a project wrapper
   - Idempotent (no overwrite on re-init)
   - DevKit root resolution priority
   - skills.d inside devkit root
@@ -498,8 +498,8 @@ class TestHandleInitFromSource:
             Orchestrator().handle_init(force=True)
         assert custom_rule.read_text() == "# My Custom Rules\n"
 
-    def test_creates_immutable_go_entrypoint(self, tmp_path, monkeypatch):
-        """Init creates executable Go entrypoint, not editable shell wrapper."""
+    def test_init_does_not_create_project_entrypoint(self, tmp_path, monkeypatch):
+        """Init uses global command and leaves no root launcher behind."""
         project = _make_project(tmp_path / "project")
         source = _make_devkit_source(tmp_path / "source")
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
@@ -510,15 +510,10 @@ class TestHandleInitFromSource:
         with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
             from _orchestrator import Orchestrator
 
-            orch = Orchestrator()
-            orch.handle_init(force=False)
-        wrapper = project / "leedevkit"
-        assert wrapper.exists()
-        assert wrapper.is_file()
-        assert wrapper.stat().st_mode & 0o111
-        assert wrapper.read_bytes() == b"go-binary"
+            Orchestrator().handle_init(force=False)
+        assert not (project / "leedevkit").exists()
+        assert (project / ".leedevkit" / "bin" / "leedevkit").exists()
         ignored = (project / ".gitignore").read_text()
-        assert "leedevkit\n" not in ignored
         assert all(
             entry in ignored
             for entry in (

@@ -130,3 +130,65 @@ Plan: [plan.md](plan.md)
 - [ ] No broad stale-container deletion without ownership, lock, project, and age checks.
 - [ ] No required failed/blocked phase reported as passed.
 - [ ] No commit until explicitly requested.
+
+## Global Binary Migration
+
+### Phase 1 — Runtime contract and native entrypoint
+
+- [ ] T1: Define installed layout, runtime precedence, version matching, missing-runtime errors, and compatibility window.
+  - [ ] Verify `DEVKIT_HOME`, project `.leedevkit`, global runtime, and source/worktree fallback order.
+  - [ ] Preserve project-owned `.agent`/`.claude`, mutable `skills.d`, and `.venv` ownership.
+- [x] T2: Make Go binary resolve runtime outside repository root.
+  - [x] Test project-pinned runtime precedence and global fallback.
+  - [x] Test mismatched explicit runtime fails closed.
+  - [x] Inject resolved runtime into Python subprocess environment.
+  - [x] Keep help/version offline and `.venv`-free.
+  - [ ] Add arbitrary-cwd subprocess test after global installer layout lands.
+
+### Checkpoint A — Native entrypoint
+
+- [x] `go test ./...`
+- [x] Fixture binary works outside checkout.
+- [x] Go and Python select same runtime.
+
+### Phase 2 — Installer and project flow
+
+- [x] T3: Make global installer activate native binary and runtime atomically.
+  - [x] Preserve `~/.leedevkit/{version,current}` and local mirror behavior.
+  - [x] Preserve rollback, permissions, `DEVKIT_HOME`, and prior active install.
+  - [x] Assert native binary is primary global command.
+  - [x] Verify installed binary runs outside checkout.
+- [x] T4: Make project commands work through global binary.
+  - [x] Verify fresh `init` creates `.leedevkit/` without root wrapper.
+  - [x] Verify nested `doctor` through installed global binary.
+  - [x] Preserve project-pinned runtime and project-owned context.
+  - [x] Preserve mutable `skills.d`/`.venv` and legacy wrapper compatibility.
+  - [ ] Verify full fresh `test`, `update`, and `skills` flow after global install without network.
+
+### Checkpoint B — End-to-end project flow
+
+- [ ] Isolated temp projects pass global command flow.
+- [ ] Pin/mismatch and two-project isolation pass.
+- [ ] Failed install/update preserves previous state.
+- [ ] Legacy wrapper compatibility passes.
+
+### Phase 3 — Release and retirement
+
+- [x] T5: Update release artifact, integrity checks, acceptance, and CI.
+  - [x] Package native platform binaries plus runtime scripts/templates/.agent.
+  - [x] Exercise global binary outside checkout.
+  - [x] Preserve archive safety, checksums, SBOM, and offline fast paths.
+  - [x] Add Go core test gate to quality workflow.
+- [x] T6: Update docs/output and retire root launcher after compatibility window.
+  - [x] Update `install.sh`, `bootstrap.sh`, README/CLAUDE instructions, tests.
+  - [x] Remove stale runtime/user-facing root-wrapper assumptions.
+  - [x] Keep legacy wrapper template and migration path explicit.
+  - [ ] Remove committed root wrapper after one compatibility release window.
+
+### Checkpoint C — Release ready
+
+- [ ] `./leedevkit test all --json`
+- [ ] Shell syntax, ruff, mypy, and `git diff --check` pass.
+- [ ] Release build and acceptance pass.
+- [ ] Local-mirror install and rollback pass.
+- [ ] Human approves legacy launcher retirement.

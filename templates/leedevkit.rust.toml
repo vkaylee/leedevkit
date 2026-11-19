@@ -11,7 +11,7 @@
 #
 # Quick start:
 #   leedevkit init                      # scaffold project
-#   ./leedevkit test all                # cargo fmt + clippy + nextest + coverage
+#   leedevkit test all                  # cargo fmt + clippy + nextest + coverage
 
 [devkit]
 version = "latest"                # pinned devkit version (set by leedevkit init)

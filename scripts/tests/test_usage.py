@@ -141,7 +141,8 @@ class TestInitFlow:
             timeout=30,
             env={**os.environ, "DEVKIT_HOME": dk},
         )
-        assert (tmp_path / "leedevkit").exists()
+        assert not (tmp_path / "leedevkit").exists()
+        assert (tmp_path / ".leedevkit").is_dir()
 
 
 class TestDoctor:

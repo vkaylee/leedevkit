@@ -16,7 +16,6 @@ from _bootstrap import ensure_project_gitignore
 from _devkit_config import _load_toml
 from _download import download_and_extract_tarball, normalize_version
 from _handler_base import HandlerBase
-from _platform import go_binary
 from _logging import log_info, log_success, log_warn
 
 from _harness_engine import discover_skill_sources, sync_harnesses  # noqa: F401
@@ -132,7 +131,7 @@ class InitHandler(HandlerBase):
           1. Ensure .leedevkit/ exists (download release tarball if needed)
           2. Create project-local .venv inside .leedevkit/
           3. Copy base AI rules from devkit → project (not symlinks)
-          4. Create ./leedevkit wrapper → .leedevkit/bin/leedevkit
+          4. Keep global `leedevkit` as project command entrypoint
           5. Install community skills from catalog/TOML
           6. Pin devkit version in leedevkit.toml
         """
@@ -226,7 +225,7 @@ class InitHandler(HandlerBase):
                 log_warn(f"      .agent/{name} → {target}")
             log_info("")
             log_info("   These are no longer needed with per-project install.")
-            log_info("   To clean up: rm -rf .agent && ./leedevkit init")
+            log_info("   To clean up: rm -rf .agent && leedevkit init")
             log_info("")
 
         # ── Step 3: Copy base AI rules from devkit → project (not symlinks) ──
@@ -276,34 +275,9 @@ class InitHandler(HandlerBase):
                 )
             )
 
-        # ── Step 4: Install immutable platform Go entrypoint ──
-        entrypoint = root / "leedevkit"
-        if entrypoint.exists() and entrypoint.is_file():
-            try:
-                if entrypoint.read_bytes()[:2] == b"#!":
-                    entrypoint.unlink()
-            except OSError:
-                pass
-        if entrypoint.exists() and not entrypoint.is_file():
-            log_warn("⚠️  ./leedevkit exists but is not a file — skipping entrypoint")
-            return
-        try:
-            binary = go_binary(devkit)
-        except RuntimeError:
-            legacy = devkit / "bin" / "leedevkit"
-            if not legacy.is_file():
-                raise
-            binary = legacy
-            log_warn("⚠️ Go core binary unavailable; using legacy runtime launcher")
-        import shutil
-
-        staged = root / ".leedevkit.new-entrypoint"
-        if staged.exists():
-            staged.unlink()
-        shutil.copy2(binary, staged)
-        staged.chmod(0o755)
-        staged.replace(entrypoint)
-        log_success("Installed immutable Go ./leedevkit entrypoint")
+        # ── Step 4: Keep CLI global; project owns only runtime and context ──
+        # `.leedevkit/` is project-local dependency state, like `node_modules/`.
+        # The user-facing `leedevkit` command comes from the global installation.
         if "claude" in harness_report:
             from _claude_config import install_ai_integrations
 
@@ -336,7 +310,7 @@ class InitHandler(HandlerBase):
 
         SkillsManager().dispatch(argparse.Namespace(skills_action="install"))
 
-        log_success("Project initialized. Run ./leedevkit --help to start.")
+        log_success("Project initialized. Run leedevkit --help to start.")
 
     def _detect_legacy_symlinks(self, agent_dir: Path) -> list[tuple[str, str]]:
         """Detect symlinks in .agent/ that point to the old global install.
