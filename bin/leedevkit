@@ -40,6 +40,24 @@ fi
 COMMAND="$1"
 shift
 
+if [ "${LEEDEVKIT_CORE:-python}" = "go" ] && { [ "$COMMAND" = "version" ] || [ "$COMMAND" = "--version" ] || [ "$COMMAND" = "-v" ]; }; then
+    GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
+    if [ -z "$GO_CORE" ] && [ -x "$SCRIPT_DIR/.leedevkit/bin/leedevkit-go" ]; then
+        GO_CORE="$SCRIPT_DIR/.leedevkit/bin/leedevkit-go"
+    fi
+    if [ -z "$GO_CORE" ] && [ -x "$SCRIPT_DIR/bin/leedevkit-go" ]; then
+        GO_CORE="$SCRIPT_DIR/bin/leedevkit-go"
+    fi
+    if [ -z "$GO_CORE" ] && command -v leedevkit-go >/dev/null 2>&1; then
+        GO_CORE="$(command -v leedevkit-go)"
+    fi
+    if [ -z "$GO_CORE" ] || [ ! -x "$GO_CORE" ]; then
+        echo "Go core enabled but leedevkit-go binary missing" >&2
+        exit 2
+    fi
+    exec "$GO_CORE" "$COMMAND" "$@"
+fi
+
 case "$COMMAND" in
     version|--version|-v)
         cat "$SCRIPT_DIR/VERSION"
