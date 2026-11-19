@@ -21,6 +21,38 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestRunNoArgsShowsHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(nil, strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("no-args exit code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "Usage: leedevkit <command> [args...]") {
+		t.Fatalf("no-args output missing usage: %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("no-args stderr = %q", stderr.String())
+	}
+}
+
+func TestRunVersionAliases(t *testing.T) {
+	version = "0.10.0-test"
+	t.Cleanup(func() { version = "dev" })
+	for _, alias := range []string{"--version", "-v"} {
+		t.Run(alias, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{alias}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("version exit code = %d", code)
+			}
+			if got := strings.TrimSpace(stdout.String()); got != version {
+				t.Fatalf("version = %q", got)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("version stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	version = "0.10.0-test"
@@ -43,6 +75,120 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestInfraLintCommandsUseRuntimeScripts(t *testing.T) {
+	runtime := filepath.Join("/runtime")
+	project := filepath.Join("/project")
+	commands := infraLintCommands(runtime, project)
+	if len(commands) < 2 {
+		t.Fatalf("command count = %d, want at least 2", len(commands))
+	}
+	want := [][]string{
+		{filepath.Join(runtime, ".venv", "bin", "ruff"), "check", filepath.Join(runtime, "scripts")},
+		{filepath.Join(runtime, ".venv", "bin", "mypy"), filepath.Join(runtime, "scripts")},
+	}
+	for index := range want {
+		if !sameStrings(commands[index], want[index]) {
+			t.Fatalf("command %d = %#v, want %#v", index, commands[index], want[index])
+		}
+	}
+}
+
+func TestInfraLintStopsOnFailure(t *testing.T) {
+	runtime := t.TempDir()
+	venvBin := filepath.Join(runtime, ".venv", "bin")
+	if err := os.MkdirAll(venvBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"ruff", "mypy"} {
+		path := filepath.Join(venvBin, tool)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runInfraLint(runtime, t.TempDir(), strings.NewReader(""), &stdout, &stderr); code != 7 {
+		t.Fatalf("lint exit code = %d, want 7", code)
+	}
+}
+
+func TestInfraUnitCommandUsesPytestCoverage(t *testing.T) {
+	runtime := filepath.Join("/runtime")
+	command := infraUnitCommand(runtime, "")
+	wantPrefix := []string{
+		filepath.Join(runtime, ".venv", "bin", "pytest"),
+		"--cov=scripts",
+		"--cov-config",
+		filepath.Join(runtime, "scripts", ".coveragerc"),
+		"--cov-report=term-missing",
+		"--cov-report=html:.test_logs/coverage-production",
+		"--cov-fail-under=80",
+	}
+	if len(command) < len(wantPrefix) {
+		t.Fatalf("unit command = %#v", command)
+	}
+	if !sameStrings(command[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("unit command prefix = %#v, want %#v", command[:len(wantPrefix)], wantPrefix)
+	}
+}
+
+func TestInfraUnitStopsOnPytestFailure(t *testing.T) {
+	runtime := t.TempDir()
+	venvBin := filepath.Join(runtime, ".venv", "bin")
+	if err := os.MkdirAll(venvBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pytest := filepath.Join(venvBin, "pytest")
+	if err := os.WriteFile(pytest, []byte("#!/bin/sh\nexit 9\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runInfraUnit(runtime, t.TempDir(), "", strings.NewReader(""), &stdout, &stderr); code != 9 {
+		t.Fatalf("unit exit code = %d, want 9", code)
+	}
+}
+
+func TestInfraUnitPatternUsesPluginFilter(t *testing.T) {
+	command := infraUnitCommand("/runtime", "auth login")
+	if !sameStrings(command[6:10], []string{
+		"-p", "_pytest_pattern", "--leedevkit-pattern", "auth login",
+	}) {
+		t.Fatalf("pattern args = %#v", command[6:10])
+	}
+	if contains(command, "--cov-fail-under=80") {
+		t.Fatal("pattern run must not claim full coverage")
+	}
+}
+
+func TestInfraUnitPatternRejectsUnsafeRegex(t *testing.T) {
+	if _, err := validateInfraPattern("["); err == nil {
+		t.Fatal("invalid regex accepted")
+	}
+	if _, err := validateInfraPattern("auth\x00"); err == nil {
+		t.Fatal("control character accepted")
+	}
+}
+
+func contains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestPlanGatesProtocol(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	input := `{"schema_version":1,"gates":[{"name":"go-vet","phase":"lint","command":["go","vet","./..."]}]}`
@@ -58,6 +204,16 @@ func TestPlanGatesRejectsSchema(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--plan-gates"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
 		t.Fatalf("plan invalid schema exit code = %d", code)
+	}
+}
+
+func TestPlanGatesRejectsMalformedJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--plan-gates"}, strings.NewReader("{"), &stdout, &stderr); code != 2 {
+		t.Fatalf("malformed plan exit code = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "malformed gate request") {
+		t.Fatalf("malformed plan stderr = %q", stderr.String())
 	}
 }
 
@@ -88,6 +244,35 @@ func TestRunPythonCommandMissingRuntime(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Python compatibility runtime missing") {
 		t.Fatalf("missing runtime stderr = %q", stderr.String())
+	}
+}
+
+func TestRuntimeRootPrefersExplicitRuntime(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	projectRuntime := filepath.Join(project, ".leedevkit")
+	explicitRuntime := filepath.Join(root, "explicit")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, runtime := range []string{projectRuntime, explicitRuntime} {
+		if err := os.MkdirAll(filepath.Join(runtime, "scripts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runtime, "scripts", "_orchestrator.py"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(runtime, "VERSION"), []byte("1.2.3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(project, "leedevkit.toml"), []byte("[devkit]\nversion = \"v1.2.3\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := runtimeRootFor(filepath.Join(root, "bin", "leedevkit"), project, map[string]string{"DEVKIT_HOME": explicitRuntime})
+	if got != explicitRuntime {
+		t.Fatalf("runtime root = %q, want explicit runtime %q", got, explicitRuntime)
 	}
 }
 

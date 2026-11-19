@@ -1,194 +1,57 @@
-# TODO: Compose-Native Lifecycle Migration
+# Python → Go Control-Plane Migration
 
-Plan: [plan.md](plan.md)
+## Foundation
 
-## Phase 1 — Provider-neutral Compose boundary
+- [ ] Define canonical Go command/config/runtime/report contracts.
+- [ ] Add explicit `LEEDEVKIT_CORE=go|python` routing; Go errors fail closed.
+- [ ] Add golden parity fixtures for argv, streams, exit codes, signals, JSON, and JSONL.
+- [x] Checkpoint A: outside-checkout Go binary and runtime precedence pass.
+  - [x] Explicit `DEVKIT_HOME` wins over project runtime.
+  - [x] Quoted `vX.Y.Z` project pin matches runtime `X.Y.Z`.
+  - [x] No-argument help, version aliases, and malformed gate JSON covered.
+  - [x] Go tests pass in `golang:1.26.11-bookworm` container.
+  - [x] Python Go-core/launcher tests pass.
 
-- [x] T1: Define Compose lifecycle command boundary.
-  - [x] Wire resolved `ContainerProviderConfig` into bootstrap/lifecycle command construction.
-  - [x] Preserve project, file, profile, and argv ordering.
-  - [x] Add provider capability validation and exact-argv tests.
-- [x] T2: Move dependency ordering and startup readiness into Compose for providers declaring `wait`.
-  - [x] Use Compose-native `up --wait --wait-timeout 120` and one startup call.
-  - [x] Preserve bounded compatibility fallback for providers without native wait.
-  - [x] Preserve build freshness, `skip_build`, and phase-build semantics.
-  - [x] Remove normal direct Podman dev startup branch.
+## Test control plane
 
-## Checkpoint 1 — Startup contract
+- [x] Migrate focused paths `test infra --lint-only` and `test infra --unit-only` to Go.
+  - [x] Run runtime `ruff check`, `mypy`, and optional `shellcheck` through argv.
+  - [x] Run pytest with production coverage and 80% gate through argv.
+  - [x] Support validated `--pattern` filtering without full-coverage claims.
+  - [x] Preserve subprocess exit code and stdout/stderr forwarding.
+  - [x] Stop on first failed command.
+- [ ] Migrate remaining `test infra` and focused test paths to Go.
+- [ ] Preserve gate selection, process safety, logs, blocked/failed/skipped/partial semantics.
+- [ ] Migrate full `test all` phase state machine and DB/migration Compose command paths.
+- [ ] Checkpoint B: focused tests pass in Go mode.
+- [ ] Checkpoint C: full JSON/JSONL, Compose integration, isolation, teardown pass.
 
-- [x] Compose is normal startup orchestrator.
-- [x] No direct Podman calls in normal `lifecycle_up`.
-- [x] Build freshness, project isolation, and mode mapping tests pass.
+## Compose command paths
 
-## Phase 2 — Compose-owned teardown and identity
+- [ ] Migrate `dev up/down/ps/logs/exec` to Go Compose adapter.
+- [ ] Keep `dev clean` explicit and destructive; never reuse for automatic cleanup.
+- [ ] Verify no Go code duplicates Compose dependency, health, identity, or volume logic.
 
-- [x] T3: Make teardown Compose-native and volume-safe.
-  - [x] Use project-scoped `compose down --remove-orphans --timeout N`.
-  - [x] Never pass `-v` or `--volumes` during normal teardown.
-  - [x] Preserve attached-project and idempotent cleanup behavior.
-  - [x] Remove engine-specific force deletion from current-project teardown.
-- [x] T4: Use Compose identity for health and stale-run GC.
-  - [x] Resolve services through `compose ps -q`/labels.
-  - [x] Remove hardcoded container-name identity as primary path.
-  - [x] GC inspects only unlocked LeeDevKit-owned Compose projects; deletion skips when age is unverifiable.
-  - [x] Add Compose metadata and lock-safety tests.
+## Project state commands
 
-## Checkpoint 2 — Lifecycle ownership
+- [ ] Migrate read-only `doctor`.
+- [ ] Migrate transactional `doctor --fix` with rollback.
+- [ ] Migrate `init` acquisition, extraction, venv, rules, harness, skills, and pinning.
+- [ ] Migrate `update` staging, native binary activation, config sync, and rollback.
+- [ ] Migrate transactional `skills` operations and harness sync.
 
-- [x] Compose owns normal up/down/health/dependency behavior.
-- [x] LeeDevKit owns policy, lock, ownership, build decision, and reports.
-- [x] Cleanup cannot delete unrelated containers or volumes.
-- [x] Failure paths remain blocked/failed, never falsely passed.
+## Remaining paths
 
-## Phase 3 — Test orchestration and provider compatibility
+- [ ] Migrate `run` and safe process execution.
+- [ ] Migrate `db:*` and `migrate:*` Compose command builders.
+- [ ] Migrate `debug` read-only bounded MCP path.
+- [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, and coverage paths.
+- [ ] Prove no normal Go command launches `_orchestrator.py`.
 
-- [x] T5: Integrate Compose-native lifecycle with `TestHandler` phases.
-  - [x] Preserve setup-blocked, test-failed, teardown-always-runs behavior.
-  - [x] Preserve JSON/JSONL phase fields, logs, rerun, and partial status.
-  - [x] Consolidate redundant dependency startup where Compose owns it.
-- [x] T6: Verify provider capability matrix and fallback boundaries.
-  - [x] Test Docker default and legacy compatibility fallback.
-  - [ ] Test Podman runtime; unavailable on current host.
-  - [x] Reject unsupported custom-provider capabilities before mutation.
-  - [x] Redact provider diagnostics.
+## Packaging and retirement
 
-## Checkpoint 3 — End-to-end regression
-
-- [ ] `./leedevkit test all --json` passes or reports runtime limitation truthfully; wrapper timeout remains.
-- [ ] `./leedevkit test all --json-stream --quiet` emits parseable JSONL only.
-- [ ] Concurrent project isolation works.
-- [ ] Shared cache volumes survive teardown.
-- [ ] Docker verified; Podman unavailable on current host.
-- [x] Direct Python suite: `959 passed, 1 skipped`.
-
-## Go core migration
-
-- [x] G1: Add stdlib-only Go CLI compatibility core for help/version/unknown commands.
-  - [x] Add `go.mod`, `cmd/leedevkit/main.go`, and Go unit tests.
-  - [x] Preserve current Python launcher as default.
-  - [x] Verify inside `golang:1.26.11-bookworm` container because host lacks Go.
-- [x] G2: Add Go provider resolution parity core.
-  - [x] Preserve provider precedence, argv arrays, capabilities, and redacted diagnostics in `internal/provider`.
-  - [x] Add table-style parity tests for defaults, overrides, invalid capability, and secrets.
-- [x] G3: Add Go Compose command/lifecycle plan; keep Python lifecycle executor authoritative.
-  - [x] Add native wait, project ownership, provider capability, and volume-safe teardown planning in `internal/lifecycle`.
-  - [x] Keep actual Compose execution and cleanup in Python.
-- [x] G4: Add deterministic Go quality gate planner; keep Python execution/reporting authoritative.
-  - [x] Mirror existing Go defaults: gofmt, go-vet, go-test, go-coverage.
-  - [x] Add deterministic selection and missing-gate failure tests.
-- [x] G5: Add opt-in Go core bridge and safe Python fallback.
-  - [x] Add versioned `--plan-gates` stdin/stdout JSON protocol.
-  - [x] Keep Python default path; enabled bridge fails closed on missing binary, timeout, non-zero exit, malformed response, or bad schema.
-  - [x] Restrict bridge environment to explicit safe allowlist.
-- [ ] G6: Cut over safe commands after release acceptance.
-  - [x] Go binary delegates remaining commands through Python compatibility bridge.
-  - [x] Customer bootstrap installs platform Go binary as `./leedevkit` instead of shell wrapper.
-  - [x] Init/update replace legacy wrapper atomically and preserve runtime state/rollback.
-  - [x] Extend release payload validation to include `go.mod` and `cmd/leedevkit/main.go`.
-  - [x] Add opt-in `LEEDEVKIT_CORE=go` version routing with missing-binary fail-closed behavior.
-  - [x] Add Compose Go core build/test environment with module/build caches and release validation.
-- [x] Add Compose-backed Go core build helper and binary smoke verification.
-- [x] Add deterministic Go platform target matrix for release builds.
-- [x] Package platform Go binaries into release artifact and verify launcher discovery.
-  - [x] Build and ship platform Go binaries by default in CI release workflow; default launcher cutover remains disabled.
-
-## Automated release publishing
-
-- [x] Add tag/manual-triggered release workflow with VERSION and changelog gates.
-- [x] Build, accept, checksum, and publish customer tarball plus SBOM assets.
-- [x] Reject existing GitHub Releases instead of overwriting immutable assets.
-- [ ] Verify one real tag run and public GitHub Release asset list.
-
-## Phase 4 — Cleanup and migration readiness
-
-- [x] T7: Remove obsolete lifecycle code and document contract.
-  - [x] Delete verified-dead `_compose_up.py` paths and obsolete profile force-kill map.
-  - [x] Add ADR with migration and rollback details: `docs/architecture/adr-003-compose-native-lifecycle.md`.
-  - [x] Document Compose ownership, provider capabilities, healthchecks, cleanup, and volume policy.
-  - [x] Document Go-core boundary: Go supervises policy; Compose executes containers.
-
-## Final verification
-
-- [ ] `./leedevkit --help`
-- [ ] `./leedevkit test --help`
-- [ ] `./leedevkit test infra --lint-only`
-- [ ] `./leedevkit test infra --unit-only`
-- [ ] `./leedevkit test all --json`
-- [ ] `./leedevkit test all --json-stream --quiet`
-- [ ] `ruff format --check scripts`
-- [ ] `ruff check scripts`
-- [ ] `mypy scripts`
-- [ ] `git diff --check`
-- [ ] Release build/acceptance if packaging/runtime files change.
-
-## Constraints
-
-- [ ] No direct engine command in generic lifecycle path.
-- [ ] No `compose down -v`/`--volumes` for normal cleanup.
-- [ ] No shell interpolation for provider/config values.
-- [ ] No teardown of attached/external projects.
-- [ ] No broad stale-container deletion without ownership, lock, project, and age checks.
-- [ ] No required failed/blocked phase reported as passed.
-- [ ] No commit until explicitly requested.
-
-## Global Binary Migration
-
-### Phase 1 — Runtime contract and native entrypoint
-
-- [ ] T1: Define installed layout, runtime precedence, version matching, missing-runtime errors, and compatibility window.
-  - [ ] Verify `DEVKIT_HOME`, project `.leedevkit`, global runtime, and source/worktree fallback order.
-  - [ ] Preserve project-owned `.agent`/`.claude`, mutable `skills.d`, and `.venv` ownership.
-- [x] T2: Make Go binary resolve runtime outside repository root.
-  - [x] Test project-pinned runtime precedence and global fallback.
-  - [x] Test mismatched explicit runtime fails closed.
-  - [x] Inject resolved runtime into Python subprocess environment.
-  - [x] Keep help/version offline and `.venv`-free.
-  - [ ] Add arbitrary-cwd subprocess test after global installer layout lands.
-
-### Checkpoint A — Native entrypoint
-
-- [x] `go test ./...`
-- [x] Fixture binary works outside checkout.
-- [x] Go and Python select same runtime.
-
-### Phase 2 — Installer and project flow
-
-- [x] T3: Make global installer activate native binary and runtime atomically.
-  - [x] Preserve `~/.leedevkit/{version,current}` and local mirror behavior.
-  - [x] Preserve rollback, permissions, `DEVKIT_HOME`, and prior active install.
-  - [x] Assert native binary is primary global command.
-  - [x] Verify installed binary runs outside checkout.
-- [x] T4: Make project commands work through global binary.
-  - [x] Verify fresh `init` creates `.leedevkit/` without root wrapper.
-  - [x] Verify nested `doctor` through installed global binary.
-  - [x] Preserve project-pinned runtime and project-owned context.
-  - [x] Preserve mutable `skills.d`/`.venv` and legacy wrapper compatibility.
-  - [ ] Verify full fresh `test`, `update`, and `skills` flow after global install without network.
-
-### Checkpoint B — End-to-end project flow
-
-- [ ] Isolated temp projects pass global command flow.
-- [ ] Pin/mismatch and two-project isolation pass.
-- [ ] Failed install/update preserves previous state.
-- [ ] Legacy wrapper compatibility passes.
-
-### Phase 3 — Release and retirement
-
-- [x] T5: Update release artifact, integrity checks, acceptance, and CI.
-  - [x] Package native platform binaries plus runtime scripts/templates/.agent.
-  - [x] Exercise global binary outside checkout.
-  - [x] Preserve archive safety, checksums, SBOM, and offline fast paths.
-  - [x] Add Go core test gate to quality workflow.
-- [x] T6: Update docs/output and retire root launcher after compatibility window.
-  - [x] Update `install.sh`, `bootstrap.sh`, README/CLAUDE instructions, tests.
-  - [x] Remove stale runtime/user-facing root-wrapper assumptions.
-  - [x] Keep legacy wrapper template and migration path explicit.
-  - [ ] Remove committed root wrapper after one compatibility release window.
-
-### Checkpoint C — Release ready
-
-- [ ] `./leedevkit test all --json`
-- [ ] Shell syntax, ruff, mypy, and `git diff --check` pass.
-- [ ] Release build and acceptance pass.
-- [ ] Local-mirror install and rollback pass.
-- [ ] Human approves legacy launcher retirement.
+- [ ] Make release/install/bootstrap Go-first without requiring `_orchestrator.py`.
+- [ ] Keep Python fallback through two tagged compatibility releases.
+- [ ] Run full regression, release build/acceptance, local mirror, checksums, SBOM, and public release verification.
+- [ ] Human approval before deleting Python handlers, bridge, fallback env, or legacy wrapper.
+- [ ] Remove dead compatibility code in separate reviewed cleanup.

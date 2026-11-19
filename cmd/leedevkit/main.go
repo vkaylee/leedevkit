@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/vkaylee/leedevkit/internal/gates"
@@ -45,6 +46,14 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
+func mustExecutable() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return executable
+}
+
 func runtimeRoot(executable string) string {
 	project := findProjectRoot()
 	return runtimeRootFor(executable, project, environMap(os.Environ()))
@@ -52,12 +61,17 @@ func runtimeRoot(executable string) string {
 
 func runtimeRootFor(executable, project string, environ map[string]string) string {
 	expected := projectVersion(project)
-	candidates := make([]string, 0, 5)
+	candidates := make([]string, 0, 12)
+	if explicit := environ["DEVKIT_HOME"]; explicit != "" {
+		candidates = append(candidates, explicit)
+	}
 	if project != "" {
 		candidates = append(candidates, filepath.Join(project, ".leedevkit"))
 	}
-	if explicit := environ["DEVKIT_HOME"]; explicit != "" {
-		candidates = append(candidates, explicit)
+	if home := environ["HOME"]; home != "" {
+		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
 	}
 	candidate := filepath.Dir(executable)
 	for range 8 {
@@ -68,11 +82,6 @@ func runtimeRootFor(executable, project string, environ map[string]string) strin
 		}
 		candidate = parent
 	}
-	if home := environ["HOME"]; home != "" {
-		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
-	} else if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
-	}
 
 	for _, root := range candidates {
 		if runtimeCompatible(root, expected) {
@@ -80,6 +89,12 @@ func runtimeRootFor(executable, project string, environ map[string]string) strin
 		}
 	}
 	return ""
+}
+
+func normalizeVersion(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "\"'")
+	return strings.TrimPrefix(value, "v")
 }
 
 func environMap(values []string) map[string]string {
@@ -122,7 +137,8 @@ func runtimeCompatible(root, expected string) bool {
 	if err != nil {
 		return false
 	}
-	actual := strings.TrimSpace(strings.TrimPrefix(string(version), "v"))
+	actual := normalizeVersion(string(version))
+	expected = normalizeVersion(expected)
 	return expected == "" || expected == "latest" || actual == expected
 }
 
@@ -146,7 +162,7 @@ func projectVersion(project string) string {
 		}
 		_, value, found := strings.Cut(line, "=")
 		if found {
-			return strings.Trim(strings.TrimSpace(value), "\"")
+			return normalizeVersion(value)
 		}
 	}
 	return ""
@@ -163,7 +179,112 @@ func withRuntimeEnv(runtime string, values []string) []string {
 	return append(result, "DEVKIT_HOME="+runtime)
 }
 
+func infraLintCommands(runtime, project string) [][]string {
+	commands := [][]string{
+		{filepath.Join(runtime, ".venv", "bin", "ruff"), "check", filepath.Join(runtime, "scripts")},
+		{filepath.Join(runtime, ".venv", "bin", "mypy"), filepath.Join(runtime, "scripts")},
+	}
+	if _, err := exec.LookPath("shellcheck"); err == nil {
+		shellFiles := []string{}
+		if matches, globErr := filepath.Glob(filepath.Join(project, "*.sh")); globErr == nil {
+			shellFiles = append(shellFiles, matches...)
+		}
+		if matches, globErr := filepath.Glob(filepath.Join(runtime, "scripts", "*.sh")); globErr == nil {
+			shellFiles = append(shellFiles, matches...)
+		}
+		if len(shellFiles) > 0 {
+			commands = append(commands, append([]string{"shellcheck"}, shellFiles...))
+		}
+	}
+	return commands
+}
+
+func runInfraLint(runtime, project string, stdin io.Reader, stdout, stderr io.Writer) int {
+	for _, args := range infraLintCommands(runtime, project) {
+		command := exec.Command(args[0], args[1:]...)
+		command.Dir = project
+		command.Stdin = stdin
+		command.Stdout = stdout
+		command.Stderr = stderr
+		if err := command.Run(); err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				return exitErr.ExitCode()
+			}
+			return 2
+		}
+	}
+	return 0
+}
+
+func validateInfraPattern(pattern string) (string, error) {
+	if pattern == "" {
+		return "", nil
+	}
+	for _, character := range pattern {
+		if character < 32 || character == 127 {
+			return "", fmt.Errorf("pattern cannot contain control characters")
+		}
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return "", fmt.Errorf("invalid pattern regex: %w", err)
+	}
+	return pattern, nil
+}
+
+func infraUnitCommand(runtime, pattern string) []string {
+	command := []string{
+		filepath.Join(runtime, ".venv", "bin", "pytest"),
+		"--cov=scripts",
+		"--cov-config",
+		filepath.Join(runtime, "scripts", ".coveragerc"),
+		"--cov-report=term-missing",
+		"--cov-report=html:.test_logs/coverage-production",
+	}
+	if pattern == "" {
+		command = append(command, "--cov-fail-under=80")
+	} else {
+		command = append(command, "-p", "_pytest_pattern", "--leedevkit-pattern", pattern)
+	}
+	files, _ := filepath.Glob(filepath.Join(runtime, "scripts", "tests", "test_*.py"))
+	return append(command, files...)
+}
+
+func runInfraUnit(runtime, project, pattern string, stdin io.Reader, stdout, stderr io.Writer) int {
+	validated, err := validateInfraPattern(pattern)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	args := infraUnitCommand(runtime, validated)
+	command := exec.Command(args[0], args[1:]...)
+	command.Dir = project
+	command.Stdin = stdin
+	command.Stdout = stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
+		return 2
+	}
+	return 0
+}
+
+func isInfraLint(args []string) bool {
+	return len(args) >= 3 && args[0] == "test" && args[1] == "infra" && args[2] == "--lint-only"
+}
+
+func isInfraUnit(args []string) bool {
+	return len(args) >= 3 && args[0] == "test" && args[1] == "infra" && args[2] == "--unit-only"
+}
+
 func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "Go core cannot dispatch an empty command")
+		return 2
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(stderr, "Go core cannot locate executable: %v\n", err)
@@ -265,7 +386,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, version)
 		return 0
-	case "test", "dev", "debug", "init", "doctor", "skills", "update":
+	case "test":
+		if isInfraLint(args) || isInfraUnit(args) {
+			project := findProjectRoot()
+			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
+			if runtime == "" {
+				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				return 2
+			}
+			if isInfraLint(args) {
+				return runInfraLint(runtime, project, stdin, stdout, stderr)
+			}
+			pattern := ""
+			if len(args) >= 5 && args[3] == "--pattern" {
+				pattern = args[4]
+			}
+			return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
+		}
+		return runPythonCommand(args, stdin, stdout, stderr)
+	case "dev", "debug", "init", "doctor", "skills", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])
