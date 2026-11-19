@@ -61,6 +61,18 @@ Plan: [plan.md](plan.md)
 - [ ] Docker verified; Podman unavailable on current host.
 - [x] Direct Python suite: `959 passed, 1 skipped`.
 
+## Go core migration
+
+- [x] G1: Add stdlib-only Go CLI compatibility core for help/version/unknown commands.
+  - [x] Add `go.mod`, `cmd/leedevkit/main.go`, and Go unit tests.
+  - [x] Preserve current Python launcher as default.
+  - [x] Verify inside `golang:1.26.11-bookworm` container because host lacks Go.
+- [ ] G2: Port config/provider resolution with cross-language parity fixtures.
+- [ ] G3: Add Go Compose command/lifecycle adapter; keep Python lifecycle executor authoritative.
+- [ ] G4: Migrate one Go quality path with report parity.
+- [ ] G5: Add opt-in Go core bridge and safe Python fallback.
+- [ ] G6: Cut over safe commands after release acceptance.
+
 ## Phase 4 — Cleanup and migration readiness
 
 - [x] T7: Remove obsolete lifecycle code and document contract.
