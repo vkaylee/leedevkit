@@ -728,7 +728,7 @@ class TestHandler(HandlerBase):
         return True
 
     def handle_test_infra(self, pattern: str = "") -> None:
-        """Run infra tests with production and non-gating test-source reports."""
+        """Run infra tests with the gated production coverage report."""
         if not isinstance(pattern, str):
             pattern = ""
         if pattern:
@@ -767,20 +767,6 @@ class TestHandler(HandlerBase):
             + test_files
         )
         self._execute_safe(production_cmd, env=env)
-
-        test_source_cmd = (
-            [
-                str(venv_pytest),
-                "--cov=scripts/tests",
-                "--cov-config",
-                "/dev/null",
-                "--cov-report=term-missing",
-                "--cov-report=html:.test_logs/coverage-tests",
-            ]
-            + pattern_args
-            + test_files
-        )
-        self._execute_safe(test_source_cmd, env=env)
 
     def handle_lint_infra(self) -> None:
         """Run ruff + mypy on infra scripts, plus shellcheck on shell scripts."""

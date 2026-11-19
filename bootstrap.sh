@@ -89,6 +89,10 @@ if [ "$VERSION" = "latest" ]; then
         "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")"
 else
     VERSION_TAG="$VERSION"
+    case "$VERSION_TAG" in
+        v*) ;;
+        *) VERSION_TAG="v$VERSION_TAG" ;;
+    esac
 fi
 
 echo "   Version: $VERSION_TAG"

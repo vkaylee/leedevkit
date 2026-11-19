@@ -232,6 +232,16 @@ def _assert_bootstrap(
     if f'version = "{version}"' not in fresh_config:
         raise RuntimeError("bootstrap wrote a v-prefixed version into a new config")
 
+    pinned_project = workspace / "pinned-project"
+    pinned_project.mkdir()
+    (pinned_project / ".git").mkdir()
+    (pinned_project / "leedevkit.toml").write_text(f'[devkit]\nversion = "{version}"\n')
+    _run(["bash", str(repo_root / "bootstrap.sh")], pinned_project, bootstrap_env)
+    if not (pinned_project / ".leedevkit" / "VERSION").is_file():
+        raise RuntimeError(
+            "bootstrap failed to install an unprefixed configured version"
+        )
+
 
 def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
     """Build when needed, then validate and exercise the release artifact."""

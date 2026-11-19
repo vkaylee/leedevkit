@@ -635,7 +635,7 @@ class TestTestHandler:
 
         commands = [" ".join(call.args[0]) for call in orch.execute_safe.call_args_list]
         pytest_commands = [command for command in commands if "pytest" in command]
-        assert len(pytest_commands) == 2
+        assert len(pytest_commands) == 1
         assert all(
             "--leedevkit-pattern auth.*login" in command for command in pytest_commands
         )
@@ -657,7 +657,7 @@ class TestTestHandler:
         orch = _mock_orchestrator()
         handler = TestHandler(orch)
         handler.handle_test_infra()
-        assert orch.execute_safe.call_count == 2
+        assert orch.execute_safe.call_count == 1
         assert "--cov=scripts" in " ".join(orch.execute_safe.call_args_list[0].args[0])
 
     def test_print_test_summary_no_logs(self):
@@ -802,7 +802,7 @@ class TestTestHandler:
         args.unit_only = True
         args.e2e_only = False
         handler.handle_test(args)
-        assert orch.execute_safe.call_count == 2
+        assert orch.execute_safe.call_count == 1
         commands = [" ".join(call.args[0]) for call in orch.execute_safe.call_args_list]
         assert all("pytest" in command for command in commands)
         assert not any("ruff" in command or "mypy" in command for command in commands)
@@ -1563,8 +1563,8 @@ class TestTestHandlerCoverageGaps:
         )
         handler.handle_test(args)  # Should not crash
 
-    def test_handle_test_infra_coverage(self, tmp_path, monkeypatch):
-        """handle_test_infra reports production coverage, excluding test sources."""
+    def test_handle_test_infra_runs_one_coverage_pass(self, tmp_path, monkeypatch):
+        """handle_test_infra runs the gated production coverage suite once."""
         from _test_handler import TestHandler
 
         orch = _mock_orchestrator()
@@ -1579,13 +1579,11 @@ class TestTestHandlerCoverageGaps:
         monkeypatch.setattr(handler, "_execute_safe", fake_execute)
         handler.handle_test_infra()
 
-        assert len(executed) == 2
+        assert len(executed) == 1
         production = " ".join(executed[0])
-        test_source = " ".join(executed[1])
         assert "--cov=scripts" in production
         assert "--cov-config" in production
         assert "--cov-fail-under=80" in production
         assert "scripts/.coveragerc" in production
         assert "coverage-production" in production
-        assert "--cov=scripts/tests" in test_source
-        assert "coverage-tests" in test_source
+        assert "coverage-tests" not in production
