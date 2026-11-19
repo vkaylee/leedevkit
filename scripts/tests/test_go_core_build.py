@@ -36,6 +36,7 @@ def test_build_command_uses_compose_and_safe_build_argv(tmp_path: Path) -> None:
         "GOARCH=amd64",
         "leedevkit-go",
         "build",
+        "-buildvcs=false",
         "-trimpath",
         "-ldflags",
         "-X=main.version=0.10.0",

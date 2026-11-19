@@ -53,6 +53,7 @@ def build_command(
         [
             COMPOSE_SERVICE,
             "build",
+            "-buildvcs=false",
             "-trimpath",
             "-ldflags",
             f"-X=main.version={version}",
