@@ -8,6 +8,7 @@ import tarfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _platform import platform_key  # noqa: E402
 from _release_build import build_release  # noqa: E402
 
 
@@ -152,14 +153,54 @@ def test_install_success_activates_downloaded_release(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    assert (install_dir / "current" / "bin" / "leedevkit").is_file()
+    installed_binary = install_dir / "current" / "bin" / "leedevkit"
+    assert installed_binary.is_file()
     assert (install_dir / "current").resolve() == (
         install_dir / f"v{version}"
     ).resolve()
 
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    binary_result = subprocess.run(
+        [str(installed_binary), "version"],
+        cwd=outside,
+        env={
+            **_script_environment(tmp_path),
+            "DEVKIT_HOME": str(install_dir / "current"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert binary_result.returncode == 0, binary_result.stderr
+    assert binary_result.stdout.strip() == version
 
-def test_project_wrapper_doctor_drops_command_name(tmp_path):
-    """The project launcher passes only doctor options to the doctor script."""
+    project = tmp_path / "global-project"
+    nested = project / "nested"
+    (project / ".git").mkdir(parents=True)
+    nested.mkdir()
+    (project / "leedevkit.toml").write_text(
+        f'[devkit]\nversion = "{version}"\n[project]\nname = "global-project"\n'
+    )
+    doctor_result = subprocess.run(
+        [str(installed_binary), "doctor"],
+        cwd=nested,
+        env={
+            **_script_environment(tmp_path),
+            "DEVKIT_HOME": str(install_dir / "current"),
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert doctor_result.returncode == 0, doctor_result.stderr + doctor_result.stdout
+    assert "Project:" in doctor_result.stdout + doctor_result.stderr
+
+
+def test_global_binary_doctor_uses_project_root(tmp_path):
+    """Global binary runs doctor against project root without a wrapper."""
     repo_root = Path(__file__).resolve().parents[2]
     version = (repo_root / "VERSION").read_text().strip()
     from _go_core_matrix import build_matrix
@@ -192,10 +233,15 @@ def test_project_wrapper_doctor_drops_command_name(tmp_path):
     )
     assert bootstrap.returncode == 0, bootstrap.stderr or bootstrap.stdout
 
+    global_runtime = tmp_path / "global-runtime"
+    shutil.copytree(project / ".leedevkit", global_runtime)
+    native = global_runtime / "bin" / "go" / f"leedevkit-go-{platform_key()}"
+    shutil.copy2(native, global_runtime / "bin" / "leedevkit")
+    (global_runtime / "bin" / "leedevkit").chmod(0o755)
     doctor = subprocess.run(
-        [str(project / "leedevkit"), "doctor"],
+        [str(global_runtime / "bin" / "leedevkit"), "doctor"],
         cwd=project,
-        env=env,
+        env={**env, "DEVKIT_HOME": str(global_runtime)},
         capture_output=True,
         text=True,
         timeout=30,

@@ -95,7 +95,6 @@ echo "   Version: $VERSION_TAG"
 
 STAGE_DIR="$TMP_DIR/stage"
 BACKUP_DIR="$TMP_DIR/previous"
-ENTRYPOINT_STAGE="$TMP_DIR/leedevkit"
 CONFIG_STAGE="$TMP_DIR/leedevkit.toml"
 GITIGNORE_STAGE="$TMP_DIR/gitignore"
 TRANSACTION_ACTIVE=0
@@ -120,10 +119,6 @@ rollback() {
     remove_path .leedevkit
     if [ -e "$BACKUP_DIR/devkit" ] || [ -L "$BACKUP_DIR/devkit" ]; then
         mv "$BACKUP_DIR/devkit" .leedevkit
-    fi
-    remove_path leedevkit
-    if [ -e "$BACKUP_DIR/wrapper" ] || [ -L "$BACKUP_DIR/wrapper" ]; then
-        mv "$BACKUP_DIR/wrapper" leedevkit
     fi
     remove_path leedevkit.toml
     if [ -e "$BACKUP_DIR/config" ] || [ -L "$BACKUP_DIR/config" ]; then
@@ -180,10 +175,8 @@ for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity
 done
 LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
 
-# Prepare every project-side change before activation. Existing configuration
-# is copied and updated in staging, so malformed config fails harmlessly.
-cp "$EXTRACTED/bin/go/leedevkit-go-${platform_key}" "$ENTRYPOINT_STAGE"
-chmod 0755 "$ENTRYPOINT_STAGE"
+# Prepare project configuration before activation. Existing configuration is
+# copied and updated in staging, so malformed config fails harmlessly.
 
 if [ -f leedevkit.toml ]; then
     cp leedevkit.toml "$CONFIG_STAGE"
@@ -256,9 +249,6 @@ TRANSACTION_ACTIVE=1
 if [ -e .leedevkit ] || [ -L .leedevkit ]; then
     mv .leedevkit "$BACKUP_DIR/devkit"
 fi
-if [ -e leedevkit ] || [ -L leedevkit ]; then
-    mv leedevkit "$BACKUP_DIR/wrapper"
-fi
 if [ -e leedevkit.toml ] || [ -L leedevkit.toml ]; then
     mv leedevkit.toml "$BACKUP_DIR/config"
 fi
@@ -271,12 +261,11 @@ if [ -e "$BACKUP_DIR/devkit/skills.d" ] || [ -L "$BACKUP_DIR/devkit/skills.d" ];
     mv "$BACKUP_DIR/devkit/skills.d" .leedevkit/skills.d
 fi
 
-# Ensure scripts and platform binaries are executable before committing transaction.
+# Ensure runtime scripts and platform binaries are executable before commit.
 chmod +x .leedevkit/scripts/*.py 2>/dev/null || true
 chmod +x .leedevkit/scripts/*.sh 2>/dev/null || true
 chmod +x .leedevkit/bin/* 2>/dev/null || true
 chmod 0755 .leedevkit/bin/go/* 2>/dev/null || true
-mv "$ENTRYPOINT_STAGE" leedevkit
 mv "$CONFIG_STAGE" leedevkit.toml
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
     mv "$GITIGNORE_STAGE" .gitignore
@@ -289,7 +278,7 @@ echo ""
 echo "✅ leedevkit $VERSION_TAG installed in .leedevkit/"
 echo ""
 echo "   Run:"
-echo "     ./leedevkit doctor"
-echo "     ./leedevkit test all"
+echo "     leedevkit doctor"
+echo "     leedevkit test all"
 echo ""
-echo "   No global install needed. Everything is in .leedevkit/"
+echo "   Install global command with install.sh if leedevkit is not on PATH."

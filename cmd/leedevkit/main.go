@@ -46,20 +46,121 @@ func main() {
 }
 
 func runtimeRoot(executable string) string {
-	candidate := filepath.Dir(executable)
-	for range 4 {
-		if _, err := os.Stat(filepath.Join(candidate, "scripts", "_orchestrator.py")); err == nil {
-			return candidate
-		}
-		candidate = filepath.Dir(candidate)
+	project := findProjectRoot()
+	return runtimeRootFor(executable, project, environMap(os.Environ()))
+}
+
+func runtimeRootFor(executable, project string, environ map[string]string) string {
+	expected := projectVersion(project)
+	candidates := make([]string, 0, 5)
+	if project != "" {
+		candidates = append(candidates, filepath.Join(project, ".leedevkit"))
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidate = filepath.Join(cwd, ".leedevkit")
-		if _, err := os.Stat(filepath.Join(candidate, "scripts", "_orchestrator.py")); err == nil {
-			return candidate
+	if explicit := environ["DEVKIT_HOME"]; explicit != "" {
+		candidates = append(candidates, explicit)
+	}
+	candidate := filepath.Dir(executable)
+	for range 8 {
+		candidates = append(candidates, candidate)
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			break
+		}
+		candidate = parent
+	}
+	if home := environ["HOME"]; home != "" {
+		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".leedevkit", "current"))
+	}
+
+	for _, root := range candidates {
+		if runtimeCompatible(root, expected) {
+			return root
 		}
 	}
 	return ""
+}
+
+func environMap(values []string) map[string]string {
+	result := make(map[string]string, len(values))
+	for _, value := range values {
+		key, item, found := strings.Cut(value, "=")
+		if found {
+			result[key] = item
+		}
+	}
+	return result
+}
+
+func findProjectRoot() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for current := cwd; ; current = filepath.Dir(current) {
+		if fileExists(filepath.Join(current, "leedevkit.toml")) || fileExists(filepath.Join(current, ".git")) {
+			return current
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return cwd
+		}
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func runtimeCompatible(root, expected string) bool {
+	if root == "" || !fileExists(filepath.Join(root, "scripts", "_orchestrator.py")) {
+		return false
+	}
+	version, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		return false
+	}
+	actual := strings.TrimSpace(strings.TrimPrefix(string(version), "v"))
+	return expected == "" || expected == "latest" || actual == expected
+}
+
+func projectVersion(project string) string {
+	if project == "" {
+		return ""
+	}
+	content, err := os.ReadFile(filepath.Join(project, "leedevkit.toml"))
+	if err != nil {
+		return ""
+	}
+	section := false
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = line == "[devkit]"
+			continue
+		}
+		if !section || !strings.HasPrefix(line, "version") {
+			continue
+		}
+		_, value, found := strings.Cut(line, "=")
+		if found {
+			return strings.Trim(strings.TrimSpace(value), "\"")
+		}
+	}
+	return ""
+}
+
+func withRuntimeEnv(runtime string, values []string) []string {
+	result := make([]string, 0, len(values)+1)
+	for _, value := range values {
+		if strings.HasPrefix(value, "DEVKIT_HOME=") {
+			continue
+		}
+		result = append(result, value)
+	}
+	return append(result, "DEVKIT_HOME="+runtime)
 }
 
 func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -89,7 +190,7 @@ func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 		command.Stdin = stdin
 		command.Stdout = stdout
 		command.Stderr = stderr
-		command.Env = os.Environ()
+		command.Env = withRuntimeEnv(runtime, os.Environ())
 		if err := command.Run(); err != nil {
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
@@ -125,7 +226,7 @@ func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 	command.Stdin = stdin
 	command.Stdout = stdout
 	command.Stderr = stderr
-	command.Env = os.Environ()
+	command.Env = withRuntimeEnv(runtime, os.Environ())
 	if err := command.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

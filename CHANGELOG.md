@@ -4,6 +4,22 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-19
+
+### Added
+- Install native global `leedevkit` binary outside project repositories.
+- Keep project runtime in `.leedevkit/` and project manifest in `leedevkit.toml`.
+
+### Changed
+- Stop creating committed `./leedevkit` wrappers for new projects.
+- Run release acceptance through global binary and add Go core CI coverage.
+
+### Compatibility
+- Existing project wrappers remain supported during migration.
+
+### Verification
+- Go tests, focused migration tests, release build, and release acceptance pass locally.
+
 ## [0.10.7] - 2026-11-19
 
 ### Fixes

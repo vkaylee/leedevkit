@@ -114,14 +114,25 @@ echo "   Downloading: $TARBALL_URL"
 LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
     "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
 EXTRACTED="$STAGE_DIR"
-for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
+platform_key="$(LEEDEVKIT_PLATFORM=auto python3 - <<'PY'
+import platform
+
+system = platform.system().lower()
+machine = platform.machine().lower()
+arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
+if system not in {"linux", "darwin", "windows"} or arch is None:
+    raise SystemExit(f"unsupported platform: {platform.system()}/{platform.machine()}")
+print(f"{system}-{arch}")
+PY
+)"
+native_binary="bin/go/leedevkit-go-${platform_key}"
+for REQUIRED in bin/leedevkit "$native_binary" scripts/_orchestrator.py scripts/_devkit_integrity.py; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
         exit 1
     fi
 done
 LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
-
 
 # Prepare the PATH change before activation so a shell startup-file failure
 # can still restore the previous install and symlink.
@@ -149,10 +160,13 @@ VERSION_ACTIVATED=1
 ln -s "$VERSION_DIR" "$INSTALL_DIR/current"
 CURRENT_ACTIVATED=1
 
-# Ensure scripts are executable before committing the transaction.
+# Ensure scripts and native binaries are executable before committing the transaction.
 chmod +x "$VERSION_DIR"/scripts/*.py 2>/dev/null || true
 chmod +x "$VERSION_DIR"/scripts/*.sh 2>/dev/null || true
 chmod +x "$VERSION_DIR"/bin/* 2>/dev/null || true
+chmod +x "$VERSION_DIR"/bin/go/* 2>/dev/null || true
+cp "$VERSION_DIR/$native_binary" "$VERSION_DIR/bin/leedevkit"
+chmod 0755 "$VERSION_DIR/bin/leedevkit"
 if [ -n "$SHELL_RC" ] && [ -f "$PATH_RC_BACKUP" ]; then
     cat >> "$SHELL_RC" <<'PATH_ENTRY'
 export PATH="$HOME/.leedevkit/current/bin:$PATH"
@@ -172,8 +186,8 @@ echo "     cd my-project && git init"
 echo "     ~/.leedevkit/current/bin/leedevkit init"
 echo ""
 echo "   Then run in your project:"
-echo "     ./leedevkit doctor"
-echo "     ./leedevkit test infra --lint-only"
+echo "     leedevkit doctor"
+echo "     leedevkit test infra --lint-only"
 echo ""
 if [ -n "$SHELL_RC" ] && [ "$PATH_RC_CHANGED" -eq 1 ]; then
     echo "   Added ~/.leedevkit/current/bin to PATH in $SHELL_RC"

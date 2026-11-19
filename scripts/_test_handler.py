@@ -529,7 +529,7 @@ class TestHandler(HandlerBase):
 
     @staticmethod
     def _phase_command(args: argparse.Namespace, phase: str, target: str) -> str:
-        command = f"./leedevkit test {target}"
+        command = f"leedevkit test {target}"
         if phase == "Linting":
             command += " --lint-only"
         elif phase == "Unit Tests":

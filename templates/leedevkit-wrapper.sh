@@ -1,5 +1,5 @@
 #!/bin/bash
-# LeeDevKit — committed project launcher (self-bootstraps per-project runtime)
+# LeeDevKit — legacy project launcher (compatibility only)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

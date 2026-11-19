@@ -2,7 +2,7 @@
 
 Enterprise DevKit for AI-first projects — unified CLI, test orchestrator, AI agent context, skill catalog, and integrity verification.
 
-Per-project install: each project self-contains its own devkit (no global dependencies, AI-agent friendly).
+Global CLI plus per-project runtime: `leedevkit` is installed globally, while each project keeps pinned runtime state in `.leedevkit/` (like `node_modules/`).
 
 ## Install
 
@@ -10,17 +10,16 @@ Per-project install: each project self-contains its own devkit (no global depend
 
 Two ways to get started — pick one:
 
-### Option A: bootstrap.sh (recommended — no global install)
+### Option A: bootstrap.sh (project runtime)
 
 ```bash
 cd my-project && git init
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 ```
 
-Downloads the devkit release into `.leedevkit/` inside your project. No global install,
-no PATH modification, no root permissions. Everything is self-contained.
+Downloads pinned runtime into `.leedevkit/` inside project. Install global `leedevkit` separately with `install.sh`.
 
-### Option B: install.sh + init (legacy — global bootstrap)
+### Option B: install.sh + init (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
@@ -28,16 +27,15 @@ cd my-project && git init
 leedevkit init                      # ← uses global binary for this step only
 ```
 
-Installs to `~/.leedevkit/<version>/` as a global bootstrap command, then `init`
-downloads the devkit into `.leedevkit/` inside your project.
+Installs native `leedevkit` to `~/.leedevkit/current/bin`, then `init` downloads pinned runtime into `.leedevkit/`.
 
 ### After install
 
 `init` or `bootstrap` creates this structure:
 
-- `.leedevkit/.venv/` — isolated Python runtime with only CLI-required packages; test/lint tools install on first `./leedevkit test`
+- `.leedevkit/` — pinned project runtime and isolated Python environment
 - `.agent/rules/` — project's AI rulebooks (copied from devkit base)
-- `./leedevkit` → project-local wrapper script
+- `leedevkit` — global executable
 
 `.leedevkit/` and bootstrap lock files are gitignored. Commit `leedevkit`, `leedevkit.toml`, and `leedevkit.lock`.
 
@@ -105,24 +103,15 @@ CONTAINER_PROVIDER=kiri ./leedevkit test all
 ./leedevkit version                 # show devkit version
 ```
 
-### Why `./leedevkit` instead of `leedevkit`?
-`./leedevkit` is a committed, executable project launcher. It delegates to a matching
-`.leedevkit/bin/leedevkit`, reuses the main checkout runtime in Git worktrees, and
-self-bootstraps a pinned release when the runtime is missing.
+### Why `leedevkit` instead of `./leedevkit`?
+`leedevkit` is one global native executable. `leedevkit.toml` pins project runtime version; `.leedevkit/` stores that runtime locally and stays gitignored.
 
-If you prefer the short form, add this alias to your `.bashrc`/`.zshrc`:
+Existing projects may keep their old `./leedevkit` wrapper during migration. New projects do not create one.
+
+If global command is not on PATH, add the installer directory:
 
 ```bash
-# Use project-local leedevkit when in a project with .leedevkit/
-leedevkit() {
-  if [ -x "./leedevkit" ]; then
-    ./leedevkit "$@"
-  elif command -v leedevkit &>/dev/null; then
-    command leedevkit "$@"
-  else
-    echo "leedevkit not found. Run: curl -fsSL .../install.sh | bash"
-  fi
-}
+export PATH="$HOME/.leedevkit/current/bin:$PATH"
 ```
 
 ## Migrating existing projects

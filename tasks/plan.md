@@ -215,6 +215,84 @@ provider resolution + Compose capability model
 - [ ] Remaining provider/runtime limitations are explicit.
 - [ ] Human approves Go migration using this Compose boundary.
 
+---
+
+# Addendum: Global Binary Migration
+
+## Context
+
+LeeDevKit currently exposes a repo-root Bash launcher plus an opt-in Go core. The Go binary still depends on filesystem assets (`scripts/`, `templates/`, `.agent/`) and its runtime lookup assumes executable-adjacent paths. Goal: make one globally installed Go executable the user-facing `leedevkit`, while retaining project-pinned `.leedevkit` runtimes and mutable project state for reproducibility.
+
+No `SPEC.md` exists. Current contracts come from `templates/CLAUDE.base.md`, `.agent/rules/devkit-internals.md`, `install.sh`, `bootstrap.sh`, `cmd/leedevkit/main.go`, `_devkit_config.py`, and release acceptance tests.
+
+## Architecture decision
+
+- Global Go binary is command entrypoint; Python orchestrator remains runtime implementation.
+- Runtime resolution order: explicit `DEVKIT_HOME`, matching project `.leedevkit`, matching global installed runtime, then source-checkout/worktree fallback where valid.
+- Keep runtime assets on disk. Do not embed assets in first migration because handlers read filesystem templates/rules/scripts and `skills.d` is mutable.
+- Keep project-local `.leedevkit` and compatibility project wrapper during migration; remove only after upgrade/rollback acceptance passes.
+- Preserve version matching, atomic installer/update rollback, mutable `skills.d`/`.venv`, and offline help/version fast paths.
+
+## Dependency graph
+
+```text
+runtime contract
+  → Go runtime discovery and dispatch
+  → global installer/runtime layout
+  → init/update/project-wrapper compatibility
+  → release artifact and acceptance contract
+  → docs and legacy launcher retirement
+```
+
+## Vertical slices
+
+### Phase 1: Runtime contract and native entrypoint
+
+1. Define installed layout, precedence, project version matching, missing-runtime errors, and compatibility window. Review `cmd/leedevkit/main.go`, `scripts/_devkit_config.py`, `install.sh`, and `bootstrap.sh`.
+2. Update Go runtime discovery and dispatch. Test arbitrary working directories, matching project runtime precedence, global fallback, explicit override, mismatch failure, exit-code/stdin/env forwarding, and help/version without `.venv`.
+
+**Checkpoint A:** `go test ./...`; fixture binary runs outside checkout; Go/Python choose same runtime; no Python orchestration changes yet.
+
+### Phase 2: Installer and project flow
+
+3. Make `install.sh` activate native platform binary plus matching runtime atomically. Preserve versioned `~/.leedevkit/{version,current}` layout, local mirrors, rollback, permissions, and `DEVKIT_HOME` semantics.
+4. Make `init`, `doctor`, `test`, `update`, and `skills` work through global binary while preserving project-pinned runtime, project-owned `.agent`/`.claude`, mutable skills, and compatibility wrapper behavior.
+
+**Checkpoint B:** isolated temp projects pass fresh init, nested command execution, pin/mismatch selection, failed install/update preservation, and legacy-wrapper compatibility.
+
+### Phase 3: Release and retirement
+
+5. Update release builder, integrity/manifest checks, release acceptance, and CI to exercise global binary outside source checkout while retaining runtime assets and platform matrix.
+6. Update install/bootstrap output, README/CLAUDE instructions, changelog, and tests. Deprecate/remove root launcher only after compatibility evidence and a reversible migration window.
+
+**Checkpoint C:** `./leedevkit test all --json`, shell/lint/type checks, release build, release acceptance, local-mirror install, archive safety, checksums/SBOM, and migration rollback all pass.
+
+## Per-task acceptance and verification
+
+- **T1 contract:** layout, precedence, ownership, and compatibility window documented; verify against current installer/config/release behavior.
+- **T2 Go discovery:** global binary works from arbitrary cwd; matching project runtime wins; mismatch fails closed; `go test ./...` passes.
+- **T3 installer:** native binary is primary global command; runtime and binary versions match; failed install preserves active install; run mandatory release build/acceptance gate.
+- **T4 project flow:** global `init`/`doctor`/`test`/`update`/`skills` work in isolated projects; project files and mutable state remain safe; run focused Python tests then `./leedevkit test all --json`.
+- **T5 release:** artifact contains native binaries plus required scripts/templates/.agent assets; acceptance runs outside checkout and checks offline fast paths; run CI-equivalent release checks.
+- **T6 cleanup:** docs and output match tested global workflow; stale root-wrapper assumptions removed; run shell syntax, focused tests, full regression, and `git diff --check`.
+
+## Risks and mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Binary cannot find Python/assets after relocation | High | Explicit adjacent/global runtime contract and arbitrary-cwd fixture tests. |
+| Global runtime conflicts with project pin | High | Strict version matching and two-project isolation tests. |
+| Legacy wrapper removal breaks users | High | Compatibility window, migration tests, reversible rollout. |
+| Installer/update loses `.venv` or `skills.d` | High | Transactional backup and preservation assertions. |
+| Platform archive misses executable binary | High | Matrix build, manifest/integrity checks, release acceptance. |
+| Embedding assets expands scope | Medium | Keep filesystem runtime in first migration; revisit separately. |
+
+## Open decisions
+
+- Recommended: retain project-pinned `.leedevkit`; global binary is entrypoint, not sole runtime.
+- Recommended: retain `~/.leedevkit/current/bin` transactional install location.
+- Recommended: retain root wrapper for one compatibility window, then remove after acceptance.
+
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
