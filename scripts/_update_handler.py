@@ -125,6 +125,8 @@ def handle_update(target: str | None = None) -> None:
         if selected_binary_name is not None:
             selected_binary = root / "bin" / "go" / selected_binary_name
             staged_entrypoint = entrypoint.with_name(".leedevkit.new-entrypoint")
+            if not selected_binary.is_file():
+                raise RuntimeError(f"Downloaded Go core binary missing: {selected_binary}")
             shutil.copy2(selected_binary, staged_entrypoint)
             staged_entrypoint.chmod(0o755)
             staged_entrypoint.replace(entrypoint)
