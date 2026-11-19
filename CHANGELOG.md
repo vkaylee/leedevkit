@@ -4,6 +4,15 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-19
+
+### Fixed
+- Normalize unprefixed release versions in bootstrap URLs.
+- Run infrastructure tests once instead of duplicating full pytest coverage pass.
+
+### Verification
+- Release acceptance and handler regression tests pass.
+
 ## [0.11.0] - 2026-11-19
 
 ### Added
