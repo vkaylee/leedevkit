@@ -82,7 +82,8 @@ Plan: [plan.md](plan.md)
   - [x] Restrict bridge environment to explicit safe allowlist.
 - [ ] G6: Cut over safe commands after release acceptance.
   - [x] Extend release payload validation to include `go.mod` and `cmd/leedevkit/main.go`.
-  - [ ] Build and ship platform Go binaries; launcher cutover remains disabled.
+  - [x] Add opt-in `LEEDEVKIT_CORE=go` version routing with missing-binary fail-closed behavior.
+  - [ ] Build and ship platform Go binaries; default launcher cutover remains disabled.
 
 ## Phase 4 — Cleanup and migration readiness
 
