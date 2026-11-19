@@ -47,39 +47,20 @@ Deployment and feature exposure are separate controls. A deployed feature MUST N
 
 ## 7. LeeDevKit Release Procedure (REQUIRED)
 
-A request to release LeeDevKit means the complete customer-visible workflow, not only a commit or Git tag:
+A request to release LeeDevKit means complete customer-visible workflow, not only commit or Git tag:
 
-1. Run the release readiness gate: format, lint, type checks, tests, coverage, and `git diff --check`.
-2. Build and accept the customer artifact:
+1. Update `VERSION` and `CHANGELOG.md`: move Unreleased entries into `## [X.Y.Z] - YYYY-MM-DD`. Commit release changes.
+2. Push `main` and create/push immutable tag `vX.Y.Z`.
+3. `.github/workflows/release.yml` validates tag/version/changelog, runs quality and release acceptance gates, builds Go platform binaries, creates tarball/checksum/SBOM, and publishes public GitHub Release with `GITHUB_TOKEN`.
+4. Verify workflow success. Check public release:
    ```bash
-   .venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/leedevkit-release
-   .venv/bin/python3 scripts/_release_acceptance.py \
-     --repo-root . \
-     --artifact /tmp/leedevkit-release/leedevkit-$(tr -d '\n' < VERSION).tar.gz
+   gh release view "v${version}" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets
    ```
-3. Update `VERSION` and `CHANGELOG.md`: add new changes under `## [Unreleased]`; on release, move those entries into `## [X.Y.Z] - YYYY-MM-DD`. Commit the release changes.
-4. Push `main` to `origin`.
-5. Create and push immutable annotated tag `vX.Y.Z`.
-6. Create the public GitHub Release **with the tarball attached**:
-   ```bash
-   version="$(tr -d '\n' < VERSION)"
-   notes_file="$(mktemp)"
-   trap 'rm -f "$notes_file"' EXIT
-   awk -v heading="## [${version}]" '
-     $0 == heading || index($0, heading " - ") == 1 { found=1; printing=1 }
-     printing && /^## / && $0 != heading && index($0, heading " - ") != 1 { exit }
-     printing { print }
-     END { if (!found) exit 1 }
-   ' CHANGELOG.md > "$notes_file"
-   test -s "$notes_file"
-   gh release create "v${version}" \
-     --repo vkaylee/leedevkit \
-     --notes-file "$notes_file" \
-     "/tmp/leedevkit-release/leedevkit-${version}.tar.gz"
-   ```
-7. Verify `gh release view vX.Y.Z` reports public, non-draft, non-prerelease, includes `leedevkit-X.Y.Z.tar.gz`, and that `releases/latest` resolves to the new tag.
+5. Verify assets include `leedevkit-X.Y.Z.tar.gz`, checksum, and SBOM. Verify `releases/latest` resolves to tag.
 
-Do not report release completion until all seven steps pass. LeeDevKit customer updates read GitHub Releases, not tags alone; a tag without a GitHub Release and attached tarball is incomplete.
+Release workflow rejects mismatched tags, missing changelog notes, failed acceptance, and existing GitHub Releases. It never overwrites immutable release assets. Correct post-release defects by preparing a higher version and new tag; do not delete/rewrite published release.
+
+Manual fallback is allowed only when workflow is unavailable. Run full readiness, build, acceptance, checksum/SBOM, `gh release create`, and post-publish verification steps from prior procedure. Do not report release completion until public GitHub Release contains customer tarball and evidence assets. Customer bootstrap/update read GitHub Releases, not tags alone; tag without attached tarball is incomplete.
 
 ## 8. Release Completion
 

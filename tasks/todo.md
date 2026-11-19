@@ -90,7 +90,14 @@ Plan: [plan.md](plan.md)
 - [x] Add Compose-backed Go core build helper and binary smoke verification.
 - [x] Add deterministic Go platform target matrix for release builds.
 - [x] Package platform Go binaries into release artifact and verify launcher discovery.
-  - [ ] Build and ship platform Go binaries by default in CI release workflow; default launcher cutover remains disabled.
+  - [x] Build and ship platform Go binaries by default in CI release workflow; default launcher cutover remains disabled.
+
+## Automated release publishing
+
+- [x] Add tag/manual-triggered release workflow with VERSION and changelog gates.
+- [x] Build, accept, checksum, and publish customer tarball plus SBOM assets.
+- [x] Reject existing GitHub Releases instead of overwriting immutable assets.
+- [ ] Verify one real tag run and public GitHub Release asset list.
 
 ## Phase 4 — Cleanup and migration readiness
 

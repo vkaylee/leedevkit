@@ -1,0 +1,152 @@
+name: LeeDevKit Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-accept:
+    name: Build and accept release
+    runs-on: ubuntu-latest
+    env:
+      LEEDEVKIT_PYTHON: .venv/bin/python3
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install locked release dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
+
+      - name: Validate tag, VERSION, and release notes
+        id: release-meta
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          }
+          version="$(tr -d '\n' < VERSION)"
+          test "$RELEASE_TAG" = "v$version"
+          notes_file=".ci-artifacts/release-notes.md"
+          mkdir -p .ci-artifacts
+          awk -v heading="## [$version]" '
+            $0 == heading || index($0, heading " - ") == 1 { found=1; printing=1 }
+            printing && /^## / && $0 != heading && index($0, heading " - ") != 1 { exit }
+            printing { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > "$notes_file"
+          test -s "$notes_file"
+          printf 'release_tag=%s\nversion=%s\n' "$RELEASE_TAG" "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Generate supply-chain evidence
+        run: |
+          mkdir -p .ci-artifacts
+          .venv/bin/python3 scripts/_supply_chain_check.py \
+            --lock scripts/requirements.lock \
+            --output .ci-artifacts/supply-chain.json \
+            --container-root . </dev/null
+          .venv/bin/python3 scripts/_sbom.py \
+            scripts/requirements.lock \
+            "$(tr -d '\n' < VERSION)" \
+            .ci-artifacts/sbom.cdx.json </dev/null
+
+      - name: Build Go core platform binaries
+        run: |
+          mkdir -p .ci-artifacts/go-core
+          .venv/bin/python3 scripts/_go_core_matrix.py \
+            --repo-root . \
+            --output-dir .ci-artifacts/go-core \
+            --version "$(tr -d '\n' < VERSION)" </dev/null
+
+      - name: Build and accept customer artifact
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-artifacts/release-dist
+          .venv/bin/python3 scripts/_release_build.py \
+            --repo-root . \
+            --output .ci-artifacts/release-dist \
+            --go-core-dir .ci-artifacts/go-core </dev/null
+          artifact=".ci-artifacts/release-dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz"
+          .venv/bin/python3 scripts/_release_acceptance.py \
+            --repo-root . \
+            --artifact "$artifact" </dev/null
+          sha256sum "$artifact" > .ci-artifacts/release-artifact.sha256
+          .venv/bin/python3 scripts/_sbom.py \
+            scripts/requirements.lock \
+            "$(tr -d '\n' < VERSION)" \
+            .ci-artifacts/release-sbom.cdx.json </dev/null
+          sha256sum .ci-artifacts/release-sbom.cdx.json > .ci-artifacts/release-sbom.sha256
+          cp .ci-artifacts/release-sbom.cdx.json .ci-artifacts/sbom.cdx.json
+          cp .ci-artifacts/release-sbom.sha256 .ci-artifacts/sbom.cdx.json.sha256
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: leedevkit-release-${{ env.RELEASE_TAG }}
+          path: .ci-artifacts/**
+          include-hidden-files: true
+          if-no-files-found: warn
+
+  publish:
+    name: Publish GitHub Release
+    needs: build-and-accept
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download accepted release evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: leedevkit-release-${{ env.RELEASE_TAG }}
+          path: .ci-artifacts
+
+      - name: Publish immutable GitHub Release
+        run: |
+          set -euo pipefail
+          test -f ".ci-artifacts/release-notes.md"
+          artifact=".ci-artifacts/release-dist/leedevkit-${RELEASE_TAG#v}.tar.gz"
+          test -f "$artifact"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "LeeDevKit $RELEASE_TAG" \
+            --notes-file .ci-artifacts/release-notes.md \
+            "$artifact" \
+            .ci-artifacts/release-artifact.sha256 \
+            .ci-artifacts/release-sbom.cdx.json \
+            .ci-artifacts/release-sbom.cdx.json.sha256
+
+      - name: Verify published assets
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets \
+            --jq '.isDraft == false and .isPrerelease == false and ([.assets[].name] | index("leedevkit-" + (env.RELEASE_TAG | ltrimstr("v")) + ".tar.gz")) != null'
