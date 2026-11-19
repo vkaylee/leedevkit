@@ -42,7 +42,11 @@ def _snapshot(paths: tuple[str, ...]) -> dict[str, bytes | str]:
         elif path.is_dir():
             for child in sorted(path.rglob("*")):
                 child_relative = child.relative_to(REPO_ROOT).as_posix()
-                if child_relative in RUNTIME_ARTIFACTS:
+                if (
+                    child_relative in RUNTIME_ARTIFACTS
+                    or "__pycache__" in child.relative_to(REPO_ROOT).parts
+                    or child.suffix in {".pyc", ".pyo"}
+                ):
                     continue
                 if child.is_symlink():
                     snapshot[child_relative] = f"symlink:{child.readlink()}"

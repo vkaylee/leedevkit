@@ -15,6 +15,7 @@ services:
       - go-module-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     working_dir: /workspace
+    network_mode: "none"
     environment:
       GOTMPDIR: /go-tmp
     tmpfs:

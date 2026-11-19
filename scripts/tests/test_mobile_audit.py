@@ -76,7 +76,8 @@ export default function App() {
 
 
 class TestMobileAuditorIntegration:
-    def test_compliant_rn_passes(self, tmp_path, react_native_content):
+    def test_compliant_rn_passes(self, tmp_path, react_native_content, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         f = tmp_path / "App.tsx"
         f.write_text(react_native_content, encoding="utf-8")
 

@@ -25,7 +25,10 @@ def _load_runner():
     return module
 
 
-def test_launch_chromium_does_not_install_when_browser_is_available(monkeypatch):
+def test_launch_chromium_does_not_install_when_browser_is_available(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
     runner = _load_runner()
     browser = object()
     chromium = Mock()
