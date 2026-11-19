@@ -4,6 +4,20 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-19
+
+### Added
+- Install customer `./leedevkit` as platform Go binary instead of editable shell wrapper.
+- Build and publish multi-platform Go core release artifacts through tag-triggered GitHub Actions.
+
+### Compatibility
+- Retain Python orchestrator bridge for commands not yet ported to Go.
+- Preserve atomic bootstrap/update rollback and `.venv`/`skills.d` state.
+
+### Verification
+- Go tests passed in Compose container.
+- Binary migration and release acceptance suites passed.
+
 ## [0.9.1] - 2026-11-17
 
 ### Added
