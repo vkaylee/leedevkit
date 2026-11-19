@@ -336,6 +336,7 @@ class TestHandleUpdateRollback:
         root = tmp_path / "devkit"
         root.mkdir()
         (root / "VERSION").write_text("0.1.0")
+        monkeypatch.chdir(tmp_path)
 
         monkeypatch.setattr("_update_handler._devkit_root", lambda: root)
 
