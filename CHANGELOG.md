@@ -4,6 +4,14 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-11-19
+
+### Fixes
+- Align repository dogfood `[devkit].version` with release VERSION so CI resolves its runtime correctly.
+
+### Verification
+- Quality workflow failure reproduced and fixed from CI traceback.
+
 ## [0.10.3] - 2026-11-19
 
 ### Fixes
