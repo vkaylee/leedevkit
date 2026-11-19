@@ -76,7 +76,10 @@ Plan: [plan.md](plan.md)
 - [x] G4: Add deterministic Go quality gate planner; keep Python execution/reporting authoritative.
   - [x] Mirror existing Go defaults: gofmt, go-vet, go-test, go-coverage.
   - [x] Add deterministic selection and missing-gate failure tests.
-- [ ] G5: Add opt-in Go core bridge and safe Python fallback.
+- [x] G5: Add opt-in Go core bridge and safe Python fallback.
+  - [x] Add versioned `--plan-gates` stdin/stdout JSON protocol.
+  - [x] Keep Python default path; enabled bridge fails closed on missing binary, timeout, non-zero exit, malformed response, or bad schema.
+  - [x] Restrict bridge environment to explicit safe allowlist.
 - [ ] G6: Cut over safe commands after release acceptance.
 
 ## Phase 4 — Cleanup and migration readiness
