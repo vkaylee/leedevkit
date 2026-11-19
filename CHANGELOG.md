@@ -4,6 +4,14 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-11-19
+
+### Fixes
+- Isolate remaining update fixtures and prevent Go Compose test runs from creating networks.
+
+### Verification
+- Affected regression fixtures pass locally.
+
 ## [0.10.6] - 2026-11-19
 
 ### Fixes
