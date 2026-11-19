@@ -24,6 +24,8 @@ REQUIRED_PATHS = {
     "bin/leedevkit",
     "scripts/_orchestrator.py",
     "scripts/requirements-runtime.lock",
+    "go.mod",
+    "cmd/leedevkit/main.go",
 }
 FORBIDDEN_PARTS = {".git", "__pycache__", ".venv", "skills.d"}
 
