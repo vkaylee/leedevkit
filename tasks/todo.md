@@ -81,6 +81,8 @@ Plan: [plan.md](plan.md)
   - [x] Keep Python default path; enabled bridge fails closed on missing binary, timeout, non-zero exit, malformed response, or bad schema.
   - [x] Restrict bridge environment to explicit safe allowlist.
 - [ ] G6: Cut over safe commands after release acceptance.
+  - [x] Extend release payload validation to include `go.mod` and `cmd/leedevkit/main.go`.
+  - [ ] Build and ship platform Go binaries; launcher cutover remains disabled.
 
 ## Phase 4 — Cleanup and migration readiness
 
