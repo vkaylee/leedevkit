@@ -1,0 +1,105 @@
+package lifecycle
+
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/vkaylee/leedevkit/internal/provider"
+)
+
+type Plan struct {
+	Provider     provider.Provider
+	Project      string
+	Files        []string
+	Profiles     []string
+	Services     []string
+	Dependencies []string
+	Build        bool
+	NativeWait   bool
+	WaitTimeout  int
+	OwnsProject  bool
+}
+
+func (p Plan) Up() ([]string, error) {
+	if err := p.validate(); err != nil {
+		return nil, err
+	}
+	args := p.base()
+	args = append(args, p.Profiles...)
+	args = append(args, "up", "-d")
+	if p.Build {
+		args = append(args, "--build")
+	} else {
+		args = append(args, "--no-build")
+	}
+	if p.NativeWait {
+		if !has(p.Provider.Capabilities, "wait") {
+			return nil, fmt.Errorf("provider %q lacks required capability: wait", p.Provider.Name)
+		}
+		args = append(args, "--wait", "--wait-timeout", strconv.Itoa(p.WaitTimeout))
+	}
+	services := append([]string{}, p.Services...)
+	if p.NativeWait {
+		services = append(services, p.Dependencies...)
+	}
+	return append(args, unique(services)...), nil
+}
+
+func (p Plan) Down() ([]string, error) {
+	if err := p.validate(); err != nil {
+		return nil, err
+	}
+	if !p.OwnsProject {
+		return nil, nil
+	}
+	args := p.base()
+	return append(args, "down", "--remove-orphans", "--timeout", "1"), nil
+}
+
+func (p Plan) base() []string {
+	args := append([]string{}, p.Provider.Compose...)
+	args = append(args, "-p", p.Project)
+	for _, file := range p.Files {
+		args = append(args, "-f", file)
+	}
+	return args
+}
+
+func (p Plan) validate() error {
+	for _, capability := range []string{"compose", "config", "up", "down", "ps"} {
+		if !has(p.Provider.Capabilities, capability) {
+			return fmt.Errorf("provider %q lacks required capability: %s", p.Provider.Name, capability)
+		}
+	}
+	if p.Project == "" {
+		return fmt.Errorf("compose project must be non-empty")
+	}
+	if p.WaitTimeout <= 0 {
+		return fmt.Errorf("wait timeout must be positive")
+	}
+	if !p.OwnsProject && p.NativeWait {
+		return fmt.Errorf("external project cannot run lifecycle startup")
+	}
+	return nil
+}
+
+func has(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func unique(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}
