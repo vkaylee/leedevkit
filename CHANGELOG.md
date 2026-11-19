@@ -4,6 +4,14 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-11-19
+
+### Fixes
+- Align dogfood project version pin with release VERSION before CI runtime discovery.
+
+### Verification
+- CI traceback reproduced on v0.10.4; corrected before v0.10.5.
+
 ## [0.10.4] - 2026-11-19
 
 ### Fixes
