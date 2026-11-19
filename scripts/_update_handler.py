@@ -17,6 +17,7 @@ from pathlib import Path
 
 from _download import download_and_extract_tarball, latest_release_version
 from _logging import log_info, log_success, log_warn
+from _platform import go_binary
 
 
 DOWNLOAD_TIMEOUT = 120
@@ -73,6 +74,8 @@ def handle_update(target: str | None = None) -> None:
     backup = root.with_name(root.name + ".bak")
     tmp_extract = root.parent / f".leedevkit-update-{uuid.uuid4().hex[:8]}"
     config_toml = root.parent / "leedevkit.toml"
+    entrypoint = root.parent / "leedevkit"
+    original_entrypoint = entrypoint.read_bytes() if entrypoint.is_file() else None
     original_config = config_toml.read_bytes() if config_toml.exists() else None
     base = os.environ.get(
         "LEEDEVKIT_RELEASE_BASE_URL",
@@ -85,6 +88,9 @@ def handle_update(target: str | None = None) -> None:
         if not version_file.is_file():
             raise RuntimeError("Downloaded devkit is missing VERSION")
         new_ver = version_file.read_text().strip()
+        selected_binary = None
+        if (tmp_extract / "bin").exists():
+            selected_binary = go_binary(tmp_extract)
         if new_ver != ver:
             raise RuntimeError(
                 f"Downloaded devkit version {new_ver!r} does not match requested {ver!r}"
@@ -100,6 +106,12 @@ def handle_update(target: str | None = None) -> None:
                 restored = root / preserved_name
                 _remove_path(restored)
                 shutil.move(str(preserved), str(restored))
+
+        if selected_binary is not None:
+            staged_entrypoint = entrypoint.with_name(".leedevkit.new-entrypoint")
+            shutil.copy2(selected_binary, staged_entrypoint)
+            staged_entrypoint.chmod(0o755)
+            staged_entrypoint.replace(entrypoint)
 
         if config_toml.exists():
             import re
@@ -128,6 +140,11 @@ def handle_update(target: str | None = None) -> None:
         InitHandler(None).handle_post_update_sync()
         log_success("Post-update sync complete")
     except Exception:
+        if original_entrypoint is None:
+            _remove_path(entrypoint)
+        else:
+            entrypoint.write_bytes(original_entrypoint)
+            entrypoint.chmod(0o755)
         if original_config is None:
             _remove_path(config_toml)
         else:
