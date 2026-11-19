@@ -4,6 +4,14 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-19
+
+### Fixes
+- Disable Go VCS stamping in Compose release builds so tag-based CI works with mounted source worktrees.
+
+### Verification
+- Go build helper tests passed.
+
 ## [0.10.1] - 2026-11-19
 
 ### Added
