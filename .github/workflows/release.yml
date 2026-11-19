@@ -99,6 +99,7 @@ jobs:
           sha256sum .ci-artifacts/release-sbom.cdx.json > .ci-artifacts/release-sbom.sha256
           cp .ci-artifacts/release-sbom.cdx.json .ci-artifacts/sbom.cdx.json
           cp .ci-artifacts/release-sbom.sha256 .ci-artifacts/sbom.cdx.json.sha256
+          cp .ci-artifacts/release-sbom.sha256 .ci-artifacts/release-sbom.cdx.json.sha256
 
       - name: Upload release evidence
         if: always()
