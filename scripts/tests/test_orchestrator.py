@@ -1517,6 +1517,7 @@ class TestHandleUpdate:
         from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
+        monkeypatch.chdir(tmp_path)
 
         captured = {}
 
