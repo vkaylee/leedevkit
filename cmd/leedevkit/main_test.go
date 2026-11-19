@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,6 +58,23 @@ func TestPlanGatesRejectsSchema(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--plan-gates"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
 		t.Fatalf("plan invalid schema exit code = %d", code)
+	}
+}
+
+func TestRuntimeRootFindsScriptsAncestor(t *testing.T) {
+	runtime := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(runtime, "bin", "go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(runtime, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime, "scripts", "_orchestrator.py"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := runtimeRoot(filepath.Join(runtime, "bin", "go", "leedevkit-go-linux-amd64"))
+	if got != runtime {
+		t.Fatalf("runtime root = %q, want %q", got, runtime)
 	}
 }
 

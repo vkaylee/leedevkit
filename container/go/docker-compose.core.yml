@@ -16,7 +16,7 @@ services:
       context: ${LEEDEVKIT_PROJECT_ROOT:-../../..}
       dockerfile: ${LEEDEVKIT_GO_DOCKERFILE:-.leedevkit/container/go/Dockerfile}
       args:
-        GO_VERSION: ${GO_VERSION:-1.24}
+        GO_VERSION: ${GO_VERSION:-1.26}
     volumes:
       - ${LEEDEVKIT_PROJECT_ROOT:-../../..}:/workspace
       - go-module-cache:/go/pkg/mod

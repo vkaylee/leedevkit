@@ -287,7 +287,14 @@ class InitHandler(HandlerBase):
         if entrypoint.exists() and not entrypoint.is_file():
             log_warn("⚠️  ./leedevkit exists but is not a file — skipping entrypoint")
             return
-        binary = go_binary(devkit)
+        try:
+            binary = go_binary(devkit)
+        except RuntimeError:
+            legacy = devkit / "bin" / "leedevkit"
+            if not legacy.is_file():
+                raise
+            binary = legacy
+            log_warn("⚠️ Go core binary unavailable; using legacy runtime launcher")
         import shutil
 
         staged = root / ".leedevkit.new-entrypoint"

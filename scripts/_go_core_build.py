@@ -103,6 +103,7 @@ def build_go_core(
         )
         environment = {
             **os.environ,
+            "GO_VERSION": "1.26",
             "LEEDEVKIT_PROJECT_ROOT": str(repo_root),
             "LEEDEVKIT_GO_DOCKERFILE": str(
                 repo_root / "container" / "go" / "Dockerfile"
