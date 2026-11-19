@@ -1476,6 +1476,7 @@ class TestHandleUpdate:
         from _update_handler import handle_update
 
         root = self._make_root(tmp_path, "0.1.0")
+        monkeypatch.chdir(tmp_path)
 
         def fake_download(url, target_dir):
             # Mimic download_and_extract_tarball: populate target_dir with new tree
