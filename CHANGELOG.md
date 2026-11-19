@@ -4,6 +4,14 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-19
+
+### Fixes
+- Attach release SBOM checksum asset before GitHub Release publication.
+
+### Verification
+- Release artifact and acceptance completed in CI for v0.10.2.
+
 ## [0.10.2] - 2026-11-19
 
 ### Fixes
