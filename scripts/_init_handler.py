@@ -16,6 +16,7 @@ from _bootstrap import ensure_project_gitignore
 from _devkit_config import _load_toml
 from _download import download_and_extract_tarball, normalize_version
 from _handler_base import HandlerBase
+from _platform import go_binary
 from _logging import log_info, log_success, log_warn
 
 from _harness_engine import discover_skill_sources, sync_harnesses  # noqa: F401
@@ -275,29 +276,27 @@ class InitHandler(HandlerBase):
                 )
             )
 
-        # ── Step 4: Create committed self-bootstrapping wrapper ──
-        wrapper = root / "leedevkit"
-        template = (
-            Path(__file__).resolve().parent.parent
-            / "templates"
-            / "leedevkit-wrapper.sh"
-        )
-        wrapper_content = (
-            template.read_text()
-            if template.is_file()
-            else (
-                "#!/bin/bash\n"
-                'exec "$(cd "$(dirname "$0")" && pwd)/.leedevkit/bin/leedevkit" "$@"\n'
-            )
-        )
-        if wrapper.is_symlink():
-            wrapper.unlink()
-        elif wrapper.exists() and not wrapper.is_file():
-            log_warn("⚠️  ./leedevkit exists but is not a file — skipping wrapper")
+        # ── Step 4: Install immutable platform Go entrypoint ──
+        entrypoint = root / "leedevkit"
+        if entrypoint.exists() and entrypoint.is_file():
+            try:
+                if entrypoint.read_bytes()[:2] == b"#!":
+                    entrypoint.unlink()
+            except OSError:
+                pass
+        if entrypoint.exists() and not entrypoint.is_file():
+            log_warn("⚠️  ./leedevkit exists but is not a file — skipping entrypoint")
             return
-        wrapper.write_text(wrapper_content)
-        wrapper.chmod(0o755)
-        log_success("Created executable ./leedevkit launcher")
+        binary = go_binary(devkit)
+        import shutil
+
+        staged = root / ".leedevkit.new-entrypoint"
+        if staged.exists():
+            staged.unlink()
+        shutil.copy2(binary, staged)
+        staged.chmod(0o755)
+        staged.replace(entrypoint)
+        log_success("Installed immutable Go ./leedevkit entrypoint")
         if "claude" in harness_report:
             from _claude_config import install_ai_integrations
 
@@ -534,7 +533,15 @@ class InitHandler(HandlerBase):
 
         target_dir.mkdir(parents=True, exist_ok=True)
         # Copy immutable artifacts
-        for item in ["scripts", "templates", "bin", ".agent"]:
+        for item in [
+            "scripts",
+            "templates",
+            "bin",
+            ".agent",
+            "container",
+            "cmd",
+            "internal",
+        ]:
             src = source_root / item
             dst = target_dir / item
             if src.exists():

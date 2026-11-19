@@ -59,12 +59,12 @@ func TestPlanGatesRejectsSchema(t *testing.T) {
 	}
 }
 
-func TestRunUnimplementedCommand(t *testing.T) {
+func TestRunPythonCommandMissingRuntime(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"test"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
-		t.Fatalf("unimplemented command exit code = %d", code)
+	if code := runPythonCommand([]string{"test"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("missing runtime exit code = %d", code)
 	}
-	if !strings.Contains(stderr.String(), "Go core command not implemented: test") {
-		t.Fatalf("unimplemented stderr = %q", stderr.String())
+	if !strings.Contains(stderr.String(), "Python compatibility runtime missing") {
+		t.Fatalf("missing runtime stderr = %q", stderr.String())
 	}
 }

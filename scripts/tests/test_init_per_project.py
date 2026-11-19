@@ -62,6 +62,9 @@ def _make_devkit_source(tmp_path: Path, version: str = "0.1.0") -> Path:
     bin_dir = src / "bin"
     bin_dir.mkdir()
     (bin_dir / "leedevkit").write_text("#!/bin/bash\necho stub\n")
+    go_binary = bin_dir / "go" / "leedevkit-go-linux-amd64"
+    go_binary.parent.mkdir(parents=True)
+    go_binary.write_bytes(b"go-binary")
     (src / "templates").mkdir()
     agent = src / ".agent"
     agent.mkdir()
@@ -495,8 +498,8 @@ class TestHandleInitFromSource:
             Orchestrator().handle_init(force=True)
         assert custom_rule.read_text() == "# My Custom Rules\n"
 
-    def test_creates_self_bootstrapping_wrapper(self, tmp_path, monkeypatch):
-        """Init creates executable committed launcher, not a runtime-only shim."""
+    def test_creates_immutable_go_entrypoint(self, tmp_path, monkeypatch):
+        """Init creates executable Go entrypoint, not editable shell wrapper."""
         project = _make_project(tmp_path / "project")
         source = _make_devkit_source(tmp_path / "source")
         monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
@@ -513,7 +516,7 @@ class TestHandleInitFromSource:
         assert wrapper.exists()
         assert wrapper.is_file()
         assert wrapper.stat().st_mode & 0o111
-        assert "exec" in wrapper.read_text()
+        assert wrapper.read_bytes() == b"go-binary"
         ignored = (project / ".gitignore").read_text()
         assert "leedevkit\n" not in ignored
         assert all(

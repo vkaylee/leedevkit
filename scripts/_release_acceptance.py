@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from _devkit_integrity import verify_devkit
+from _go_core_build import DEFAULT_TARGETS, target_binary_name
+from _go_core_matrix import build_matrix
 from _release_build import build_release
 from _runtime import enforce_project_venv
 
@@ -24,8 +26,12 @@ REQUIRED_PATHS = {
     "bin/leedevkit",
     "scripts/_orchestrator.py",
     "scripts/requirements-runtime.lock",
+    "scripts/_go_core_build.py",
+    "scripts/_go_core_matrix.py",
+    "scripts/_platform.py",
     "go.mod",
     "cmd/leedevkit/main.go",
+    "container/go/docker-compose.core.yml",
 }
 FORBIDDEN_PARTS = {".git", "__pycache__", ".venv", "skills.d"}
 
@@ -98,6 +104,27 @@ def _assert_artifact_contract(artifact: Path, version: str, workspace: Path) -> 
     if not verification.is_clean:
         raise RuntimeError(verification.report())
     return extracted
+
+
+def _assert_go_core_source_contract(extracted: Path, version: str) -> None:
+    """Verify Go source and optional platform binaries in release."""
+    compose = extracted / "container" / "go" / "docker-compose.core.yml"
+    if "leedevkit-go" not in compose.read_text():
+        raise RuntimeError("Go core Compose service missing from release")
+    source = extracted / "cmd" / "leedevkit" / "main.go"
+    if "package main" not in source.read_text():
+        raise RuntimeError("Go core source missing from release")
+    if version not in source.read_text() and "var version" not in source.read_text():
+        raise RuntimeError("Go core version contract missing from source")
+    binary_dir = extracted / "bin" / "go"
+    if not binary_dir.exists():
+        raise RuntimeError("release missing platform Go binaries")
+    for goos, goarch in DEFAULT_TARGETS:
+        binary = binary_dir / target_binary_name(goos, goarch)
+        if not binary.is_file() or not binary.stat().st_size:
+            raise RuntimeError(
+                f"Go core platform binary missing or empty: {binary.name}"
+            )
 
 
 def _assert_offline_fast_paths(
@@ -200,7 +227,12 @@ def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
         owned_workspace = tempfile.TemporaryDirectory(
             prefix="leedevkit-acceptance-artifact-"
         )
-        artifact = build_release(repo_root, Path(owned_workspace.name) / "dist")
+        workspace = Path(owned_workspace.name)
+        binaries = workspace / "go-core"
+        build_matrix(
+            repo_root, binaries, version, compose_cmd=("/usr/bin/docker", "compose")
+        )
+        artifact = build_release(repo_root, workspace / "dist", binaries)
     artifact = artifact.resolve()
 
     try:
@@ -227,6 +259,7 @@ def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
             extracted_parent = workspace / "extracted"
             extracted_parent.mkdir()
             extracted = _assert_artifact_contract(artifact, version, extracted_parent)
+            _assert_go_core_source_contract(extracted, version)
             _assert_offline_fast_paths(extracted, version, env)
             _assert_bootstrap(repo_root, artifact, version, workspace, env)
     finally:

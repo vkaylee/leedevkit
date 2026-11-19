@@ -204,6 +204,10 @@ def _find_container_compose(mode: str = "all") -> Path | None:
     if not container_dir.exists():
         return None
 
+    if mode in ("go-core", "build-go-core"):
+        candidate = container_dir / "go" / "docker-compose.core.yml"
+        return candidate if candidate.exists() else None
+
     if mode in ("go", "lint-go", "unit-go", "int-go"):
         languages = ["go"]
     elif mode in ("api", "integration", "int-api"):
@@ -299,5 +303,7 @@ def bootstrap_env(
         "DOCKER_COMPOSE_TOOL": " ".join(compose_cmd),
         "USE_DOCKER": "true",
         "PROJECT_ROOT": str(PROJECT_ROOT),
+        "LEEDEVKIT_PROJECT_ROOT": str(PROJECT_ROOT),
+        "LEEDEVKIT_GO_DOCKERFILE": str(DEVKIT_ROOT / "container" / "go" / "Dockerfile"),
         "MODE": mode,
     }

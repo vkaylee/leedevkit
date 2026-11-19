@@ -92,12 +92,22 @@ class TestBuildRelease:
             if not fpath.exists():
                 fpath.write_text("dummy")
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "tests").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts" / "tests" / "test_go_launcher.py").write_text(
+            "# launcher tests\n"
+        )
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_go_core_build.py").write_text("# Go build helper\n")
+        (repo / "scripts" / "_go_core_matrix.py").write_text("# Go build matrix\n")
+        (repo / "scripts" / "_platform.py").write_text("# Platform helper\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
         (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
         (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
+        core_compose = repo / "container" / "go" / "docker-compose.core.yml"
+        core_compose.parent.mkdir(parents=True, exist_ok=True)
+        core_compose.write_text("services: {}\n")
 
         out_dir = tmp_path / "dist"
         result = build_release(repo, out_dir)
@@ -146,12 +156,22 @@ class TestBuildRelease:
             if not fpath.exists():
                 fpath.write_text("dummy")
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "tests").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts" / "tests" / "test_go_launcher.py").write_text(
+            "# launcher tests\n"
+        )
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_go_core_build.py").write_text("# Go build helper\n")
+        (repo / "scripts" / "_go_core_matrix.py").write_text("# Go build matrix\n")
+        (repo / "scripts" / "_platform.py").write_text("# Platform helper\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
         (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
         (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
+        core_compose = repo / "container" / "go" / "docker-compose.core.yml"
+        core_compose.parent.mkdir(parents=True, exist_ok=True)
+        core_compose.write_text("services: {}\n")
 
         out_dir = tmp_path / "nested" / "dist"
         result = build_release(repo, out_dir)
@@ -170,12 +190,22 @@ class TestBuildRelease:
             if not fpath.exists():
                 fpath.write_text("dummy")
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "tests").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts" / "tests" / "test_go_launcher.py").write_text(
+            "# launcher tests\n"
+        )
         (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_go_core_build.py").write_text("# Go build helper\n")
+        (repo / "scripts" / "_go_core_matrix.py").write_text("# Go build matrix\n")
+        (repo / "scripts" / "_platform.py").write_text("# Platform helper\n")
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
         (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
         (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
+        core_compose = repo / "container" / "go" / "docker-compose.core.yml"
+        core_compose.parent.mkdir(parents=True, exist_ok=True)
+        core_compose.write_text("services: {}\n")
 
         # Create a pycache file that should be excluded
         pycache_dir = repo / "scripts" / "__pycache__"
@@ -231,11 +261,21 @@ class TestMain:
             if not fpath.exists():
                 fpath.write_text("dummy")
         (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_go_core_build.py").write_text("# Go build helper\n")
+        (repo / "scripts" / "_go_core_matrix.py").write_text("# Go build matrix\n")
+        (repo / "scripts" / "_platform.py").write_text("# Platform helper\n")
+        (repo / "scripts" / "tests").mkdir(parents=True, exist_ok=True)
+        (repo / "scripts" / "tests" / "test_go_launcher.py").write_text(
+            "# launcher tests\n"
+        )
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
         (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
         (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
+        core_compose = repo / "container" / "go" / "docker-compose.core.yml"
+        core_compose.parent.mkdir(parents=True, exist_ok=True)
+        core_compose.write_text("services: {}\n")
 
         out_dir = tmp_path / "custom-dist"
         main_args = [

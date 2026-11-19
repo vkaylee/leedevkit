@@ -292,6 +292,24 @@ class TestFindContainerComposeModeAware:
         assert result is not None
         assert "container/go" in str(result)
 
+    def test_go_core_mode_picks_core_compose_file(self, tmp_path, monkeypatch) -> None:
+        """Go core mode selects its dedicated build/test Compose file."""
+        proj = tmp_path / "project"
+        proj.mkdir()
+        devkit = proj / ".leedevkit"
+        core = devkit / "container" / "go" / "docker-compose.core.yml"
+        core.parent.mkdir(parents=True)
+        core.write_text("services: {}\n")
+        _write_container_compose(devkit, "go")
+
+        import _bootstrap
+
+        monkeypatch.setattr(_bootstrap, "PROJECT_ROOT", proj)
+        monkeypatch.setattr(_bootstrap, "DEVKIT_ROOT", devkit)
+        from _bootstrap import _find_container_compose
+
+        assert _find_container_compose("go-core") == core
+
     def test_api_mode_picks_rust(self, tmp_path, monkeypatch) -> None:
         """mode='api' selects container/rust/ even when go/ sorts first."""
         proj = tmp_path / "project"

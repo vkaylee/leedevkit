@@ -95,7 +95,7 @@ echo "   Version: $VERSION_TAG"
 
 STAGE_DIR="$TMP_DIR/stage"
 BACKUP_DIR="$TMP_DIR/previous"
-WRAPPER_STAGE="$TMP_DIR/leedevkit-wrapper"
+ENTRYPOINT_STAGE="$TMP_DIR/leedevkit"
 CONFIG_STAGE="$TMP_DIR/leedevkit.toml"
 GITIGNORE_STAGE="$TMP_DIR/gitignore"
 TRANSACTION_ACTIVE=0
@@ -158,7 +158,21 @@ mkdir -p "$STAGE_DIR"
 LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
     "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
 EXTRACTED="$STAGE_DIR"
-for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py; do
+platform_key="$(LEEDEVKIT_PLATFORM=auto python3 - <<'PY'
+import os
+import platform
+
+system = platform.system().lower()
+machine = platform.machine().lower()
+arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
+if system == "windows":
+    system = "windows"
+if system not in {"linux", "darwin", "windows"} or arch is None:
+    raise SystemExit(f"unsupported platform: {platform.system()}/{platform.machine()}")
+print(f"{system}-{arch}")
+PY
+)"
+for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py "bin/go/leedevkit-go-${platform_key}"; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
         exit 1
@@ -168,8 +182,8 @@ LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devk
 
 # Prepare every project-side change before activation. Existing configuration
 # is copied and updated in staging, so malformed config fails harmlessly.
-cp "$EXTRACTED/templates/leedevkit-wrapper.sh" "$WRAPPER_STAGE"
-chmod +x "$WRAPPER_STAGE"
+cp "$EXTRACTED/bin/go/leedevkit-go-${platform_key}" "$ENTRYPOINT_STAGE"
+chmod 0755 "$ENTRYPOINT_STAGE"
 
 if [ -f leedevkit.toml ]; then
     cp leedevkit.toml "$CONFIG_STAGE"
@@ -226,7 +240,7 @@ from pathlib import Path
 path = Path(sys.argv[1])
 legacy = {"leedevkit", "leedevkit/", "/leedevkit", "/leedevkit/", "./leedevkit", "./leedevkit/"}
 lines = [line for line in path.read_text().splitlines() if line.strip() not in legacy]
-for entry in (".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/", ".leedevkit.new-*", ".leedevkit.previous-*"):
+for entry in ("leedevkit", ".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/", ".leedevkit.new-*", ".leedevkit.previous-*"):
     if entry not in lines:
         lines.append(entry)
 path.write_text("\n".join(lines).rstrip() + "\n")
@@ -257,11 +271,12 @@ if [ -e "$BACKUP_DIR/devkit/skills.d" ] || [ -L "$BACKUP_DIR/devkit/skills.d" ];
     mv "$BACKUP_DIR/devkit/skills.d" .leedevkit/skills.d
 fi
 
-# Ensure scripts are executable before committing the transaction.
+# Ensure scripts and platform binaries are executable before committing transaction.
 chmod +x .leedevkit/scripts/*.py 2>/dev/null || true
 chmod +x .leedevkit/scripts/*.sh 2>/dev/null || true
 chmod +x .leedevkit/bin/* 2>/dev/null || true
-mv "$WRAPPER_STAGE" leedevkit
+chmod 0755 .leedevkit/bin/go/* 2>/dev/null || true
+mv "$ENTRYPOINT_STAGE" leedevkit
 mv "$CONFIG_STAGE" leedevkit.toml
 if [ "$GITIGNORE_CHANGED" -eq 1 ]; then
     mv "$GITIGNORE_STAGE" .gitignore

@@ -81,9 +81,16 @@ Plan: [plan.md](plan.md)
   - [x] Keep Python default path; enabled bridge fails closed on missing binary, timeout, non-zero exit, malformed response, or bad schema.
   - [x] Restrict bridge environment to explicit safe allowlist.
 - [ ] G6: Cut over safe commands after release acceptance.
+  - [x] Go binary delegates remaining commands through Python compatibility bridge.
+  - [x] Customer bootstrap installs platform Go binary as `./leedevkit` instead of shell wrapper.
+  - [x] Init/update replace legacy wrapper atomically and preserve runtime state/rollback.
   - [x] Extend release payload validation to include `go.mod` and `cmd/leedevkit/main.go`.
   - [x] Add opt-in `LEEDEVKIT_CORE=go` version routing with missing-binary fail-closed behavior.
-  - [ ] Build and ship platform Go binaries; default launcher cutover remains disabled.
+  - [x] Add Compose Go core build/test environment with module/build caches and release validation.
+- [x] Add Compose-backed Go core build helper and binary smoke verification.
+- [x] Add deterministic Go platform target matrix for release builds.
+- [x] Package platform Go binaries into release artifact and verify launcher discovery.
+  - [ ] Build and ship platform Go binaries by default in CI release workflow; default launcher cutover remains disabled.
 
 ## Phase 4 — Cleanup and migration readiness
 

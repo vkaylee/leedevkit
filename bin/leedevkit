@@ -42,6 +42,19 @@ shift
 
 if [ "${LEEDEVKIT_CORE:-python}" = "go" ] && { [ "$COMMAND" = "version" ] || [ "$COMMAND" = "--version" ] || [ "$COMMAND" = "-v" ]; }; then
     GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
+    if [ -z "$GO_CORE" ]; then
+        case "$(uname -s):$(uname -m)" in
+            Linux:x86_64) GO_PLATFORM="linux-amd64" ;;
+            Linux:aarch64|Linux:arm64) GO_PLATFORM="linux-arm64" ;;
+            Darwin:x86_64) GO_PLATFORM="darwin-amd64" ;;
+            Darwin:arm64) GO_PLATFORM="darwin-arm64" ;;
+            MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) GO_PLATFORM="windows-amd64" ;;
+            *) GO_PLATFORM="" ;;
+        esac
+        if [ -n "$GO_PLATFORM" ] && [ -x "$SCRIPT_DIR/bin/go/leedevkit-go-$GO_PLATFORM" ]; then
+            GO_CORE="$SCRIPT_DIR/bin/go/leedevkit-go-$GO_PLATFORM"
+        fi
+    fi
     if [ -z "$GO_CORE" ] && [ -x "$SCRIPT_DIR/.leedevkit/bin/leedevkit-go" ]; then
         GO_CORE="$SCRIPT_DIR/.leedevkit/bin/leedevkit-go"
     fi

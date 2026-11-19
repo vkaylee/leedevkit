@@ -124,7 +124,13 @@ def test_install_success_activates_downloaded_release(tmp_path):
     """A valid local release mirror still installs and activates globally."""
     repo_root = Path(__file__).resolve().parents[2]
     version = (repo_root / "VERSION").read_text().strip()
-    artifact = build_release(repo_root, tmp_path / "dist")
+    from _go_core_matrix import build_matrix
+
+    go_core_dir = tmp_path / "go-core"
+    build_matrix(
+        repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)
@@ -156,7 +162,13 @@ def test_project_wrapper_doctor_drops_command_name(tmp_path):
     """The project launcher passes only doctor options to the doctor script."""
     repo_root = Path(__file__).resolve().parents[2]
     version = (repo_root / "VERSION").read_text().strip()
-    artifact = build_release(repo_root, tmp_path / "dist")
+    from _go_core_matrix import build_matrix
+
+    go_core_dir = tmp_path / "go-core"
+    build_matrix(
+        repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)
@@ -199,7 +211,13 @@ def test_project_wrapper_bootstraps_stale_runtime_without_unbound_lock(tmp_path)
     """A stale project runtime is replaced through the wrapper lock path."""
     repo_root = Path(__file__).resolve().parents[2]
     version = (repo_root / "VERSION").read_text().strip()
-    artifact = build_release(repo_root, tmp_path / "dist")
+    from _go_core_matrix import build_matrix
+
+    go_core_dir = tmp_path / "go-core"
+    build_matrix(
+        repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)

@@ -20,6 +20,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from _go_core_build import DEFAULT_TARGETS, target_binary_name
 from _devkit_integrity import verify_devkit, write_manifest
 from _logging import log_error, log_info, log_success
 from _runtime import enforce_project_venv
@@ -36,9 +37,29 @@ REQUIRED_FILES = [
     "scripts/_devkit_integrity.py",
     "scripts/requirements.lock",
     "scripts/requirements-runtime.lock",
+    "scripts/_go_core_build.py",
+    "scripts/_go_core_matrix.py",
+    "scripts/_platform.py",
     "go.mod",
     "cmd/leedevkit/main.go",
+    "container/go/docker-compose.core.yml",
 ]
+GO_CORE_BINARY_DIR = "bin/go"
+GO_CORE_TARGETS = DEFAULT_TARGETS
+
+
+def _copy_go_core_binaries(source_dir: Path, stage_root: Path) -> None:
+    """Copy complete platform Go core matrix into release staging."""
+    destination = stage_root / GO_CORE_BINARY_DIR
+    destination.mkdir(parents=True, exist_ok=True)
+    for goos, goarch in GO_CORE_TARGETS:
+        name = target_binary_name(goos, goarch)
+        source = source_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(f"Go core binary missing: {source}")
+        shutil.copy2(source, destination / name)
+        (destination / name).chmod((destination / name).stat().st_mode | 0o111)
+
 
 # ── Patterns to exclude — always filtered ──
 EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pyo", ".git", ".DS_Store"}
@@ -70,7 +91,9 @@ def _copy_release_payload(repo_root: Path, stage_root: Path) -> None:
             shutil.copy2(source, stage_root / filename)
 
 
-def build_release(repo_root: Path, output_dir: Path) -> Path:
+def build_release(
+    repo_root: Path, output_dir: Path, go_core_dir: Path | None = None
+) -> Path:
     """Stage, validate, and archive the release payload."""
     version_file = repo_root / "VERSION"
     if not version_file.exists():
@@ -82,7 +105,6 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
     missing = [path for path in REQUIRED_FILES if not (repo_root / path).is_file()]
     if missing:
         raise FileNotFoundError(f"Required release files missing: {', '.join(missing)}")
-
     output_dir.mkdir(parents=True, exist_ok=True)
     tarball_path = output_dir / f"leedevkit-{version}.tar.gz"
     log_info(f"Building {tarball_path} ...")
@@ -91,6 +113,10 @@ def build_release(repo_root: Path, output_dir: Path) -> Path:
         stage_root = Path(temp_dir) / f"leedevkit-{version}"
         stage_root.mkdir()
         _copy_release_payload(repo_root, stage_root)
+        if go_core_dir is not None:
+            _copy_go_core_binaries(go_core_dir, stage_root)
+        elif (stage_root / GO_CORE_BINARY_DIR).exists():
+            shutil.rmtree(stage_root / GO_CORE_BINARY_DIR)
         write_sbom(
             repo_root / "scripts" / "requirements.lock",
             version,
@@ -122,6 +148,15 @@ def main() -> None:
     parser.add_argument(
         "--repo-root", default=".", help="Repository root (default: current directory)"
     )
+    parser.add_argument(
+        "--go-core-dir",
+        help="Directory containing prebuilt platform Go core binaries",
+    )
+    parser.add_argument(
+        "--build-go-core",
+        action="store_true",
+        help="Build platform Go core binaries through Compose before packaging",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -134,7 +169,20 @@ def main() -> None:
         )
         sys.exit(1)
 
-    build_release(repo_root, output_dir)
+    go_core_dir = Path(args.go_core_dir).resolve() if args.go_core_dir else None
+    if args.build_go_core and go_core_dir is not None:
+        raise ValueError("use either --go-core-dir or --build-go-core")
+    if args.build_go_core:
+        from _go_core_matrix import build_matrix
+
+        go_core_dir = output_dir / ".go-core"
+        build_matrix(
+            repo_root, go_core_dir, (repo_root / "VERSION").read_text().strip()
+        )
+    if go_core_dir is not None:
+        build_release(repo_root, output_dir, go_core_dir)
+    else:
+        build_release(repo_root, output_dir)
 
 
 if __name__ == "__main__":

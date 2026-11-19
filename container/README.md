@@ -91,6 +91,7 @@ Built-in files expose `go` and `rust`. Custom service names require project over
 ## Docker images
 
 - `container/go/Dockerfile`: official Go image; standard Go formatting, lint, test, and coverage tools.
+- `container/go/docker-compose.core.yml`: Compose-owned Go core build/test service with module and build caches.
 - `container/rust/Dockerfile`: Rust toolchain, clippy, rustfmt, nextest, and llvm-cov.
 
 Environment overrides:

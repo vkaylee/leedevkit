@@ -1,0 +1,36 @@
+# LeeDevKit Go core build and test environment.
+#
+# Installed release layout:
+#   project/.leedevkit/container/go/docker-compose.core.yml
+#   project/.leedevkit/container/go/Dockerfile
+#
+# Source checkout usage overrides LEEDEVKIT_PROJECT_ROOT and
+# LEEDEVKIT_GO_DOCKERFILE; installed projects use defaults relative to this file.
+#
+# The service uses `go` as entrypoint so `run` can execute build, test, vet,
+# and other Go commands without shell interpolation.
+services:
+  leedevkit-go:
+    profiles: ["go-core"]
+    build:
+      context: ${LEEDEVKIT_PROJECT_ROOT:-../../..}
+      dockerfile: ${LEEDEVKIT_GO_DOCKERFILE:-.leedevkit/container/go/Dockerfile}
+      args:
+        GO_VERSION: ${GO_VERSION:-1.24}
+    volumes:
+      - ${LEEDEVKIT_PROJECT_ROOT:-../../..}:/workspace
+      - go-module-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /workspace
+    environment:
+      GOTMPDIR: /go-tmp
+    tmpfs:
+      - /go-tmp:rw,nosuid,nodev,exec,size=1g
+    entrypoint: ["go"]
+    command: ["version"]
+
+volumes:
+  go-module-cache:
+    name: leedevkit_go-module-cache
+  go-build-cache:
+    name: leedevkit_go-build-cache
