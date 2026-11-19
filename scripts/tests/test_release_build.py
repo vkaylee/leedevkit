@@ -96,6 +96,8 @@ class TestBuildRelease:
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
+        (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
 
         out_dir = tmp_path / "dist"
         result = build_release(repo, out_dir)
@@ -148,6 +150,8 @@ class TestBuildRelease:
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
+        (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
 
         out_dir = tmp_path / "nested" / "dist"
         result = build_release(repo, out_dir)
@@ -170,6 +174,8 @@ class TestBuildRelease:
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
+        (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
 
         # Create a pycache file that should be excluded
         pycache_dir = repo / "scripts" / "__pycache__"
@@ -228,6 +234,8 @@ class TestMain:
         (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
         (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
         (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
+        (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
 
         out_dir = tmp_path / "custom-dist"
         main_args = [

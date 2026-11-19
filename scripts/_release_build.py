@@ -27,8 +27,8 @@ from _sbom import write_sbom
 
 
 # ── Items to include in the release tarball ──
-INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent", "container"]
-INCLUDE_FILES = ["VERSION"]
+INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent", "container", "cmd", "internal"]
+INCLUDE_FILES = ["VERSION", "go.mod"]
 REQUIRED_FILES = [
     "VERSION",
     "bin/leedevkit",
@@ -36,6 +36,8 @@ REQUIRED_FILES = [
     "scripts/_devkit_integrity.py",
     "scripts/requirements.lock",
     "scripts/requirements-runtime.lock",
+    "go.mod",
+    "cmd/leedevkit/main.go",
 ]
 
 # ── Patterns to exclude — always filtered ──
