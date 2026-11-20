@@ -454,7 +454,10 @@ class TestLifecycleComposeCommand:
         """Verify _run executes subprocess with correct args and handles check correctly."""
         from _lifecycle import _run
 
-        with patch("subprocess.run") as mock_sub_run:
+        with (
+            patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": ""}),
+            patch("subprocess.run") as mock_sub_run,
+        ):
             mock_sub_run.return_value = MagicMock(returncode=0, stdout="test")
             result = _run(["echo", "test"], capture=True, check=False, silent=False)
             assert result.stdout == "test"
