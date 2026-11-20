@@ -238,6 +238,21 @@ func TestPlanLifecycleRejectsSchema(t *testing.T) {
 	}
 }
 
+func TestPlanLifecycleDownUsesOwnedTeardown(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"operation":"down","plan":{"provider":{"name":"docker","compose":["docker","compose"],"capabilities":["compose","config","up","down","ps"]},"project":"test","owns_project":true}}`
+	if code := run([]string{"--plan-lifecycle"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("lifecycle down exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response lifecycleProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("lifecycle output is not JSON: %v", err)
+	}
+	if response.Operation != "down" || !contains(response.Args, "--remove-orphans") || contains(response.Args, "--volumes") {
+		t.Fatalf("lifecycle down response = %#v", response)
+	}
+}
+
 func TestPlanGatesProtocol(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	input := `{"schema_version":1,"gates":[{"name":"go-vet","phase":"lint","command":["go","vet","./..."]}]}`
