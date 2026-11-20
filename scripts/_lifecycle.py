@@ -202,21 +202,30 @@ def _go_lifecycle_shadow(
     from _go_core import plan_lifecycle_go
 
     provider_config = typing.cast(typing.Any, provider)
+    project_flag = (
+        compose_base.index("-p") if "-p" in compose_base else len(compose_base)
+    )
+    compose_tool = compose_base[:project_flag]
     files: list[str] = []
-    base_tail = compose_base[len(provider_config.compose) :]
+    base_tail = compose_base[project_flag:]
     for index, value in enumerate(base_tail):
         if value == "-f" and index + 1 < len(base_tail):
             files.append(base_tail[index + 1])
+    resolved_project = project_name
+    if "-p" in base_tail:
+        project_index = base_tail.index("-p")
+        if project_index + 1 < len(base_tail):
+            resolved_project = base_tail[project_index + 1]
     payload = {
         "provider": {
             "name": provider_config.name,
             "cli": list(provider_config.cli),
-            "compose": list(provider_config.compose),
+            "compose": list(compose_tool),
             "capabilities": sorted(provider_config.capabilities),
             "settings": dict(provider_config.settings),
             "source": provider_config.source,
         },
-        "project": project_name,
+        "project": resolved_project,
         "files": files,
         "profiles": profiles,
         "services": services,
@@ -697,18 +706,27 @@ def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
 
     provider = resolve_container_provider()
     compose_base = _compose_base_for_project(mode, project_name)
+    project_flag = (
+        compose_base.index("-p") if "-p" in compose_base else len(compose_base)
+    )
+    compose_tool = compose_base[:project_flag]
+    files = [
+        compose_base[index + 1]
+        for index, value in enumerate(compose_base)
+        if value == "-f" and index + 1 < len(compose_base)
+    ]
     payload = {
         "provider": {
             "name": provider.name,
             "cli": list(provider.cli),
-            "compose": list(provider.compose),
+            "compose": list(compose_tool),
             "capabilities": sorted(provider.capabilities),
             "settings": dict(provider.settings),
             "source": provider.source,
         },
         "project": project_name,
-        "files": [],
-        "profiles": resolve_lifecycle_profiles(mode),
+        "files": files,
+        "profiles": [],
         "services": [],
         "dependencies": [],
         "build": False,
