@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,6 +188,32 @@ func sameStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func TestResolveProviderProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"provider":{"provider":"docker","cli":["docker"],"compose":["docker","compose"],"capabilities":["compose"],"settings":{"password":"secret"},"source":"test"}}`
+	if code := run([]string{"--resolve-provider"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("resolve provider exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response providerProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("provider output is not JSON: %v", err)
+	}
+	if response.SchemaVersion != 1 || response.Diagnostics["provider"] != "docker" {
+		t.Fatalf("provider response = %#v", response)
+	}
+	settings, ok := response.Diagnostics["settings"].(map[string]any)
+	if !ok || settings["password"] != "<redacted>" {
+		t.Fatalf("provider settings = %#v", response.Diagnostics["settings"])
+	}
+}
+
+func TestResolveProviderRejectsSchema(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--resolve-provider"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid provider schema exit code = %d", code)
+	}
 }
 
 func TestPlanGatesProtocol(t *testing.T) {

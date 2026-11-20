@@ -382,7 +382,15 @@ def resolve_container_provider(
             )
     if cli_provider or environ.get("CONTAINER_PROVIDER"):
         source = "CLI override" if cli_provider else "CONTAINER_PROVIDER"
-    return _provider_settings(raw, selected, source)
+    provider = _provider_settings(raw, selected, source)
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") == "1":
+        from _go_core import resolve_provider_go
+
+        expected = container_provider_diagnostics(provider)
+        response = resolve_provider_go(expected)
+        if response is None or response.get("diagnostics") != expected:
+            raise RuntimeError("Go provider shadow result differs from Python result")
+    return provider
 
 
 def require_container_capabilities(

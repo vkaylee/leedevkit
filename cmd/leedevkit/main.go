@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/vkaylee/leedevkit/internal/gates"
+	"github.com/vkaylee/leedevkit/internal/provider"
 )
 
 type gateProtocolRequest struct {
@@ -22,6 +23,16 @@ type gateProtocolRequest struct {
 type gateProtocolResponse struct {
 	SchemaVersion int          `json:"schema_version"`
 	Gates         []gates.Gate `json:"gates"`
+}
+
+type providerProtocolRequest struct {
+	SchemaVersion int                       `json:"schema_version"`
+	Provider      provider.ProtocolProvider `json:"provider"`
+}
+
+type providerProtocolResponse struct {
+	SchemaVersion int            `json:"schema_version"`
+	Diagnostics   map[string]any `json:"diagnostics"`
 }
 
 const usage = `leedevkit — Enterprise DevKit for AI-first projects
@@ -360,6 +371,30 @@ func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--resolve-provider" {
+		var request providerProtocolRequest
+		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
+			fmt.Fprintf(stderr, "malformed provider request: %v\n", err)
+			return 2
+		}
+		if request.SchemaVersion != 1 {
+			fmt.Fprintf(stderr, "unsupported provider schema version: %d\n", request.SchemaVersion)
+			return 2
+		}
+		diagnostics, err := provider.ValidateProtocol(request.Provider)
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider request: %v\n", err)
+			return 2
+		}
+		if err := json.NewEncoder(stdout).Encode(providerProtocolResponse{
+			SchemaVersion: 1,
+			Diagnostics:   diagnostics,
+		}); err != nil {
+			fmt.Fprintf(stderr, "failed to write provider response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "--plan-gates" {
 		var request gateProtocolRequest
 		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
