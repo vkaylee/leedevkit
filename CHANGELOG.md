@@ -4,6 +4,20 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-20
+
+### Added
+- Add Go provider shadow protocol and normalized quality-gate execution.
+
+### Fixed
+- Clean owned Compose test projects with bounded, logged teardown, retries, stale-project age checks, and lock-safe ownership.
+- Clean Debug MCP one-off containers after timeout, signal, EOF, and startup failure paths.
+- Preserve shared cache volumes and protect `leedevkit-dev` and attached projects from automatic cleanup.
+
+### Verification
+- Focused lifecycle, orchestrator, lock, and Debug MCP tests: 196 passed, 1 skipped.
+- Ruff and mypy checks passed for changed sources.
+
 ## [0.11.2] - 2026-11-20
 
 ### Fixed
