@@ -11,13 +11,78 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from _bootstrap import DEVKIT_ROOT, detect_compose_cmd, detect_engine
 from _debug_manifest import DebugEnvironment, DebugManifestError, load_debug_environment
 
 
 class DebugLaunchError(RuntimeError):
     """Debug container cannot be safely launched."""
+
+
+def _compose_args(
+    environment: DebugEnvironment, override: Path | None = None
+) -> list[str]:
+    args = [*detect_compose_cmd(), "-p", environment.compose_project]
+    for compose_file in environment.compose_files:
+        args.extend(["-f", str(environment.project_root / compose_file)])
+    if override is not None:
+        args.extend(["-f", str(override)])
+    for profile in environment.profiles:
+        args.extend(["--profile", profile])
+    return args
+
+
+def _cleanup_owned_run(environment: DebugEnvironment, override: Path) -> bool:
+    """Remove only this manifest's one-off service and verify it is gone."""
+    base = _compose_args(environment, override)
+    command = [*base, "rm", "--force", "--stop", "--no-deps", "leedevkit-debug"]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=environment.project_root,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        verify = subprocess.run(
+            [*base, "ps", "-q", "leedevkit-debug"],
+            cwd=environment.project_root,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        return not verify.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _terminate_owned_process(environment: DebugEnvironment, override: Path) -> None:
+    """Stop only this Compose project's debug service after launcher timeout."""
+    command = [
+        *_compose_args(environment, override),
+        "kill",
+        "--signal",
+        "SIGTERM",
+        "leedevkit-debug",
+    ]
+    try:
+        subprocess.run(
+            command,
+            cwd=environment.project_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _compose_config(environment: DebugEnvironment) -> dict[str, Any]:
@@ -204,14 +269,20 @@ def launch(
                 "/workspace",
             ]
         )
-        result = subprocess.run(
-            args,
-            cwd=environment.project_root,
-            stdin=None,
-            check=False,
-            timeout=environment.limits["request_timeout_ms"] / 1000,
-        )
-        return result.returncode
+        try:
+            result = subprocess.run(
+                args,
+                cwd=environment.project_root,
+                stdin=None,
+                check=False,
+                timeout=environment.limits["request_timeout_ms"] / 1000,
+            )
+            return result.returncode
+        except subprocess.TimeoutExpired:
+            _terminate_owned_process(environment, override)
+            raise
+        finally:
+            _cleanup_owned_run(environment, override)
 
 
 def main(

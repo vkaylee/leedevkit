@@ -332,12 +332,43 @@ class TestLifecycleUp:
         Specifically ensures -v and --volumes flags are NOT passed to compose down.
         """
         with patch("_lifecycle._run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="", returncode=0)
+            mock_run.return_value = MagicMock(stdout="", returncode=0, stderr="")
             lifecycle_down("all")
             all_call_str = str(mock_run.call_args_list)
             assert "volume" not in all_call_str
             assert "'-v'" not in all_call_str
             assert "'--volumes'" not in all_call_str
+
+    def test_teardown_retries_and_logs_compose_output(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("_lifecycle.PROJECT_ROOT", tmp_path)
+        first = subprocess.CompletedProcess(
+            [], 1, stdout="first-out", stderr="first-err"
+        )
+        second = subprocess.CompletedProcess([], 0, stdout="done", stderr="")
+        with patch("_lifecycle._run", side_effect=[first, second]):
+            with patch("_lifecycle.sweep_stale_environments"):
+                result = lifecycle_down("all", project_name="leedevkit-test-owned")
+        assert result["success"] is True
+        assert len(result["attempts"]) == 2
+        log = tmp_path / ".test_logs" / "leedevkit-test-owned" / "cleanup.log"
+        content = log.read_text()
+        assert "first-out" in content
+        assert "first-err" in content
+        assert '"exit_code": 0' in content
+
+    def test_teardown_timeout_uses_project_scoped_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("_lifecycle.PROJECT_ROOT", tmp_path)
+        timeout = subprocess.TimeoutExpired(["docker", "compose"], 10)
+        fallback = subprocess.CompletedProcess([], 0, stdout="removed", stderr="")
+        with patch("_lifecycle._run", side_effect=[timeout, timeout, fallback]):
+            with patch("_lifecycle.sweep_stale_environments"):
+                result = lifecycle_down("all", project_name="leedevkit-test-owned")
+        assert result["success"] is False
+        assert result["fallback"]["result"] == "success"
+        fallback_cmd = result["fallback"]["command"]
+        assert "-p" in fallback_cmd
+        assert "leedevkit-test-owned" in fallback_cmd
+        assert "--volumes" not in fallback_cmd
 
 
 class TestStartWatchdog:
@@ -485,10 +516,10 @@ class TestStaleSweep:
         assert _is_project_locked("proj") is False
         mock_open.side_effect = None
 
-        # Test 3: Can acquire lock -> Not locked
+        # Test 3: Can acquire lock -> Not locked; stale sweep must not unlink it.
         mock_open.return_value = 123
         assert _is_project_locked("proj") is False
-        assert mock_unlink.called
+        assert not mock_unlink.called
 
         # Test 4: Cannot acquire lock -> Locked
         mock_flock.side_effect = OSError
@@ -506,9 +537,10 @@ class TestStaleSweep:
         )
         sweep_stale_environments()
 
-        command = mock_run.call_args.args[0]
-        assert command[:2] == ["docker", "compose"]
-        assert command[-3:] == ["--all", "--format", "json"]
+        commands = [call.args[0] for call in mock_run.call_args_list]
+        assert any(
+            command[-3:] == ["--all", "--format", "json"] for command in commands
+        )
         assert mock_is_locked.called
 
     @patch("_lifecycle._run")

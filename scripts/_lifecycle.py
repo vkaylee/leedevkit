@@ -6,6 +6,7 @@ and force-kill fallbacks for stuck containers.
 """
 
 import contextlib
+import datetime
 import fcntl
 import json
 import os
@@ -14,6 +15,7 @@ import sys
 import tempfile
 import time
 import typing
+from pathlib import Path
 
 from _bootstrap import (
     PROJECT_ROOT,
@@ -27,9 +29,10 @@ from _bootstrap import (
 from _image_cache import (
     BuildMetadata,
     image_build_lock,
-    service_fingerprints_match,
     resolve_build_metadata,
+    service_fingerprints_match,
 )
+from _lock_manager import LockManager
 
 
 def _get_engine() -> str:
@@ -267,7 +270,7 @@ def lifecycle_up(
         # until their adapter is implemented.
         if native_wait:
             up_cmd.extend(["--wait", "--wait-timeout", "120"])
-        if (mode.startswith("lint-") or mode.startswith("unit-")) and not dependencies:
+        if mode.startswith(("lint-", "unit-")) and not dependencies:
             up_cmd.append("--no-deps")
         if startup_services:
             up_cmd.extend(startup_services)
@@ -456,79 +459,209 @@ def lifecycle_up(
     return True
 
 
-def _project_lock_path(project_name: str):
-    from pathlib import Path
-
+def _project_lock_path(project_name: str) -> Path:
     return Path(tempfile.gettempdir()) / f"{project_name.removeprefix('pod_')}.lock"
 
 
 def _is_project_locked(project_name: str) -> bool:
-    """Check if an OS-level file lock is held for the given project name."""
+    """Check an OS lock without unlinking a path owned by another process."""
     lock_path = _project_lock_path(project_name)
-    if not lock_path.exists():
-        return False
-
     try:
         fd = os.open(str(lock_path), os.O_RDONLY)
     except OSError:
         return False
-
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        # Lock acquired, meaning it wasn't locked!
-        os.close(fd)
-        with contextlib.suppress(OSError):
-            lock_path.unlink(missing_ok=True)
-        return False
     except OSError:
-        os.close(fd)
         return True
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+    return False
+
+
+def _compose_base_for_project(mode: str, project_name: str) -> list[str]:
+    """Build Compose argv for *project_name* without mutating process env."""
+    env = bootstrap_env(mode)
+    compose_base = env["DOCKER_COMPOSE_BASE"].split()
+    try:
+        index = compose_base.index("-p")
+        compose_base[index + 1] = project_name
+    except (ValueError, IndexError):
+        compose_base[1:1] = ["-p", project_name]
+    return compose_base
+
+
+def _container_created(project_name: str) -> float | None:
+    """Return oldest container creation time for project, or None if unknown."""
+    listed = _run(
+        [
+            _get_engine(),
+            "ps",
+            "-a",
+            "--filter",
+            f"label=com.docker.compose.project={project_name}",
+            "--format",
+            "{{.ID}}",
+        ],
+        capture=True,
+        timeout=15,
+    )
+    if listed.returncode != 0 or not isinstance(listed.stdout, str):
+        return None
+    ids = [value.strip() for value in listed.stdout.splitlines() if value.strip()]
+    if not ids:
+        return None
+    inspected = _run(
+        [_get_engine(), "inspect", "--format={{.Created}}", *ids],
+        capture=True,
+        timeout=15,
+    )
+    if inspected.returncode != 0 or not isinstance(inspected.stdout, str):
+        return None
+    values: list[float] = []
+    for raw in inspected.stdout.splitlines():
+        try:
+            value = datetime.datetime.fromisoformat(raw.strip())
+        except ValueError:
+            return None
+        values.append(value.timestamp())
+    return min(values) if len(values) == len(ids) else None
 
 
 def sweep_stale_environments() -> None:
-    """Inspect stale candidates without deleting when age is unverifiable."""
-    max_age_mins = int(os.environ.get("TEST_CLEANUP_MAX_AGE_MINUTES", "15"))
-    prefix = "leedevkit-test"
+    """Remove only old, unlocked, identifiable LeeDevKit test projects."""
+    try:
+        max_age_mins = int(os.environ.get("TEST_CLEANUP_MAX_AGE_MINUTES", "15"))
+    except ValueError:
+        max_age_mins = 15
+    prefix = "leedevkit-test-"
     env = bootstrap_env("all")
     compose = env["DOCKER_COMPOSE_TOOL"].split()
     try:
-        result = _run([*compose, "ls", "--all", "--format", "json"], capture=True)
+        result = _run(
+            [*compose, "ls", "--all", "--format", "json"],
+            capture=True,
+            timeout=15,
+        )
         projects = json.loads(result.stdout or "[]")
         if not isinstance(projects, list):
-            raise ValueError("Compose project listing is not an array")
-        candidates = [
-            project.get("Name")
-            for project in projects
-            if isinstance(project, dict)
-            and isinstance(project.get("Name"), str)
-            and project["Name"].startswith(prefix)
-            and not _is_project_locked(project["Name"])
-        ]
-        candidates = [name for name in candidates if isinstance(name, str)]
-        if candidates:
-            print(
-                f"⚠️ Found {len(candidates)} unlocked Compose projects older than "
-                f"{max_age_mins}m threshold; cleanup skipped because Compose metadata "
-                "does not expose portable project age."
-            )
-    except Exception as exc:
+            raise TypeError("Compose project listing is not an array")
+        now = time.time()
+        for project in projects:
+            name = project.get("Name") if isinstance(project, dict) else None
+            if not isinstance(name, str) or not name.startswith(prefix):
+                continue
+            if _is_project_locked(name):
+                print(f"Stale sweep kept {name}: lock held")
+                continue
+            created = _container_created(name)
+            if created is None:
+                print(f"Stale sweep kept {name}: container age unknown")
+                continue
+            if now - created < max_age_mins * 60:
+                print(f"Stale sweep kept {name}: younger than {max_age_mins}m")
+                continue
+            fd = LockManager.acquire(name)
+            if fd is None:
+                print(f"Stale sweep kept {name}: lock acquired by another process")
+                continue
+            try:
+                # Recheck after claiming lock. New invocations can start between ls and here.
+                created_again = _container_created(name)
+                if (
+                    created_again is None
+                    or time.time() - created_again < max_age_mins * 60
+                ):
+                    print(f"Stale sweep kept {name}: metadata changed or age unknown")
+                    continue
+                cleanup_result = lifecycle_down("all", project_name=name, sweep=False)
+                print(f"Stale sweep cleaned {name}: {cleanup_result}")
+            finally:
+                LockManager.release(fd, name)
+    except Exception as exc:  # noqa: BLE001 - stale sweep must never abort teardown
         print(f"⚠️ Warning: Stale environment sweep failed: {exc}")
 
 
-def lifecycle_down(mode: str = "all") -> None:
-    """Tear down current project through Compose without removing volumes."""
-    resolve_lifecycle_profiles(mode)
-    env = bootstrap_env(mode)
-    compose_base = env["DOCKER_COMPOSE_BASE"].split()
-    # Compose owns container, network, and orphan removal. Never pass -v: shared
-    # Go/Bun/Cargo cache volumes belong to other runs and must survive.
-    _run(
-        compose_base + ["down", "--remove-orphans", "--timeout", "1"],
-        silent=True,
-    )
+def _write_cleanup_log(
+    project_name: str, event: str, data: dict[str, typing.Any]
+) -> None:
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in project_name)
+    path = PROJECT_ROOT / ".test_logs" / safe / "cleanup.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"event": event, **data}, sort_keys=True) + "\n")
+    except OSError:
+        pass
 
-    # Keep stale-run policy separate from current project teardown.
-    sweep_stale_environments()
+
+def lifecycle_down(
+    mode: str = "all",
+    *,
+    project_name: str | None = None,
+    sweep: bool = True,
+) -> dict[str, typing.Any]:
+    """Tear down one Compose project with bounded retries and diagnostics."""
+    resolve_lifecycle_profiles(mode)
+    project = project_name or os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
+    compose_base = _compose_base_for_project(mode, project)
+    command = compose_base + ["down", "--remove-orphans", "--timeout", "1"]
+    attempts: list[dict[str, typing.Any]] = []
+    for attempt in range(1, 3):
+        record: dict[str, typing.Any] = {"attempt": attempt, "command": command}
+        try:
+            result = _run(command, timeout=10, capture=True)
+            record.update(
+                {
+                    "exit_code": result.returncode,
+                    "stdout": result.stdout
+                    if isinstance(result.stdout, str)
+                    else str(result.stdout or ""),
+                    "stderr": result.stderr
+                    if isinstance(result.stderr, str)
+                    else str(result.stderr or ""),
+                }
+            )
+            attempts.append(record)
+            if result.returncode == 0:
+                break
+        except subprocess.TimeoutExpired as exc:
+            record.update({"exit_code": 124, "stdout": "", "stderr": str(exc)})
+            attempts.append(record)
+        except OSError as exc:
+            record.update({"exit_code": 1, "stdout": "", "stderr": str(exc)})
+            attempts.append(record)
+        if attempt < 2:
+            time.sleep(0.1)
+    success = bool(attempts and attempts[-1].get("exit_code") == 0)
+    fallback: dict[str, typing.Any] = {"attempted": False, "result": "not-needed"}
+    if not success:
+        fallback["attempted"] = True
+        rm_command = compose_base + ["rm", "--force", "--stop", "--no-deps"]
+        try:
+            result = _run(rm_command, timeout=10, capture=True)
+            fallback.update(
+                {
+                    "command": rm_command,
+                    "exit_code": result.returncode,
+                    "stdout": result.stdout or "",
+                    "stderr": result.stderr or "",
+                    "result": "success" if result.returncode == 0 else "failed",
+                }
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            fallback.update({"result": "failed", "error": str(exc), "exit_code": 124})
+    report = {
+        "project": project,
+        "success": success,
+        "attempts": attempts,
+        "fallback": fallback,
+    }
+    _write_cleanup_log(project, "teardown", report)
+    if sweep:
+        sweep_stale_environments()
+    return report
 
 
 def start_watchdog(timeout_sec: int, parent_pid: int) -> int:
