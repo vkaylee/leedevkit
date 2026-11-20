@@ -78,6 +78,8 @@ class Orchestrator:
         self.active_mode = "all"
         self.start_time = time.time()
         self.lock_fd: int | None = None
+        self.project_name: str | None = None
+        self._cleanup_started = False
         self._db_handler = DbHandler(self)
         self._run_handler = RunHandler(self)
         self._test_handler = TestHandler(self)
@@ -115,9 +117,10 @@ class Orchestrator:
 
     def cleanup(self) -> None:
         """Final cleanup of infrastructure."""
-        if not self.needs_cleanup or self.dry_run:
+        if not self.needs_cleanup or self.dry_run or self._cleanup_started:
             return
 
+        self._cleanup_started = True
         self.needs_cleanup = False
         os.environ["MODE"] = self.active_mode
 
@@ -128,23 +131,25 @@ class Orchestrator:
             return
 
         try:
-            cleanup_log = get_run_log_dir() / "cleanup.log"
-            cleanup_log.parent.mkdir(parents=True, exist_ok=True)
-            with cleanup_log.open("a") as f:
-                now = time.strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"\n--- Cleanup started at {now} ---\n")
-                lifecycle_down(self.active_mode)
-        except (OSError, ValueError):
-            pass  # stderr may be closed during test teardown
-        except Exception as e:
-            log_error(f"❌ Cleanup failed with error: {e}")
-
-        # Release and remove OS-level lock
-        LockManager.release(
-            self.lock_fd,
-            os.environ.get("COMPOSE_PROJECT_NAME"),
-        )
-        self.lock_fd = None
+            try:
+                cleanup_log = get_run_log_dir() / "cleanup.log"
+                cleanup_log.parent.mkdir(parents=True, exist_ok=True)
+                with cleanup_log.open("a") as f:
+                    now = time.strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(f"\n--- Cleanup started at {now} ---\n")
+                if self.project_name is None:
+                    lifecycle_down(self.active_mode)
+                else:
+                    lifecycle_down(self.active_mode, project_name=self.project_name)
+            except OSError as exc:
+                log_error(f"❌ Cleanup logging failed with error: {exc}")
+            except (RuntimeError, subprocess.SubprocessError, TypeError) as exc:
+                log_error(f"❌ Cleanup failed with error: {exc}")
+        finally:
+            # Release only the immutable lock owned by this invocation, even if
+            # Compose or signal handling aborts teardown.
+            LockManager.release(self.lock_fd, self.project_name)
+            self.lock_fd = None
 
         # Fix PTY hang by restoring sane terminal state at exit
         if sys.stdout.isatty():  # pragma: no cover
@@ -204,6 +209,7 @@ class Orchestrator:
             project_name = "leedevkit-dev"
             self.owns_project = False
             self.project_mode = "dev"
+            self.project_name = project_name
             self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
             self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
             os.environ["COMPOSE_PROJECT_NAME"] = project_name
@@ -213,6 +219,7 @@ class Orchestrator:
             project_name = args.project
             self.owns_project = False
             self.project_mode = "test"
+            self.project_name = project_name
             self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
             self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
             os.environ["COMPOSE_PROJECT_NAME"] = project_name
@@ -223,6 +230,7 @@ class Orchestrator:
             self.project_mode = "test"
             suffix = uuid.uuid4().hex[:8]
             project_name = f"leedevkit-test-{suffix}"
+            self.project_name = project_name
             self.env_vars["COMPOSE_PROJECT_NAME"] = project_name
             self.env_vars["PODMAN_COMPOSE_PROJECT_NAME"] = project_name
             os.environ["COMPOSE_PROJECT_NAME"] = project_name

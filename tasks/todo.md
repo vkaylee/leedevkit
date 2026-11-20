@@ -55,3 +55,12 @@
 - [ ] Run full regression, release build/acceptance, local mirror, checksums, SBOM, and public release verification.
 - [ ] Human approval before deleting Python handlers, bridge, fallback env, or legacy wrapper.
 - [ ] Remove dead compatibility code in separate reviewed cleanup.
+
+## Cleanup Lifecycle Follow-up
+
+- [ ] Harden lock ownership and immutable invocation project identity
+- [ ] Add bounded, observable, retrying idempotent Compose teardown
+- [ ] Implement age/lock/ownership-safe stale sweep
+- [ ] Cover signal, timeout, child, watchdog, phase, and parallel cleanup paths
+- [ ] Add Debug MCP one-off cleanup on EOF, signals, timeout, and startup failure
+- [ ] Add cleanup regression tests and run full wrapper verification

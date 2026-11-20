@@ -27,36 +27,47 @@ class LockManager:
     __slots__ = ()
 
     @staticmethod
-    def acquire(project_name: str) -> int | None:
-        """Acquire an exclusive, non-blocking file lock for *project_name*.
+    def _path(project_name: str) -> Path:
+        return Path(tempfile.gettempdir()) / f"{project_name}.lock"
 
-        Returns the open file descriptor on success, or ``None`` if the
-        lock could not be acquired (already held by another process).
-        """
-        lock_path = Path(tempfile.gettempdir()) / f"{project_name}.lock"
+    @staticmethod
+    def acquire(project_name: str) -> int | None:
+        """Acquire an exclusive, non-blocking file lock for *project_name*."""
+        lock_path = LockManager._path(project_name)
+        fd: int | None = None
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
         except OSError:
+            if fd is not None:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
             return None
-        return fd
 
     @staticmethod
     def release(fd: int | None, project_name: str | None = None) -> None:
-        """Release a previously acquired lock and remove its lock file.
-
-        Safe to call with ``fd=None`` (no-op).
-        """
+        """Release owned lock and remove its path only when inode still matches."""
         if fd is None:
             return
 
+        lock_path = LockManager._path(project_name) if project_name else None
+        owned_path = False
         try:
+            if lock_path is not None:
+                opened = os.fstat(fd)
+                current = os.stat(lock_path)
+                owned_path = (opened.st_dev, opened.st_ino) == (
+                    current.st_dev,
+                    current.st_ino,
+                )
             fcntl.flock(fd, fcntl.LOCK_UN)
-            os.close(fd)
         except OSError:
             pass
+        finally:
+            with contextlib.suppress(OSError):
+                os.close(fd)
 
-        if project_name:
-            lock_path = Path(tempfile.gettempdir()) / f"{project_name}.lock"
+        if owned_path and lock_path is not None:
             with contextlib.suppress(OSError):
                 lock_path.unlink(missing_ok=True)

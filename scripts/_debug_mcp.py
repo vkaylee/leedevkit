@@ -168,10 +168,10 @@ def _optional_string(args: dict[str, Any], name: str) -> str | None:
 
 def _args(params: Any) -> dict[str, Any]:
     if not isinstance(params, dict):
-        raise ValueError("params must be an object")
+        raise TypeError("params must be an object")
     args = params.get("arguments", {})
     if not isinstance(args, dict):
-        raise ValueError("arguments must be an object")
+        raise TypeError("arguments must be an object")
     if any(not isinstance(k, str) or len(k) > 128 for k in args):
         raise ValueError("invalid argument keys")
     for value in args.values():
@@ -305,7 +305,7 @@ class DebugServer:
             return _error(msg_id, -32601, "Method not found")
         except (DebugManifestError, DebugRuntimeError, ValueError) as exc:
             return _error(msg_id, -32602, str(exc))
-        except Exception:
+        except (OSError, RuntimeError, KeyError, TypeError, AttributeError):
             return _error(msg_id, -32603, "Debug operation failed")
 
 
@@ -337,25 +337,33 @@ def main(
         stopping = True
 
     signal.signal(signal.SIGTERM, stop)
-    for line in sys.stdin:
-        if stopping:
-            break
-        if len(line.encode()) > MAX_REQUEST_BYTES:
-            sys.stdout.write(
-                json.dumps(_error(None, -32600, "request exceeds size limit")) + "\n"
-            )
-            sys.stdout.flush()
-            continue
-        if not line.strip():
-            continue
-        try:
-            req = json.loads(line)
-            response = server.handle(req)
-        except json.JSONDecodeError:
-            response = _error(None, -32700, "Parse error")
-        if response is not None:
-            sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
-            sys.stdout.flush()
+    signal.signal(signal.SIGINT, stop)
+    try:
+        for line in sys.stdin:
+            if stopping:
+                break
+            if len(line.encode()) > MAX_REQUEST_BYTES:
+                sys.stdout.write(
+                    json.dumps(_error(None, -32600, "request exceeds size limit"))
+                    + "\n"
+                )
+                sys.stdout.flush()
+                continue
+            if not line.strip():
+                continue
+            try:
+                req = json.loads(line)
+                response = server.handle(req)
+            except json.JSONDecodeError:
+                response = _error(None, -32700, "Parse error")
+            if response is not None:
+                sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
+                sys.stdout.flush()
+    finally:
+        # Debug MCP runs inside the project-scoped one-off Compose container.
+        # Launcher owns removal; this boundary guarantees EOF/signal returns
+        # only after its child process can observe the shutdown.
+        sys.stdout.flush()
     return 0
 
 

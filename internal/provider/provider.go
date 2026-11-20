@@ -35,6 +35,96 @@ type Options struct {
 	Environment map[string]string
 }
 
+// ProtocolProvider is the normalized provider contract exchanged with the Go core.
+// Python remains responsible for TOML loading while Go validates policy and diagnostics.
+type ProtocolProvider struct {
+	Name         string         `json:"provider"`
+	CLI          []string       `json:"cli"`
+	Compose      []string       `json:"compose"`
+	Capabilities []string       `json:"capabilities"`
+	Settings     map[string]any `json:"settings"`
+	Source       string         `json:"source"`
+}
+
+func ValidateProtocol(input ProtocolProvider) (map[string]any, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, errors.New("provider name must be non-empty")
+	}
+	if err := validateArgv(input.CLI, "cli"); err != nil {
+		return nil, err
+	}
+	if err := validateArgv(input.Compose, "compose"); err != nil {
+		return nil, err
+	}
+	valid := make(map[string]bool, len(allCapabilities))
+	for _, capability := range allCapabilities {
+		valid[capability] = true
+	}
+	seen := map[string]bool{}
+	capabilities := make([]string, 0, len(input.Capabilities))
+	for _, capability := range input.Capabilities {
+		if !valid[capability] {
+			return nil, fmt.Errorf("provider %q has unknown capability %q", input.Name, capability)
+		}
+		if !seen[capability] {
+			seen[capability] = true
+			capabilities = append(capabilities, capability)
+		}
+	}
+	sort.Strings(capabilities)
+	settings := input.Settings
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	return map[string]any{
+		"provider":     input.Name,
+		"cli":          append([]string(nil), input.CLI...),
+		"compose":      append([]string(nil), input.Compose...),
+		"capabilities": capabilities,
+		"settings":     redactValues(settings, ""),
+		"source":       input.Source,
+	}, nil
+}
+
+func validateArgv(values []string, name string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("provider %s must be a non-empty string array", name)
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("provider %s must contain only non-empty strings", name)
+		}
+	}
+	return nil
+}
+
+func redactValues(value any, key string) any {
+	if secretKey.MatchString(key) {
+		return "<redacted>"
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for childKey, childValue := range typed {
+			result[childKey] = redactValues(childValue, childKey)
+		}
+		return result
+	case []any:
+		result := make([]any, len(typed))
+		for index, childValue := range typed {
+			result[index] = redactValues(childValue, key)
+		}
+		return result
+	case string:
+		parsed, err := url.Parse(typed)
+		if err == nil && parsed.User != nil {
+			parsed.User = nil
+			return parsed.String()
+		}
+	}
+	return value
+}
+
 func Resolve(options Options) (Provider, error) {
 	repo, err := load(options.Repository)
 	if err != nil {

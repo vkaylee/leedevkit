@@ -5,6 +5,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import _go_core
+
 from _devkit_config import (
     container_provider_diagnostics,
     require_container_capabilities,
@@ -159,3 +161,52 @@ def test_cli_override_beats_environment() -> None:
     )
     assert provider.name == "kiri"
     assert provider.source == "CLI override"
+
+
+def test_provider_shadow_compares_normalized_diagnostics(monkeypatch) -> None:
+    monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+    expected = {
+        "provider": "docker",
+        "cli": ["docker"],
+        "compose": ["docker", "compose"],
+        "capabilities": sorted(
+            {
+                "compose",
+                "config",
+                "up",
+                "down",
+                "ps",
+                "logs",
+                "exec",
+                "run",
+                "inspect",
+                "rm",
+                "build",
+                "pull",
+                "network",
+                "volume",
+                "image",
+                "healthcheck",
+                "project_cleanup",
+                "wait",
+            }
+        ),
+        "settings": {},
+        "source": "LeeDevKit default",
+    }
+    monkeypatch.setattr(
+        _go_core, "resolve_provider_go", lambda payload: {"diagnostics": expected}
+    )
+    provider = resolve_container_provider({}, environ={}, host_config={})
+    assert provider.name == "docker"
+
+
+def test_provider_shadow_rejects_mismatch(monkeypatch) -> None:
+    monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+    monkeypatch.setattr(
+        _go_core,
+        "resolve_provider_go",
+        lambda payload: {"diagnostics": {"provider": "wrong"}},
+    )
+    with pytest.raises(RuntimeError, match="shadow result differs"):
+        resolve_container_provider({}, environ={}, host_config={})
