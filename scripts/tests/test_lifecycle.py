@@ -14,7 +14,10 @@ sys.path.append(str(PROJECT_ROOT / "scripts"))
 
 import _lifecycle  # noqa: E402
 from _lifecycle import (  # noqa: E402
+    _active_services,
+    _configured_service,
     _container_healthy,
+    _has_legacy_api_services,
     lifecycle_down,
     lifecycle_up,
     start_watchdog,
@@ -36,6 +39,40 @@ def legacy_provider_for_existing_lifecycle_tests(monkeypatch):
     monkeypatch.setattr(
         _lifecycle, "resolve_container_provider", lambda: LEGACY_PROVIDER
     )
+
+
+class TestLifecycleConfigHelpers:
+    def test_configured_service_returns_none_for_unknown_mode(self):
+        assert _configured_service("unknown") is None
+
+    def test_configured_service_handles_non_mapping_services(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config", lambda: {"services": []}
+        )
+        assert _configured_service("go") is None
+
+    def test_configured_service_matches_web_language(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"services": {"frontend": {"lang": "web"}}},
+        )
+        assert _configured_service("web") == "frontend"
+
+    def test_active_services_uses_legacy_fallback(self):
+        assert _active_services("go") == ["go"]
+
+    def test_has_legacy_api_services_handles_empty_config(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config", lambda: {"services": {}}
+        )
+        assert _has_legacy_api_services() is True
+
+    def test_has_legacy_api_services_detects_legacy_api(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"services": {"apiserver": {"lang": "rust"}}},
+        )
+        assert _has_legacy_api_services() is True
 
 
 class TestContainerHealthy:
