@@ -392,6 +392,21 @@ def lifecycle_up(
         dependency_compose = list(compose_base)
         if metadata.override_file is not None:
             dependency_compose.extend(["-f", str(metadata.override_file)])
+        _go_lifecycle_shadow(
+            provider=provider,
+            project_name=project_name,
+            compose_base=compose_base,
+            profiles=profiles,
+            services=dependencies,
+            dependencies=[],
+            build=dependency_build,
+            native_wait=False,
+            override_file=(
+                str(metadata.override_file)
+                if metadata.override_file is not None
+                else None
+            ),
+        )
         dependency_result = _run(
             dependency_compose
             + profiles
