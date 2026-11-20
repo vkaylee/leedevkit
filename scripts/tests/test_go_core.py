@@ -29,6 +29,21 @@ def test_missing_binary_fails_closed():
                 raise AssertionError("missing Go binary passed")
 
 
+def test_missing_binary_with_invalid_runtime_fails_closed(tmp_path):
+    with patch.dict(
+        os.environ,
+        {"LEEDEVKIT_USE_GO_CORE": "1", "DEVKIT_HOME": str(tmp_path)},
+        clear=True,
+    ):
+        with patch("_go_core.shutil.which", return_value=None):
+            try:
+                plan_gates_go({"schema_version": 1, "gates": []})
+            except RuntimeError as exc:
+                assert "binary missing" in str(exc)
+            else:
+                raise AssertionError("invalid runtime passed")
+
+
 def test_protocol_disabled_returns_none_for_all_planners():
     with patch.dict(os.environ, {}, clear=True):
         assert plan_quality_gates_go([]) is None
@@ -36,7 +51,35 @@ def test_protocol_disabled_returns_none_for_all_planners():
         assert resolve_provider_go({}) is None
 
 
-def test_malformed_response_fails_closed():
+def test_protocol_timeout_fails_closed():
+    with patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": "1"}, clear=True):
+        with patch("_go_core.shutil.which", return_value="/tmp/leedevkit-core"):
+            with patch(
+                "_go_core.subprocess.run",
+                side_effect=__import__("subprocess").TimeoutExpired("go", 1),
+            ):
+                try:
+                    plan_gates_go({"schema_version": 1, "gates": []})
+                except RuntimeError as exc:
+                    assert "timed out" in str(exc)
+                else:
+                    raise AssertionError("timeout passed")
+
+
+def test_protocol_nonzero_exit_fails_closed():
+    result = MagicMock(returncode=7, stdout="", stderr="failed")
+    with patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": "1"}, clear=True):
+        with patch("_go_core.shutil.which", return_value="/tmp/leedevkit-core"):
+            with patch("_go_core.subprocess.run", return_value=result):
+                try:
+                    plan_gates_go({"schema_version": 1, "gates": []})
+                except RuntimeError as exc:
+                    assert "exit code 7" in str(exc)
+                else:
+                    raise AssertionError("failed protocol passed")
+
+
+def test_protocol_malformed_response_fails_closed():
     result = MagicMock(returncode=0, stdout="not-json", stderr="")
     with patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": "1"}, clear=True):
         with patch("_go_core.shutil.which", return_value="/tmp/leedevkit-core"):
