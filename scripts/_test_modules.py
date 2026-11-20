@@ -8,6 +8,7 @@ All user-provided strings interpolated into shell commands are escaped via
 shlex.quote() to prevent shell injection through --pattern args.
 """
 
+import os
 import shlex
 from typing import cast
 
@@ -24,11 +25,18 @@ def _go_quality_gates() -> list[dict[str, object]]:
     try:
         from _devkit_config import load_project_config, resolve_quality_gates
 
-        return resolve_quality_gates(load_project_config(), "go")
+        gates = resolve_quality_gates(load_project_config(), "go")
     except OSError:
         from _devkit_config import resolve_quality_gates
 
-        return resolve_quality_gates({}, "go")
+        gates = resolve_quality_gates({}, "go")
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") == "1":
+        from _go_core import plan_quality_gates_go
+
+        response = plan_quality_gates_go(gates)
+        if response is None or response.get("gates") != gates:
+            raise RuntimeError("Go gate shadow result differs from Python result")
+    return gates
 
 
 def _gate_version_status(gate: dict[str, object]) -> tuple[bool, str | None]:

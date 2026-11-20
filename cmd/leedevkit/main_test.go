@@ -234,6 +234,29 @@ func TestPlanGatesRejectsSchema(t *testing.T) {
 	}
 }
 
+func TestPlanGatesSelectsAndNormalizesDefinitions(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"names":["custom","custom"],"definitions":{"custom":{"name":"custom","phase":"lint","command":["tool"]}}}`
+	if code := run([]string{"--plan-gates"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("plan exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response gateProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("plan output is not JSON: %v", err)
+	}
+	if len(response.Gates) != 1 || response.Gates[0].Mode != "run" || response.Gates[0].Condition != "always" {
+		t.Fatalf("normalized gates = %#v", response.Gates)
+	}
+}
+
+func TestPlanGatesRejectsUnsafeWorkingDir(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"names":["custom"],"definitions":{"custom":{"name":"custom","phase":"lint","command":["tool"],"working_dir":"../outside"}}}`
+	if code := run([]string{"--plan-gates"}, strings.NewReader(input), &stdout, &stderr); code != 2 {
+		t.Fatalf("unsafe working dir exit code = %d", code)
+	}
+}
+
 func TestPlanGatesRejectsMalformedJSON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--plan-gates"}, strings.NewReader("{"), &stdout, &stderr); code != 2 {

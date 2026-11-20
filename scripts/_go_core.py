@@ -100,3 +100,25 @@ def plan_gates_go(
     if not isinstance(response.get("gates"), list):
         raise RuntimeError("Go core returned invalid gate plan")
     return response
+
+
+def plan_quality_gates_go(
+    gates: list[dict[str, Any]],
+    *,
+    names: list[str] | None = None,
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Send normalized Python gates to Go for shadow planning."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    definitions = {str(gate["name"]): gate for gate in gates}
+    return plan_gates_go(
+        {
+            "schema_version": 1,
+            "names": names or [str(gate["name"]) for gate in gates],
+            "definitions": definitions,
+        },
+        binary_path=binary_path,
+        timeout=timeout,
+    )

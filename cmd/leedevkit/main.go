@@ -16,8 +16,10 @@ import (
 )
 
 type gateProtocolRequest struct {
-	SchemaVersion int          `json:"schema_version"`
-	Gates         []gates.Gate `json:"gates"`
+	SchemaVersion int                   `json:"schema_version"`
+	Gates         []gates.Gate          `json:"gates"`
+	Names         []string              `json:"names"`
+	Definitions   map[string]gates.Gate `json:"definitions"`
 }
 
 type gateProtocolResponse struct {
@@ -405,7 +407,21 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "unsupported gate schema version: %d\n", request.SchemaVersion)
 			return 2
 		}
-		response := gateProtocolResponse{SchemaVersion: 1, Gates: request.Gates}
+		names := request.Names
+		definitions := request.Definitions
+		if len(names) == 0 && len(request.Gates) > 0 {
+			definitions = make(map[string]gates.Gate, len(request.Gates))
+			for _, gate := range request.Gates {
+				definitions[gate.Name] = gate
+				names = append(names, gate.Name)
+			}
+		}
+		selected, err := gates.Select(names, definitions)
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid gate request: %v\n", err)
+			return 2
+		}
+		response := gateProtocolResponse{SchemaVersion: 1, Gates: selected}
 		if err := json.NewEncoder(stdout).Encode(response); err != nil {
 			fmt.Fprintf(stderr, "failed to write gate response: %v\n", err)
 			return 2
