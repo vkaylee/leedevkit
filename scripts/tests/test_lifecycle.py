@@ -155,7 +155,9 @@ class TestLifecycleUp:
             patch("_lifecycle._has_legacy_api_services", return_value=True),
             patch(
                 "_lifecycle._compose_service_container",
-                side_effect=lambda base, profiles, service, project: f"{service}-container",
+                side_effect=lambda base, profiles, service, project: (
+                    f"{service}-container"
+                ),
             ),
             patch("_lifecycle.time.sleep"),
         ):
@@ -671,6 +673,61 @@ class TestStaleSweep:
         mock_run.side_effect = Exception("Test error")
         # Should catch and ignore
         sweep_stale_environments()
+
+    def test_container_created_parses_oldest_timestamp(self):
+        from _lifecycle import _container_created
+
+        with patch(
+            "_lifecycle._run",
+            side_effect=[
+                MagicMock(returncode=0, stdout="one\ntwo\n"),
+                MagicMock(
+                    returncode=0,
+                    stdout="2026-01-01T00:00:00+00:00\n2026-01-02T00:00:00+00:00\n",
+                ),
+            ],
+        ):
+            assert _container_created("project") is not None
+
+    @pytest.mark.parametrize(
+        "listed, inspected",
+        [
+            (MagicMock(returncode=1, stdout=""), None),
+            (MagicMock(returncode=0, stdout=""), None),
+            (
+                MagicMock(returncode=0, stdout="one\n"),
+                MagicMock(returncode=1, stdout=""),
+            ),
+            (
+                MagicMock(returncode=0, stdout="one\n"),
+                MagicMock(returncode=0, stdout="bad\n"),
+            ),
+        ],
+    )
+    def test_container_created_returns_none_for_bad_metadata(self, listed, inspected):
+        from _lifecycle import _container_created
+
+        results = (
+            [listed] if inspected is None and not listed.stdout else [listed, inspected]
+        )
+        with patch("_lifecycle._run", side_effect=results):
+            assert _container_created("project") is None
+
+    def test_sweep_keeps_young_project(self, monkeypatch):
+        from _lifecycle import sweep_stale_environments
+
+        monkeypatch.setenv("TEST_CLEANUP_MAX_AGE_MINUTES", "not-int")
+        with (
+            patch(
+                "_lifecycle._run",
+                return_value=MagicMock(stdout='[{"Name":"leedevkit-test-young"}]'),
+            ),
+            patch("_lifecycle._is_project_locked", return_value=False),
+            patch(
+                "_lifecycle._container_created", return_value=__import__("time").time()
+            ),
+        ):
+            sweep_stale_environments()
 
 
 class TestGoLifecycleShadow:
