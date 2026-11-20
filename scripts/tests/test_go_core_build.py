@@ -134,6 +134,32 @@ def test_build_go_core_rejects_missing_output_binary(
         raise AssertionError("missing output accepted")
 
 
+def test_build_main_reads_version_and_dispatches(tmp_path: Path, monkeypatch):
+    import sys
+    import _go_core_build
+
+    (tmp_path / "VERSION").write_text("1.2.3\n")
+    calls = []
+    monkeypatch.setattr(
+        _go_core_build,
+        "build_go_core",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "_go_core_build",
+            "--repo-root",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "out"),
+        ],
+    )
+    _go_core_build.main()
+    assert calls[0][0][2] == "1.2.3"
+
+
 def test_build_matrix_builds_all_default_targets(tmp_path: Path, monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(

@@ -11,6 +11,32 @@ from _go_core_build import target_binary_name  # noqa: E402
 from _go_core_matrix import build_matrix  # noqa: E402
 
 
+def test_matrix_main_reads_version_and_dispatches(tmp_path: Path, monkeypatch):
+    import sys
+    import _go_core_matrix
+
+    (tmp_path / "VERSION").write_text("2.0.0\n")
+    calls = []
+    monkeypatch.setattr(
+        _go_core_matrix,
+        "build_matrix",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "_go_core_matrix",
+            "--repo-root",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "dist"),
+        ],
+    )
+    _go_core_matrix.main()
+    assert calls[0][0][2] == "2.0.0"
+
+
 def test_target_binary_name_adds_windows_suffix() -> None:
     assert target_binary_name("linux", "amd64") == "leedevkit-go-linux-amd64"
     assert target_binary_name("windows", "amd64") == "leedevkit-go-windows-amd64.exe"
