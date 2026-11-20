@@ -4,6 +4,19 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-11-21
+
+### Added
+- Add opt-in Go shadow protocols for deterministic test-target expansion and service-mode mapping.
+- Reject trailing JSON data at Go core protocol boundaries.
+
+### Fixed
+- Preserve Python ownership of TOML loading, orchestration, and lifecycle execution while validating Go policy parity.
+
+### Verification
+- Full Python suite: 1024 passed, 1 skipped, 80.07% coverage.
+- Go package tests, Ruff, and mypy passed.
+
 ## [0.11.3] - 2026-11-20
 
 ### Added
