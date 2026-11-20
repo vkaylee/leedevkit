@@ -190,6 +190,53 @@ func sameStrings(left, right []string) bool {
 	return true
 }
 
+func TestResolveModesProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"services":[{"name":"backend","language":"go"},{"name":"frontend","language":"typescript"}]}`
+	if code := run([]string{"--resolve-modes"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("resolve modes exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response modeProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("mode output is not JSON: %v", err)
+	}
+	if response.SchemaVersion != 1 || response.Modes["backend"] != "go" || response.Modes["frontend"] != "web" {
+		t.Fatalf("mode response = %#v", response)
+	}
+}
+
+func TestResolveTestTargetsProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"target":"all","all_services":["zkteco","api","standalone"],"aliases":[{"name":"go","services":["zkteco"]},{"name":"api","services":["api"]}]}`
+	if code := run([]string{"--resolve-test-targets"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("resolve test targets exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response targetProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("test target output is not JSON: %v", err)
+	}
+	if response.SchemaVersion != 1 || !sameStrings(response.Targets, []string{"go", "api", "standalone"}) {
+		t.Fatalf("test target response = %#v", response)
+	}
+}
+
+func TestResolveTestTargetsRejectsSchema(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--resolve-test-targets"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid test target schema exit code = %d", code)
+	}
+}
+
+func TestResolveTestTargetsRejectsMalformedJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--resolve-test-targets"}, strings.NewReader("{"), &stdout, &stderr); code != 2 {
+		t.Fatalf("malformed test target exit code = %d", code)
+	}
+	if !strings.Contains(stderr.String(), "malformed test target request") {
+		t.Fatalf("malformed test target stderr = %q", stderr.String())
+	}
+}
+
 func TestResolveProviderProtocol(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	input := `{"schema_version":1,"provider":{"provider":"docker","cli":["docker"],"compose":["docker","compose"],"capabilities":["compose"],"settings":{"password":"secret"},"source":"test"}}`
@@ -235,6 +282,18 @@ func TestPlanLifecycleRejectsSchema(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--plan-lifecycle"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
 		t.Fatalf("invalid lifecycle schema exit code = %d", code)
+	}
+}
+
+func TestProtocolRejectsTrailingJSON(t *testing.T) {
+	for _, command := range []string{"--plan-lifecycle", "--resolve-modes", "--resolve-test-targets", "--resolve-provider", "--plan-gates"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			input := `{"schema_version":1} {"schema_version":1}`
+			if code := run([]string{command}, strings.NewReader(input), &stdout, &stderr); code != 2 {
+				t.Fatalf("trailing JSON exit code = %d, stderr = %q", code, stderr.String())
+			}
+		})
 	}
 }
 

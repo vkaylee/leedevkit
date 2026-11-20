@@ -897,22 +897,42 @@ def resolve_test_targets(target: str = "all") -> list[str]:
         return ["all"]
     selected: list[str] = []
     covered_services: set[str] = set()
+    normalized_services = [str(service) for service in all_services]
     for name, services in targets.items():
         if name == "all" or not isinstance(services, list):
             continue
         configured_services = {str(service) for service in services}
-        covered = configured_services.intersection(
-            str(service) for service in all_services
-        )
+        covered = configured_services.intersection(normalized_services)
         if covered:
             selected.append(str(name))
             covered_services.update(covered)
-    for service in all_services:
-        service_name = str(service)
+    for service_name in normalized_services:
         if service_name not in covered_services and service_name not in selected:
             selected.append(service_name)
             covered_services.add(service_name)
-    return selected or ["all"]
+
+    result = selected or ["all"]
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") == "1":
+        from _go_core import resolve_test_targets_go
+
+        response = resolve_test_targets_go(
+            {
+                "schema_version": 1,
+                "target": target,
+                "all_services": normalized_services,
+                "aliases": [
+                    {
+                        "name": str(name),
+                        "services": [str(service) for service in services],
+                    }
+                    for name, services in targets.items()
+                    if name != "all" and isinstance(services, list)
+                ],
+            }
+        )
+        if response is None or response.get("targets") != result:
+            raise RuntimeError("Go test target shadow result differs from Python result")
+    return result
 
 
 # ── Mode map & Rust version injection (extracted from Orchestrator) ────────
@@ -928,6 +948,7 @@ def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
         project_root = _find_project_root()
 
     mode_map: dict[str, str] = {"all": "all"}
+    configured_services: list[dict[str, str]] = []
     try:
         config_toml = project_root / "leedevkit.toml"
         if config_toml.exists():
@@ -936,6 +957,9 @@ def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
             for name, svc in services.items():
                 if isinstance(svc, dict):
                     lang = svc.get("lang", "")
+                    configured_services.append(
+                        {"name": str(name), "language": str(lang)}
+                    )
                     if lang == "rust":
                         mode_map[name] = "api"
                     elif lang in ("typescript", "javascript"):
@@ -951,6 +975,17 @@ def build_mode_map(project_root: Path | None = None) -> dict[str, str]:
     mode_map.setdefault("api", "api")
     mode_map.setdefault("web", "web")
     mode_map.setdefault("go", "go")
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") == "1":
+        from _go_core import resolve_modes_go
+
+        response = resolve_modes_go(
+            {
+                "schema_version": 1,
+                "services": configured_services,
+            }
+        )
+        if response is None or response.get("modes") != mode_map:
+            raise RuntimeError("Go mode map shadow result differs from Python result")
     return mode_map
 
 

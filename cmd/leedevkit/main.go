@@ -13,7 +13,9 @@ import (
 
 	"github.com/vkaylee/leedevkit/internal/gates"
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
+	"github.com/vkaylee/leedevkit/internal/modes"
 	"github.com/vkaylee/leedevkit/internal/provider"
+	"github.com/vkaylee/leedevkit/internal/targets"
 )
 
 type gateProtocolRequest struct {
@@ -26,6 +28,38 @@ type gateProtocolRequest struct {
 type gateProtocolResponse struct {
 	SchemaVersion int          `json:"schema_version"`
 	Gates         []gates.Gate `json:"gates"`
+}
+
+type targetProtocolRequest struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Target        string                `json:"target"`
+	AllServices   []string              `json:"all_services"`
+	Aliases       []targetProtocolAlias `json:"aliases"`
+}
+
+type targetProtocolAlias struct {
+	Name     string   `json:"name"`
+	Services []string `json:"services"`
+}
+
+type targetProtocolResponse struct {
+	SchemaVersion int      `json:"schema_version"`
+	Targets       []string `json:"targets"`
+}
+
+type modeProtocolRequest struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Services      []modeProtocolService `json:"services"`
+}
+
+type modeProtocolService struct {
+	Name     string `json:"name"`
+	Language string `json:"language"`
+}
+
+type modeProtocolResponse struct {
+	SchemaVersion int               `json:"schema_version"`
+	Modes         map[string]string `json:"modes"`
 }
 
 type providerProtocolRequest struct {
@@ -385,10 +419,25 @@ func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 	return 0
 }
 
+func decodeSingleJSON(input io.Reader, target any) error {
+	decoder := json.NewDecoder(input)
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return fmt.Errorf("trailing JSON data: %w", err)
+	}
+	return nil
+}
+
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 1 && args[0] == "--plan-lifecycle" {
 		var request lifecycleProtocolRequest
-		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
+		if err := decodeSingleJSON(stdin, &request); err != nil {
 			fmt.Fprintf(stderr, "malformed lifecycle request: %v\n", err)
 			return 2
 		}
@@ -420,9 +469,54 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(args) == 1 && args[0] == "--resolve-modes" {
+		var request modeProtocolRequest
+		if err := decodeSingleJSON(stdin, &request); err != nil {
+			fmt.Fprintf(stderr, "malformed mode request: %v\n", err)
+			return 2
+		}
+		if request.SchemaVersion != 1 {
+			fmt.Fprintf(stderr, "unsupported mode schema version: %d\n", request.SchemaVersion)
+			return 2
+		}
+		services := make([]modes.Service, len(request.Services))
+		for index, service := range request.Services {
+			services[index] = modes.Service{Name: service.Name, Language: service.Language}
+		}
+		response := modeProtocolResponse{SchemaVersion: 1, Modes: modes.Resolve(services)}
+		if err := json.NewEncoder(stdout).Encode(response); err != nil {
+			fmt.Fprintf(stderr, "failed to write mode response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
+	if len(args) == 1 && args[0] == "--resolve-test-targets" {
+		var request targetProtocolRequest
+		if err := decodeSingleJSON(stdin, &request); err != nil {
+			fmt.Fprintf(stderr, "malformed test target request: %v\n", err)
+			return 2
+		}
+		if request.SchemaVersion != 1 {
+			fmt.Fprintf(stderr, "unsupported test target schema version: %d\n", request.SchemaVersion)
+			return 2
+		}
+		aliases := make([]targets.Alias, len(request.Aliases))
+		for index, alias := range request.Aliases {
+			aliases[index] = targets.Alias{Name: alias.Name, Services: alias.Services}
+		}
+		response := targetProtocolResponse{
+			SchemaVersion: 1,
+			Targets:       targets.Resolve(targets.Request{Target: request.Target, AllServices: request.AllServices, Aliases: aliases}),
+		}
+		if err := json.NewEncoder(stdout).Encode(response); err != nil {
+			fmt.Fprintf(stderr, "failed to write test target response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "--resolve-provider" {
 		var request providerProtocolRequest
-		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
+		if err := decodeSingleJSON(stdin, &request); err != nil {
 			fmt.Fprintf(stderr, "malformed provider request: %v\n", err)
 			return 2
 		}
@@ -446,7 +540,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if len(args) == 1 && args[0] == "--plan-gates" {
 		var request gateProtocolRequest
-		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
+		if err := decodeSingleJSON(stdin, &request); err != nil {
 			fmt.Fprintf(stderr, "malformed gate request: %v\n", err)
 			return 2
 		}
