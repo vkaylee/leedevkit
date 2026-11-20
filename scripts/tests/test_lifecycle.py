@@ -14,7 +14,10 @@ sys.path.append(str(PROJECT_ROOT / "scripts"))
 
 import _lifecycle  # noqa: E402
 from _lifecycle import (  # noqa: E402
+    _active_services,
+    _configured_service,
     _container_healthy,
+    _has_legacy_api_services,
     lifecycle_down,
     lifecycle_up,
     start_watchdog,
@@ -38,6 +41,40 @@ def legacy_provider_for_existing_lifecycle_tests(monkeypatch):
     )
 
 
+class TestLifecycleConfigHelpers:
+    def test_configured_service_returns_none_for_unknown_mode(self):
+        assert _configured_service("unknown") is None
+
+    def test_configured_service_handles_non_mapping_services(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config", lambda: {"services": []}
+        )
+        assert _configured_service("go") is None
+
+    def test_configured_service_matches_web_language(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"services": {"frontend": {"lang": "web"}}},
+        )
+        assert _configured_service("web") == "frontend"
+
+    def test_active_services_uses_legacy_fallback(self):
+        assert _active_services("go") == ["go"]
+
+    def test_has_legacy_api_services_handles_empty_config(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config", lambda: {"services": {}}
+        )
+        assert _has_legacy_api_services() is True
+
+    def test_has_legacy_api_services_detects_legacy_api(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"services": {"apiserver": {"lang": "rust"}}},
+        )
+        assert _has_legacy_api_services() is True
+
+
 class TestContainerHealthy:
     def test_healthy_container(self) -> None:
         with patch("_lifecycle._run") as mock_run:
@@ -56,6 +93,99 @@ class TestContainerHealthy:
 
 
 class TestLifecycleUp:
+    @staticmethod
+    def _compose_result(stdout="", returncode=0):
+        return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+    def test_dependency_start_failure_returns_false(self, tmp_path, monkeypatch):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        results = [
+            self._compose_result("go\npostgres\n"),
+            self._compose_result("", returncode=1),
+        ]
+        with (
+            patch("_lifecycle._run", side_effect=results),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata({}, {}, [], override),
+            ),
+            patch("_lifecycle.service_fingerprints_match", return_value=True),
+        ):
+            assert lifecycle_up("int-go") is False
+        assert not override.exists()
+
+    def test_shadow_failure_removes_override_file(self, tmp_path, monkeypatch):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with (
+            patch("_lifecycle._run", return_value=self._compose_result("go\n")),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata({}, {}, [], override),
+            ),
+            patch(
+                "_lifecycle._go_lifecycle_shadow", side_effect=RuntimeError("shadow")
+            ),
+            pytest.raises(RuntimeError, match="shadow"),
+        ):
+            lifecycle_up("go")
+        assert not override.exists()
+
+    def test_dependency_metadata_mismatch_returns_false(self, tmp_path):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        with (
+            patch(
+                "_lifecycle._run", return_value=self._compose_result("go\npostgres\n")
+            ),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata(
+                    {"img": "x"}, {"postgres": "x"}, ["postgres"], override
+                ),
+            ),
+            patch("_lifecycle.service_fingerprints_match", return_value=False),
+        ):
+            assert lifecycle_up("int-go") is False
+        assert not override.exists()
+
+    def test_legacy_api_health_checks_include_database_and_redis(self):
+        with (
+            patch(
+                "_lifecycle._run",
+                side_effect=lambda command, **kwargs: self._compose_result(
+                    "" if "config" in command else "container-id\n"
+                ),
+            ),
+            patch("_lifecycle._container_healthy", return_value=True) as healthy,
+            patch("_lifecycle._has_legacy_api_services", return_value=True),
+            patch(
+                "_lifecycle._compose_service_container",
+                side_effect=lambda base, profiles, service, project: (
+                    f"{service}-container"
+                ),
+            ),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("api") is True
+        checked = [call.args[0] for call in healthy.call_args_list]
+        assert "db_system-container" in checked
+        assert "redis-container" in checked
+
     def test_api_mode_starts_backend(self) -> None:
         with (
             patch(
@@ -454,7 +584,10 @@ class TestLifecycleComposeCommand:
         """Verify _run executes subprocess with correct args and handles check correctly."""
         from _lifecycle import _run
 
-        with patch("subprocess.run") as mock_sub_run:
+        with (
+            patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": ""}),
+            patch("subprocess.run") as mock_sub_run,
+        ):
             mock_sub_run.return_value = MagicMock(returncode=0, stdout="test")
             result = _run(["echo", "test"], capture=True, check=False, silent=False)
             assert result.stdout == "test"
@@ -560,6 +693,136 @@ class TestStaleSweep:
         mock_run.side_effect = Exception("Test error")
         # Should catch and ignore
         sweep_stale_environments()
+
+    def test_container_created_parses_oldest_timestamp(self):
+        from _lifecycle import _container_created
+
+        with patch(
+            "_lifecycle._run",
+            side_effect=[
+                MagicMock(returncode=0, stdout="one\ntwo\n"),
+                MagicMock(
+                    returncode=0,
+                    stdout="2026-01-01T00:00:00+00:00\n2026-01-02T00:00:00+00:00\n",
+                ),
+            ],
+        ):
+            assert _container_created("project") is not None
+
+    @pytest.mark.parametrize(
+        "listed, inspected",
+        [
+            (MagicMock(returncode=1, stdout=""), None),
+            (MagicMock(returncode=0, stdout=""), None),
+            (
+                MagicMock(returncode=0, stdout="one\n"),
+                MagicMock(returncode=1, stdout=""),
+            ),
+            (
+                MagicMock(returncode=0, stdout="one\n"),
+                MagicMock(returncode=0, stdout="bad\n"),
+            ),
+        ],
+    )
+    def test_container_created_returns_none_for_bad_metadata(self, listed, inspected):
+        from _lifecycle import _container_created
+
+        results = (
+            [listed] if inspected is None and not listed.stdout else [listed, inspected]
+        )
+        with patch("_lifecycle._run", side_effect=results):
+            assert _container_created("project") is None
+
+    def test_sweep_keeps_young_project(self, monkeypatch):
+        from _lifecycle import sweep_stale_environments
+
+        monkeypatch.setenv("TEST_CLEANUP_MAX_AGE_MINUTES", "not-int")
+        with (
+            patch(
+                "_lifecycle._run",
+                return_value=MagicMock(stdout='[{"Name":"leedevkit-test-young"}]'),
+            ),
+            patch("_lifecycle._is_project_locked", return_value=False),
+            patch(
+                "_lifecycle._container_created", return_value=__import__("time").time()
+            ),
+        ):
+            sweep_stale_environments()
+
+
+class TestGoLifecycleShadow:
+    def test_shadow_matches_compose_argv(self, monkeypatch):
+        from _devkit_config import ContainerProviderConfig
+        from _lifecycle import _go_lifecycle_shadow
+
+        provider = ContainerProviderConfig(
+            name="docker",
+            cli=("docker",),
+            compose=("docker", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps", "wait"}),
+            source="test",
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with patch(
+            "_go_core.plan_lifecycle_go",
+            return_value={
+                "schema_version": 1,
+                "args": [
+                    "docker",
+                    "compose",
+                    "-p",
+                    "test",
+                    "--profile",
+                    "go",
+                    "up",
+                    "-d",
+                    "--build",
+                    "--wait",
+                    "--wait-timeout",
+                    "120",
+                    "go",
+                    "postgres",
+                ],
+            },
+        ) as plan:
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name="test",
+                compose_base=["docker", "compose", "-p", "test"],
+                profiles=["--profile", "go"],
+                services=["go"],
+                dependencies=["postgres"],
+                build=True,
+                native_wait=True,
+            )
+        assert plan.called
+
+    def test_shadow_rejects_mismatch(self, monkeypatch):
+        from _devkit_config import ContainerProviderConfig
+        from _lifecycle import _go_lifecycle_shadow
+
+        provider = ContainerProviderConfig(
+            name="docker",
+            cli=("docker",),
+            compose=("docker", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps"}),
+            source="test",
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with (
+            patch("_go_core.plan_lifecycle_go", return_value={"args": []}),
+            pytest.raises(RuntimeError, match="shadow result differs"),
+        ):
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name="test",
+                compose_base=["docker", "compose", "-p", "test"],
+                profiles=[],
+                services=["go"],
+                dependencies=[],
+                build=False,
+                native_wait=False,
+            )
 
 
 class TestLifecycleDependencies:

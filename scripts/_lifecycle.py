@@ -181,6 +181,84 @@ def _has_legacy_api_services() -> bool:
         return True
 
 
+def _go_lifecycle_shadow(
+    *,
+    provider: object,
+    project_name: str,
+    compose_base: list[str],
+    profiles: list[str],
+    services: list[str],
+    dependencies: list[str],
+    build: bool,
+    native_wait: bool,
+    wait_timeout: int = 120,
+    owns_project: bool = True,
+    no_deps: bool = False,
+    override_file: str | None = None,
+) -> None:
+    """Compare deterministic lifecycle argv with Go when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return
+    from _go_core import plan_lifecycle_go
+
+    provider_config = typing.cast(typing.Any, provider)
+    project_flag = next(
+        (
+            index
+            for index in range(len(compose_base) - 1, -1, -1)
+            if compose_base[index] == "-p" and index + 1 < len(compose_base)
+        ),
+        len(compose_base),
+    )
+    compose_tool = compose_base[:project_flag]
+    files: list[str] = []
+    base_tail = compose_base[project_flag:]
+    for index, value in enumerate(base_tail):
+        if value == "-f" and index + 1 < len(base_tail):
+            files.append(base_tail[index + 1])
+    resolved_project = project_name
+    if "-p" in base_tail:
+        project_index = base_tail.index("-p")
+        if project_index + 1 < len(base_tail):
+            resolved_project = base_tail[project_index + 1]
+    from _devkit_config import container_provider_diagnostics
+
+    payload = {
+        "provider": {
+            "name": provider_config.name,
+            "cli": list(provider_config.cli),
+            "compose": list(compose_tool),
+            "capabilities": sorted(provider_config.capabilities),
+            "settings": container_provider_diagnostics(provider_config)["settings"],
+            "source": provider_config.source,
+        },
+        "project": resolved_project,
+        "files": files,
+        "profiles": profiles,
+        "services": services,
+        "dependencies": dependencies,
+        "build": build,
+        "native_wait": native_wait,
+        "wait_timeout": wait_timeout,
+        "owns_project": owns_project,
+        "no_deps": no_deps,
+        "override_file": override_file or "",
+    }
+    response = plan_lifecycle_go(payload)
+    expected = list(compose_base)
+    if override_file:
+        expected.extend(["-f", override_file])
+    expected.extend(profiles)
+    expected.extend(["up", "-d", "--build" if build else "--no-build"])
+    if native_wait:
+        expected.extend(["--wait", "--wait-timeout", str(wait_timeout)])
+    if no_deps:
+        expected.append("--no-deps")
+    expected.extend(dict.fromkeys(services + (dependencies if native_wait else [])))
+    if response is None or response.get("args") != expected:
+        raise RuntimeError("Go lifecycle shadow result differs from Python result")
+
+
 def lifecycle_up(
     mode: str = "all",
     *,
@@ -274,6 +352,28 @@ def lifecycle_up(
             up_cmd.append("--no-deps")
         if startup_services:
             up_cmd.extend(startup_services)
+        try:
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name=project_name,
+                compose_base=compose_base,
+                profiles=profiles,
+                services=active_services,
+                dependencies=dependencies,
+                build=use_build,
+                native_wait=native_wait,
+                no_deps=(mode.startswith(("lint-", "unit-")) and not dependencies),
+                override_file=(
+                    str(metadata.override_file)
+                    if metadata.override_file is not None
+                    else None
+                ),
+            )
+        except Exception:
+            if metadata.override_file is not None:
+                with contextlib.suppress(OSError):
+                    metadata.override_file.unlink()
+            raise
         up_result = _run(
             effective_compose + profiles + up_cmd, silent=True, capture=False
         )
@@ -314,6 +414,21 @@ def lifecycle_up(
         dependency_compose = list(compose_base)
         if metadata.override_file is not None:
             dependency_compose.extend(["-f", str(metadata.override_file)])
+        _go_lifecycle_shadow(
+            provider=provider,
+            project_name=project_name,
+            compose_base=compose_base,
+            profiles=profiles,
+            services=dependencies,
+            dependencies=[],
+            build=dependency_build,
+            native_wait=False,
+            override_file=(
+                str(metadata.override_file)
+                if metadata.override_file is not None
+                else None
+            ),
+        )
         dependency_result = _run(
             dependency_compose
             + profiles
@@ -596,6 +711,59 @@ def _write_cleanup_log(
         pass
 
 
+def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
+    """Compare Compose teardown argv with Go when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return
+    from _go_core import plan_lifecycle_go
+
+    provider = resolve_container_provider()
+    compose_base = _compose_base_for_project(mode, project_name)
+    project_flag = next(
+        (
+            index
+            for index in range(len(compose_base) - 1, -1, -1)
+            if compose_base[index] == "-p" and index + 1 < len(compose_base)
+        ),
+        len(compose_base),
+    )
+    compose_tool = compose_base[:project_flag]
+    files = [
+        compose_base[index + 1]
+        for index, value in enumerate(compose_base)
+        if value == "-f" and index + 1 < len(compose_base)
+    ]
+    from _devkit_config import container_provider_diagnostics
+
+    payload = {
+        "provider": {
+            "name": provider.name,
+            "cli": list(provider.cli),
+            "compose": list(compose_tool),
+            "capabilities": sorted(provider.capabilities),
+            "settings": container_provider_diagnostics(provider)["settings"],
+            "source": provider.source,
+        },
+        "project": project_name,
+        "files": files,
+        "profiles": [],
+        "services": [],
+        "dependencies": [],
+        "build": False,
+        "native_wait": False,
+        "wait_timeout": 120,
+        "owns_project": True,
+        "no_deps": False,
+        "override_file": "",
+    }
+    response = plan_lifecycle_go(payload, operation="down")
+    expected = compose_base + ["down", "--remove-orphans", "--timeout", "1"]
+    if response is None or response.get("args") != expected:
+        raise RuntimeError(
+            "Go lifecycle teardown shadow result differs from Python result"
+        )
+
+
 def lifecycle_down(
     mode: str = "all",
     *,
@@ -606,6 +774,7 @@ def lifecycle_down(
     resolve_lifecycle_profiles(mode)
     project = project_name or os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
     compose_base = _compose_base_for_project(mode, project)
+    _go_lifecycle_down_shadow(mode, project)
     command = compose_base + ["down", "--remove-orphans", "--timeout", "1"]
     attempts: list[dict[str, typing.Any]] = []
     for attempt in range(1, 3):

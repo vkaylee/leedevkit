@@ -337,6 +337,33 @@ class TestDeepMergeMore:
 
 
 class TestResolveTestTargets:
+    def test_shadow_matches_python_expansion(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"targets": {"go": ["zkteco"], "all": ["zkteco", "standalone"]}},
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        monkeypatch.setattr(
+            "_go_core.resolve_test_targets_go",
+            lambda payload: {"schema_version": 1, "targets": ["go", "standalone"]},
+        )
+
+        assert resolve_test_targets() == ["go", "standalone"]
+
+    def test_shadow_mismatch_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(
+            "_devkit_config.load_project_config",
+            lambda: {"targets": {"go": ["zkteco"], "all": ["zkteco"]}},
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        monkeypatch.setattr(
+            "_go_core.resolve_test_targets_go",
+            lambda payload: {"schema_version": 1, "targets": ["wrong"]},
+        )
+
+        with pytest.raises(RuntimeError, match="shadow result differs"):
+            resolve_test_targets()
+
     def test_deduplicates_service_covered_by_alias(self, monkeypatch):
         monkeypatch.setattr(
             "_devkit_config.load_project_config",

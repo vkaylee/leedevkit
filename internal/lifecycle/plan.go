@@ -8,16 +8,18 @@ import (
 )
 
 type Plan struct {
-	Provider     provider.Provider
-	Project      string
-	Files        []string
-	Profiles     []string
-	Services     []string
-	Dependencies []string
-	Build        bool
-	NativeWait   bool
-	WaitTimeout  int
-	OwnsProject  bool
+	Provider     provider.Provider `json:"provider"`
+	Project      string            `json:"project"`
+	Files        []string          `json:"files"`
+	Profiles     []string          `json:"profiles"`
+	Services     []string          `json:"services"`
+	Dependencies []string          `json:"dependencies"`
+	Build        bool              `json:"build"`
+	NativeWait   bool              `json:"native_wait"`
+	WaitTimeout  int               `json:"wait_timeout"`
+	OwnsProject  bool              `json:"owns_project"`
+	NoDeps       bool              `json:"no_deps"`
+	OverrideFile string            `json:"override_file"`
 }
 
 func (p Plan) Up() ([]string, error) {
@@ -38,8 +40,11 @@ func (p Plan) Up() ([]string, error) {
 		}
 		args = append(args, "--wait", "--wait-timeout", strconv.Itoa(p.WaitTimeout))
 	}
+	if p.NoDeps {
+		args = append(args, "--no-deps")
+	}
 	services := append([]string{}, p.Services...)
-	if p.NativeWait {
+	if p.NativeWait && !p.NoDeps {
 		services = append(services, p.Dependencies...)
 	}
 	return append(args, unique(services)...), nil
@@ -56,11 +61,18 @@ func (p Plan) Down() ([]string, error) {
 	return append(args, "down", "--remove-orphans", "--timeout", "1"), nil
 }
 
+func (p Plan) Args() ([]string, error) {
+	return p.Up()
+}
+
 func (p Plan) base() []string {
 	args := append([]string{}, p.Provider.Compose...)
 	args = append(args, "-p", p.Project)
 	for _, file := range p.Files {
 		args = append(args, "-f", file)
+	}
+	if p.OverrideFile != "" {
+		args = append(args, "-f", p.OverrideFile)
 	}
 	return args
 }
@@ -74,7 +86,7 @@ func (p Plan) validate() error {
 	if p.Project == "" {
 		return fmt.Errorf("compose project must be non-empty")
 	}
-	if p.WaitTimeout <= 0 {
+	if p.NativeWait && p.WaitTimeout <= 0 {
 		return fmt.Errorf("wait timeout must be positive")
 	}
 	if !p.OwnsProject && p.NativeWait {

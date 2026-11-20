@@ -1008,6 +1008,42 @@ class TestHandleCommandMocked:
 class TestBuildModeMap:
     """Tests for build_mode_map to cover the config-parsing branch."""
 
+    def test_shadow_matches_python_mode_map(self, tmp_path, monkeypatch):
+        from _devkit_config import build_mode_map
+
+        (tmp_path / "leedevkit.toml").write_text(
+            '[services.backend]\nlang = "go"\n'
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        monkeypatch.setattr(
+            "_go_core.resolve_modes_go",
+            lambda payload: {
+                "schema_version": 1,
+                "modes": {
+                    "all": "all",
+                    "backend": "go",
+                    "apiserver": "api",
+                    "agent-main": "api",
+                    "webdashboard": "web",
+                    "api": "api",
+                    "web": "web",
+                    "go": "go",
+                },
+            },
+        )
+        assert build_mode_map(project_root=tmp_path)["backend"] == "go"
+
+    def test_shadow_mismatch_fails_closed(self, tmp_path, monkeypatch):
+        from _devkit_config import build_mode_map
+
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        monkeypatch.setattr(
+            "_go_core.resolve_modes_go",
+            lambda payload: {"schema_version": 1, "modes": {"wrong": "go"}},
+        )
+        with pytest.raises(RuntimeError, match="mode map shadow result differs"):
+            build_mode_map(project_root=tmp_path)
+
     def test_falls_back_to_defaults_when_no_config(self, tmp_path):
         from _devkit_config import build_mode_map
 

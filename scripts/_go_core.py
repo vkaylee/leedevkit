@@ -68,6 +68,46 @@ def _run_protocol(
     return response
 
 
+def resolve_modes_go(
+    payload: dict[str, Any],
+    *,
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Resolve normalized service modes through Go in opt-in shadow mode."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    response = _run_protocol(
+        "--resolve-modes",
+        payload,
+        binary_path=binary_path,
+        timeout=timeout,
+    )
+    if not isinstance(response.get("modes"), dict):
+        raise RuntimeError("Go core returned invalid mode map")
+    return response
+
+
+def resolve_test_targets_go(
+    payload: dict[str, Any],
+    *,
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Expand normalized test targets through Go in opt-in shadow mode."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    response = _run_protocol(
+        "--resolve-test-targets",
+        payload,
+        binary_path=binary_path,
+        timeout=timeout,
+    )
+    if not isinstance(response.get("targets"), list):
+        raise RuntimeError("Go core returned invalid test target expansion")
+    return response
+
+
 def resolve_provider_go(
     payload: dict[str, Any],
     *,
@@ -100,6 +140,24 @@ def plan_gates_go(
     if not isinstance(response.get("gates"), list):
         raise RuntimeError("Go core returned invalid gate plan")
     return response
+
+
+def plan_lifecycle_go(
+    payload: dict[str, Any],
+    *,
+    operation: str = "up",
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Return Go lifecycle argv plan when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    return _run_protocol(
+        "--plan-lifecycle",
+        {"schema_version": 1, "operation": operation, "plan": payload},
+        binary_path=binary_path,
+        timeout=timeout,
+    )
 
 
 def plan_quality_gates_go(

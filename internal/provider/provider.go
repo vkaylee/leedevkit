@@ -20,12 +20,12 @@ var allCapabilities = []string{
 var secretKey = regexp.MustCompile(`(?i)(password|passwd|token|secret|private[-_]?key|api[-_]?key)`)
 
 type Provider struct {
-	Name         string
-	CLI          []string
-	Compose      []string
-	Capabilities []string
-	Settings     map[string]string
-	Source       string
+	Name         string         `json:"name"`
+	CLI          []string       `json:"cli"`
+	Compose      []string       `json:"compose"`
+	Capabilities []string       `json:"capabilities"`
+	Settings     map[string]any `json:"settings"`
+	Source       string         `json:"source"`
 }
 
 type Options struct {
@@ -190,7 +190,7 @@ func Resolve(options Options) (Provider, error) {
 		}
 	}
 	sort.Strings(capabilities)
-	settings := map[string]string{}
+	settings := map[string]any{}
 	for key, value := range raw {
 		if key != "cli" && key != "compose" && key != "capabilities" {
 			settings[key] = value
@@ -200,19 +200,24 @@ func Resolve(options Options) (Provider, error) {
 }
 
 func Diagnostics(p Provider) map[string]any {
-	settings := map[string]string{}
+	settings := map[string]any{}
 	for key, value := range p.Settings {
 		if secretKey.MatchString(key) {
 			settings[key] = "<redacted>"
 			continue
 		}
-		value = strings.Trim(strings.TrimSpace(value), "\"'")
-		if parsed, err := url.Parse(value); err == nil && parsed.User != nil {
+		text, ok := value.(string)
+		if !ok {
+			settings[key] = value
+			continue
+		}
+		text = strings.Trim(strings.TrimSpace(text), "\"'")
+		if parsed, err := url.Parse(text); err == nil && parsed.User != nil {
 			parsed.User = nil
 			settings[key] = parsed.String()
 			continue
 		}
-		settings[key] = value
+		settings[key] = text
 	}
 	capabilities := append([]string(nil), p.Capabilities...)
 	sort.Strings(capabilities)
