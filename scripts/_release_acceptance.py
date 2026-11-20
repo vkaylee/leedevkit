@@ -243,6 +243,103 @@ def _assert_bootstrap(
         )
 
 
+def _assert_global_install(
+    repo_root: Path,
+    artifact: Path,
+    version: str,
+    workspace: Path,
+    env: dict[str, str],
+) -> None:
+    """Verify install.sh exposes custom global runtime through a fresh shell."""
+    mirror = workspace / "install-mirror"
+    release_dir = mirror / "download" / f"v{version}"
+    release_dir.mkdir(parents=True)
+    shutil.copy2(artifact, release_dir / artifact.name)
+
+    home = workspace / "install-home"
+    home.mkdir()
+    rc = home / ".bashrc"
+    rc.write_text('export PATH="/usr/local/bin:$PATH"')
+    install_root = workspace / "custom install root"
+    install_env = {
+        **env,
+        "HOME": str(home),
+        "DEVKIT_HOME": str(install_root),
+        "LEEDEVKIT_RELEASE_BASE_URL": mirror.as_uri(),
+    }
+    _run(
+        ["bash", str(repo_root / "install.sh"), f"v{version}"],
+        workspace,
+        install_env,
+    )
+    path_dir = install_root / "current" / "bin"
+    escaped_path = str(path_dir).replace(" ", "\\ ")
+    path_entry = f'export PATH={escaped_path}:"$PATH"'
+    rc_text = rc.read_text()
+    if path_entry not in rc_text:
+        raise RuntimeError("installer did not add custom runtime to .bashrc")
+    if not rc_text.endswith("\n"):
+        raise RuntimeError("installer left shell startup file without a newline")
+
+    shell = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--rcfile",
+            str(rc),
+            "-ic",
+            "command -v leedevkit && leedevkit version",
+        ],
+        cwd=workspace,
+        env={**install_env, "PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if shell.returncode != 0:
+        raise RuntimeError(
+            f"fresh shell could not run leedevkit:\nstdout:\n{shell.stdout}\nstderr:\n{shell.stderr}"
+        )
+    output = shell.stdout.splitlines()
+    expected_binary = str(install_root / "current" / "bin" / "leedevkit")
+    if (
+        not output
+        or output[0].strip() != expected_binary
+        or output[-1].strip() != version
+    ):
+        raise RuntimeError(f"fresh shell resolved unexpected command: {shell.stdout!r}")
+
+    rerun = _run(
+        ["bash", str(repo_root / "install.sh"), f"v{version}"],
+        workspace,
+        install_env,
+    )
+    if rc.read_text().count(path_entry) != 1:
+        raise RuntimeError("installer duplicated PATH entry")
+    if "install" not in rerun.stdout:
+        raise RuntimeError("installer rerun produced no status output")
+
+    no_rc_home = workspace / "install-home-no-rc"
+    no_rc_home.mkdir()
+    no_rc_root = workspace / "no-rc install root"
+    no_rc = _run(
+        ["bash", str(repo_root / "install.sh"), f"v{version}"],
+        workspace,
+        {
+            **install_env,
+            "HOME": str(no_rc_home),
+            "DEVKIT_HOME": str(no_rc_root),
+        },
+    )
+    no_rc_path = str(no_rc_root / "current" / "bin").replace(" ", "\\ ")
+    expected_export = f'export PATH={no_rc_path}:"$PATH"'
+    if expected_export not in no_rc.stdout:
+        raise RuntimeError(
+            f"no-RC install omitted current-shell PATH guidance: {no_rc.stdout!r}"
+        )
+
+
 def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
     """Build when needed, then validate and exercise the release artifact."""
     version = (repo_root / "VERSION").read_text().strip()
@@ -285,6 +382,7 @@ def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
             extracted = _assert_artifact_contract(artifact, version, extracted_parent)
             _assert_go_core_source_contract(extracted, version)
             _assert_offline_fast_paths(extracted, version, env)
+            _assert_global_install(repo_root, artifact, version, workspace, env)
             _assert_bootstrap(repo_root, artifact, extracted, version, workspace, env)
     finally:
         if owned_workspace is not None:

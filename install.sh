@@ -55,8 +55,11 @@ CURRENT_BACKED_UP=0
 VERSION_ACTIVATED=0
 CURRENT_ACTIVATED=0
 SHELL_RC=""
+PATH_BIN_DIR="$INSTALL_DIR/current/bin"
+PATH_ENTRY="export PATH=$(printf '%q' "$PATH_BIN_DIR"):\"\$PATH\""
 PATH_RC_BACKUP="$TMP_DIR/shellrc"
 PATH_RC_CHANGED=0
+PATH_RC_BACKUP_READY=0
 
 remove_path() {
     if [ -L "$1" ] || [ -f "$1" ]; then
@@ -135,14 +138,16 @@ done
 LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
 
 # Prepare the PATH change before activation so a shell startup-file failure
-# can still restore the previous install and symlink.
+# can still restore the previous install and symlink. Only edit an existing
+# regular, writable rc file; the installer cannot change its parent shell.
 if [ -f "$HOME/.bashrc" ]; then
     SHELL_RC="$HOME/.bashrc"
 elif [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 fi
-if [ -n "$SHELL_RC" ] && ! grep -q "\.leedevkit/current/bin" "$SHELL_RC" 2>/dev/null; then
+if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ] && [ -w "$SHELL_RC" ] && ! grep -Fqx "$PATH_ENTRY" "$SHELL_RC" 2>/dev/null; then
     cp "$SHELL_RC" "$PATH_RC_BACKUP"
+    PATH_RC_BACKUP_READY=1
 fi
 
 mkdir -p "$BACKUP_DIR"
@@ -167,10 +172,11 @@ chmod +x "$VERSION_DIR"/bin/* 2>/dev/null || true
 chmod +x "$VERSION_DIR"/bin/go/* 2>/dev/null || true
 cp "$VERSION_DIR/$native_binary" "$VERSION_DIR/bin/leedevkit"
 chmod 0755 "$VERSION_DIR/bin/leedevkit"
-if [ -n "$SHELL_RC" ] && [ -f "$PATH_RC_BACKUP" ]; then
-    cat >> "$SHELL_RC" <<'PATH_ENTRY'
-export PATH="$HOME/.leedevkit/current/bin:$PATH"
-PATH_ENTRY
+if [ "$PATH_RC_BACKUP_READY" -eq 1 ] && [ -f "$PATH_RC_BACKUP" ]; then
+    if [ -s "$SHELL_RC" ] && [ "$(tail -c 1 "$SHELL_RC" | wc -l)" -eq 0 ]; then
+        printf '\n' >> "$SHELL_RC"
+    fi
+    printf '%s\n' "$PATH_ENTRY" >> "$SHELL_RC"
     PATH_RC_CHANGED=1
 fi
 
@@ -180,16 +186,19 @@ TRANSACTION_ACTIVE=0
 echo ""
 echo "✅ leedevkit $VERSION_TAG bootstrapped"
 echo "   Location: $VERSION_DIR"
+echo "   Current shell: $PATH_ENTRY"
 echo ""
 echo "   Initialize a project (per-project install):"
 echo "     cd my-project && git init"
-echo "     ~/.leedevkit/current/bin/leedevkit init"
+echo "     $PATH_BIN_DIR/leedevkit init"
 echo ""
 echo "   Then run in your project:"
 echo "     leedevkit doctor"
 echo "     leedevkit test infra --lint-only"
 echo ""
-if [ -n "$SHELL_RC" ] && [ "$PATH_RC_CHANGED" -eq 1 ]; then
-    echo "   Added ~/.leedevkit/current/bin to PATH in $SHELL_RC"
+if [ "$PATH_RC_CHANGED" -eq 1 ]; then
+    echo "   Added $PATH_BIN_DIR to PATH in $SHELL_RC"
     echo "   Run: source $SHELL_RC"
+elif [ -n "$SHELL_RC" ]; then
+    echo "   PATH startup file unchanged: $SHELL_RC"
 fi

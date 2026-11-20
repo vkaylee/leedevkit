@@ -108,11 +108,13 @@ CONTAINER_PROVIDER=kiri ./leedevkit test all
 
 Existing projects may keep their old `./leedevkit` wrapper during migration. New projects do not create one.
 
-If global command is not on PATH, add the installer directory:
+Installer updates existing `$HOME/.bashrc` (preferred) or `$HOME/.zshrc` with the actual `${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin` path. It does not create startup files or change the parent shell running the installer. Source the updated file, or export the path in the current shell:
 
 ```bash
-export PATH="$HOME/.leedevkit/current/bin:$PATH"
+export PATH="${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin:$PATH"
 ```
+
+If installer found no supported startup file, run that export manually or add it to your shell startup file before using `leedevkit`.
 
 ## Migrating existing projects
 

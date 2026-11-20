@@ -4,6 +4,16 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-11-20
+
+### Fixed
+- Install global `leedevkit` on PATH for custom `DEVKIT_HOME` values.
+- Preserve shell startup files while making PATH setup idempotent and newline-safe.
+- Print usable PATH guidance when no supported shell startup file exists.
+
+### Verification
+- Release build and acceptance validate fresh-shell command discovery, custom install roots, and no-RC guidance.
+
 ## [0.11.1] - 2026-11-19
 
 ### Fixed
