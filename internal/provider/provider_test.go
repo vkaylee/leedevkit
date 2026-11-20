@@ -93,7 +93,7 @@ endpoint = "https://user:pass@example.test/socket"
 		t.Fatal(err)
 	}
 	diagnostics := Diagnostics(provider)
-	settings := diagnostics["settings"].(map[string]string)
+	settings := diagnostics["settings"].(map[string]any)
 	if settings["password"] != "<redacted>" {
 		t.Fatalf("password = %q", settings["password"])
 	}

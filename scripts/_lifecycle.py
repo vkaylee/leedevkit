@@ -216,13 +216,15 @@ def _go_lifecycle_shadow(
         project_index = base_tail.index("-p")
         if project_index + 1 < len(base_tail):
             resolved_project = base_tail[project_index + 1]
+    from _devkit_config import container_provider_diagnostics
+
     payload = {
         "provider": {
             "name": provider_config.name,
             "cli": list(provider_config.cli),
             "compose": list(compose_tool),
             "capabilities": sorted(provider_config.capabilities),
-            "settings": dict(provider_config.settings),
+            "settings": container_provider_diagnostics(provider_config)["settings"],
             "source": provider_config.source,
         },
         "project": resolved_project,
@@ -715,13 +717,15 @@ def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
         for index, value in enumerate(compose_base)
         if value == "-f" and index + 1 < len(compose_base)
     ]
+    from _devkit_config import container_provider_diagnostics
+
     payload = {
         "provider": {
             "name": provider.name,
             "cli": list(provider.cli),
             "compose": list(compose_tool),
             "capabilities": sorted(provider.capabilities),
-            "settings": dict(provider.settings),
+            "settings": container_provider_diagnostics(provider)["settings"],
             "source": provider.source,
         },
         "project": project_name,
