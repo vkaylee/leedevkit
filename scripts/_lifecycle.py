@@ -202,8 +202,13 @@ def _go_lifecycle_shadow(
     from _go_core import plan_lifecycle_go
 
     provider_config = typing.cast(typing.Any, provider)
-    project_flag = (
-        compose_base.index("-p") if "-p" in compose_base else len(compose_base)
+    project_flag = next(
+        (
+            index
+            for index in range(len(compose_base) - 1, -1, -1)
+            if compose_base[index] == "-p" and index + 1 < len(compose_base)
+        ),
+        len(compose_base),
     )
     compose_tool = compose_base[:project_flag]
     files: list[str] = []
@@ -347,22 +352,28 @@ def lifecycle_up(
             up_cmd.append("--no-deps")
         if startup_services:
             up_cmd.extend(startup_services)
-        _go_lifecycle_shadow(
-            provider=provider,
-            project_name=project_name,
-            compose_base=compose_base,
-            profiles=profiles,
-            services=active_services,
-            dependencies=dependencies,
-            build=use_build,
-            native_wait=native_wait,
-            no_deps=(mode.startswith(("lint-", "unit-")) and not dependencies),
-            override_file=(
-                str(metadata.override_file)
-                if metadata.override_file is not None
-                else None
-            ),
-        )
+        try:
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name=project_name,
+                compose_base=compose_base,
+                profiles=profiles,
+                services=active_services,
+                dependencies=dependencies,
+                build=use_build,
+                native_wait=native_wait,
+                no_deps=(mode.startswith(("lint-", "unit-")) and not dependencies),
+                override_file=(
+                    str(metadata.override_file)
+                    if metadata.override_file is not None
+                    else None
+                ),
+            )
+        except Exception:
+            if metadata.override_file is not None:
+                with contextlib.suppress(OSError):
+                    metadata.override_file.unlink()
+            raise
         up_result = _run(
             effective_compose + profiles + up_cmd, silent=True, capture=False
         )
@@ -708,8 +719,13 @@ def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
 
     provider = resolve_container_provider()
     compose_base = _compose_base_for_project(mode, project_name)
-    project_flag = (
-        compose_base.index("-p") if "-p" in compose_base else len(compose_base)
+    project_flag = next(
+        (
+            index
+            for index in range(len(compose_base) - 1, -1, -1)
+            if compose_base[index] == "-p" and index + 1 < len(compose_base)
+        ),
+        len(compose_base),
     )
     compose_tool = compose_base[:project_flag]
     files = [

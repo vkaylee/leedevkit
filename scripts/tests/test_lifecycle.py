@@ -120,6 +120,26 @@ class TestLifecycleUp:
             assert lifecycle_up("int-go") is False
         assert not override.exists()
 
+    def test_shadow_failure_removes_override_file(self, tmp_path, monkeypatch):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with (
+            patch("_lifecycle._run", return_value=self._compose_result("go\n")),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata({}, {}, [], override),
+            ),
+            patch(
+                "_lifecycle._go_lifecycle_shadow", side_effect=RuntimeError("shadow")
+            ),
+            pytest.raises(RuntimeError, match="shadow"),
+        ):
+            lifecycle_up("go")
+        assert not override.exists()
+
     def test_dependency_metadata_mismatch_returns_false(self, tmp_path):
         from _image_cache import BuildMetadata
 
