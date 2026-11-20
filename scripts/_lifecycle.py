@@ -181,6 +181,64 @@ def _has_legacy_api_services() -> bool:
         return True
 
 
+def _go_lifecycle_shadow(
+    *,
+    provider: object,
+    project_name: str,
+    compose_base: list[str],
+    profiles: list[str],
+    services: list[str],
+    dependencies: list[str],
+    build: bool,
+    native_wait: bool,
+    wait_timeout: int = 120,
+    owns_project: bool = True,
+    no_deps: bool = False,
+) -> None:
+    """Compare deterministic lifecycle argv with Go when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return
+    from _go_core import plan_lifecycle_go
+
+    provider_config = typing.cast(typing.Any, provider)
+    files: list[str] = []
+    base_tail = compose_base[len(provider_config.compose) :]
+    for index, value in enumerate(base_tail):
+        if value == "-f" and index + 1 < len(base_tail):
+            files.append(base_tail[index + 1])
+    payload = {
+        "provider": {
+            "name": provider_config.name,
+            "cli": list(provider_config.cli),
+            "compose": list(provider_config.compose),
+            "capabilities": sorted(provider_config.capabilities),
+            "settings": dict(provider_config.settings),
+            "source": provider_config.source,
+        },
+        "project": project_name,
+        "files": files,
+        "profiles": profiles,
+        "services": services,
+        "dependencies": dependencies,
+        "build": build,
+        "native_wait": native_wait,
+        "wait_timeout": wait_timeout,
+        "owns_project": owns_project,
+        "no_deps": no_deps,
+    }
+    response = plan_lifecycle_go(payload)
+    expected = list(compose_base)
+    expected.extend(profiles)
+    expected.extend(["up", "-d", "--build" if build else "--no-build"])
+    if native_wait:
+        expected.extend(["--wait", "--wait-timeout", str(wait_timeout)])
+    if no_deps:
+        expected.append("--no-deps")
+    expected.extend(dict.fromkeys(services + (dependencies if native_wait else [])))
+    if response is None or response.get("up") != expected:
+        raise RuntimeError("Go lifecycle shadow result differs from Python result")
+
+
 def lifecycle_up(
     mode: str = "all",
     *,
@@ -274,6 +332,17 @@ def lifecycle_up(
             up_cmd.append("--no-deps")
         if startup_services:
             up_cmd.extend(startup_services)
+        _go_lifecycle_shadow(
+            provider=provider,
+            project_name=project_name,
+            compose_base=effective_compose,
+            profiles=profiles,
+            services=active_services,
+            dependencies=dependencies,
+            build=use_build,
+            native_wait=native_wait,
+            no_deps=(mode.startswith(("lint-", "unit-")) and not dependencies),
+        )
         up_result = _run(
             effective_compose + profiles + up_cmd, silent=True, capture=False
         )

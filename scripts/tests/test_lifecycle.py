@@ -562,6 +562,81 @@ class TestStaleSweep:
         sweep_stale_environments()
 
 
+class TestGoLifecycleShadow:
+    def test_shadow_matches_compose_argv(self, monkeypatch):
+        from _devkit_config import ContainerProviderConfig
+        from _lifecycle import _go_lifecycle_shadow
+
+        provider = ContainerProviderConfig(
+            name="docker",
+            cli=("docker",),
+            compose=("docker", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps", "wait"}),
+            source="test",
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with patch(
+            "_go_core.plan_lifecycle_go",
+            return_value={
+                "schema_version": 1,
+                "up": [
+                    "docker",
+                    "compose",
+                    "-p",
+                    "test",
+                    "--profile",
+                    "go",
+                    "up",
+                    "-d",
+                    "--build",
+                    "--wait",
+                    "--wait-timeout",
+                    "120",
+                    "go",
+                    "postgres",
+                ],
+            },
+        ) as plan:
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name="test",
+                compose_base=["docker", "compose", "-p", "test"],
+                profiles=["--profile", "go"],
+                services=["go"],
+                dependencies=["postgres"],
+                build=True,
+                native_wait=True,
+            )
+        assert plan.called
+
+    def test_shadow_rejects_mismatch(self, monkeypatch):
+        from _devkit_config import ContainerProviderConfig
+        from _lifecycle import _go_lifecycle_shadow
+
+        provider = ContainerProviderConfig(
+            name="docker",
+            cli=("docker",),
+            compose=("docker", "compose"),
+            capabilities=frozenset({"compose", "config", "up", "down", "ps"}),
+            source="test",
+        )
+        monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
+        with (
+            patch("_go_core.plan_lifecycle_go", return_value={"up": []}),
+            pytest.raises(RuntimeError, match="shadow result differs"),
+        ):
+            _go_lifecycle_shadow(
+                provider=provider,
+                project_name="test",
+                compose_base=["docker", "compose", "-p", "test"],
+                profiles=[],
+                services=["go"],
+                dependencies=[],
+                build=False,
+                native_wait=False,
+            )
+
+
 class TestLifecycleDependencies:
     @staticmethod
     def _compose_result(stdout="", returncode=0):

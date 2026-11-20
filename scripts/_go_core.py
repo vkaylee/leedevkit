@@ -102,6 +102,23 @@ def plan_gates_go(
     return response
 
 
+def plan_lifecycle_go(
+    payload: dict[str, Any],
+    *,
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Return Go lifecycle argv plan when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    return _run_protocol(
+        "--plan-lifecycle",
+        {"schema_version": 1, "plan": payload},
+        binary_path=binary_path,
+        timeout=timeout,
+    )
+
+
 def plan_quality_gates_go(
     gates: list[dict[str, Any]],
     *,

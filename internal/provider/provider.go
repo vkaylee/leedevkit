@@ -20,12 +20,12 @@ var allCapabilities = []string{
 var secretKey = regexp.MustCompile(`(?i)(password|passwd|token|secret|private[-_]?key|api[-_]?key)`)
 
 type Provider struct {
-	Name         string
-	CLI          []string
-	Compose      []string
-	Capabilities []string
-	Settings     map[string]string
-	Source       string
+	Name         string            `json:"name"`
+	CLI          []string          `json:"cli"`
+	Compose      []string          `json:"compose"`
+	Capabilities []string          `json:"capabilities"`
+	Settings     map[string]string `json:"settings"`
+	Source       string            `json:"source"`
 }
 
 type Options struct {

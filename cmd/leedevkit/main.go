@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/vkaylee/leedevkit/internal/gates"
+	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/provider"
 )
 
@@ -35,6 +36,16 @@ type providerProtocolRequest struct {
 type providerProtocolResponse struct {
 	SchemaVersion int            `json:"schema_version"`
 	Diagnostics   map[string]any `json:"diagnostics"`
+}
+
+type lifecycleProtocolRequest struct {
+	SchemaVersion int            `json:"schema_version"`
+	Plan          lifecycle.Plan `json:"plan"`
+}
+
+type lifecycleProtocolResponse struct {
+	SchemaVersion int      `json:"schema_version"`
+	Up            []string `json:"up"`
 }
 
 const usage = `leedevkit — Enterprise DevKit for AI-first projects
@@ -373,6 +384,27 @@ func runPythonCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--plan-lifecycle" {
+		var request lifecycleProtocolRequest
+		if err := json.NewDecoder(stdin).Decode(&request); err != nil {
+			fmt.Fprintf(stderr, "malformed lifecycle request: %v\n", err)
+			return 2
+		}
+		if request.SchemaVersion != 1 {
+			fmt.Fprintf(stderr, "unsupported lifecycle schema version: %d\n", request.SchemaVersion)
+			return 2
+		}
+		up, err := request.Plan.Up()
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid lifecycle request: %v\n", err)
+			return 2
+		}
+		if err := json.NewEncoder(stdout).Encode(lifecycleProtocolResponse{SchemaVersion: 1, Up: up}); err != nil {
+			fmt.Fprintf(stderr, "failed to write lifecycle response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "--resolve-provider" {
 		var request providerProtocolRequest
 		if err := json.NewDecoder(stdin).Decode(&request); err != nil {

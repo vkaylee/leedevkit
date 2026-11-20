@@ -216,6 +216,28 @@ func TestResolveProviderRejectsSchema(t *testing.T) {
 	}
 }
 
+func TestPlanLifecycleProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"plan":{"provider":{"name":"docker","compose":["docker","compose"],"capabilities":["compose","config","up","down","ps","wait"]},"project":"test","profiles":["--profile","go"],"services":["go"],"dependencies":["postgres"],"build":false,"native_wait":true,"wait_timeout":120,"owns_project":true}}`
+	if code := run([]string{"--plan-lifecycle"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("lifecycle exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response lifecycleProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("lifecycle output is not JSON: %v", err)
+	}
+	if response.SchemaVersion != 1 || len(response.Up) == 0 || response.Up[len(response.Up)-1] != "postgres" {
+		t.Fatalf("lifecycle response = %#v", response)
+	}
+}
+
+func TestPlanLifecycleRejectsSchema(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--plan-lifecycle"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid lifecycle schema exit code = %d", code)
+	}
+}
+
 func TestPlanGatesProtocol(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	input := `{"schema_version":1,"gates":[{"name":"go-vet","phase":"lint","command":["go","vet","./..."]}]}`

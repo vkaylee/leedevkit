@@ -69,3 +69,29 @@ func TestMissingCapabilityFailsBeforeCommand(t *testing.T) {
 		t.Fatal("expected wait capability error")
 	}
 }
+
+func TestUpNoDepsAddsComposeFlag(t *testing.T) {
+	args, err := (Plan{
+		Provider: testProvider(false), Project: "test", Profiles: []string{"--profile", "go"},
+		Services: []string{"go"}, Build: false, OwnsProject: true, NoDeps: true,
+	}).Up()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, arg := range args {
+		if arg == "--no-deps" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestUpWithoutNativeWaitDoesNotRequireTimeout(t *testing.T) {
+	if _, err := (Plan{Provider: testProvider(false), Project: "test", OwnsProject: true}).Up(); err != nil {
+		t.Fatal(err)
+	}
+}
