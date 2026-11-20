@@ -194,6 +194,7 @@ def _go_lifecycle_shadow(
     wait_timeout: int = 120,
     owns_project: bool = True,
     no_deps: bool = False,
+    override_file: str | None = None,
 ) -> None:
     """Compare deterministic lifecycle argv with Go when shadow mode is enabled."""
     if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
@@ -225,9 +226,12 @@ def _go_lifecycle_shadow(
         "wait_timeout": wait_timeout,
         "owns_project": owns_project,
         "no_deps": no_deps,
+        "override_file": override_file or "",
     }
     response = plan_lifecycle_go(payload)
     expected = list(compose_base)
+    if override_file:
+        expected.extend(["-f", override_file])
     expected.extend(profiles)
     expected.extend(["up", "-d", "--build" if build else "--no-build"])
     if native_wait:
@@ -335,13 +339,18 @@ def lifecycle_up(
         _go_lifecycle_shadow(
             provider=provider,
             project_name=project_name,
-            compose_base=effective_compose,
+            compose_base=compose_base,
             profiles=profiles,
             services=active_services,
             dependencies=dependencies,
             build=use_build,
             native_wait=native_wait,
             no_deps=(mode.startswith(("lint-", "unit-")) and not dependencies),
+            override_file=(
+                str(metadata.override_file)
+                if metadata.override_file is not None
+                else None
+            ),
         )
         up_result = _run(
             effective_compose + profiles + up_cmd, silent=True, capture=False

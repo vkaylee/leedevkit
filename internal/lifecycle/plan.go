@@ -19,6 +19,7 @@ type Plan struct {
 	WaitTimeout  int               `json:"wait_timeout"`
 	OwnsProject  bool              `json:"owns_project"`
 	NoDeps       bool              `json:"no_deps"`
+	OverrideFile string            `json:"override_file"`
 }
 
 func (p Plan) Up() ([]string, error) {
@@ -69,6 +70,9 @@ func (p Plan) base() []string {
 	args = append(args, "-p", p.Project)
 	for _, file := range p.Files {
 		args = append(args, "-f", file)
+	}
+	if p.OverrideFile != "" {
+		args = append(args, "-f", p.OverrideFile)
 	}
 	return args
 }

@@ -95,3 +95,17 @@ func TestUpWithoutNativeWaitDoesNotRequireTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUpIncludesOverrideFile(t *testing.T) {
+	args, err := (Plan{
+		Provider: testProvider(false), Project: "test", Files: []string{"compose.yml"},
+		OverrideFile: "/tmp/override.yml", Services: []string{"go"}, Build: true, OwnsProject: true,
+	}).Up()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "-p", "test", "-f", "compose.yml", "-f", "/tmp/override.yml", "up", "-d", "--build", "go"}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
