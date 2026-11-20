@@ -93,6 +93,77 @@ class TestContainerHealthy:
 
 
 class TestLifecycleUp:
+    @staticmethod
+    def _compose_result(stdout="", returncode=0):
+        return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+    def test_dependency_start_failure_returns_false(self, tmp_path, monkeypatch):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        results = [
+            self._compose_result("go\npostgres\n"),
+            self._compose_result("", returncode=1),
+        ]
+        with (
+            patch("_lifecycle._run", side_effect=results),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata({}, {}, [], override),
+            ),
+            patch("_lifecycle.service_fingerprints_match", return_value=True),
+        ):
+            assert lifecycle_up("int-go") is False
+        assert not override.exists()
+
+    def test_dependency_metadata_mismatch_returns_false(self, tmp_path):
+        from _image_cache import BuildMetadata
+
+        override = tmp_path / "override.yml"
+        override.write_text("services: {}")
+        with (
+            patch(
+                "_lifecycle._run", return_value=self._compose_result("go\npostgres\n")
+            ),
+            patch(
+                "_lifecycle.resolve_lifecycle_dependencies", return_value=["postgres"]
+            ),
+            patch(
+                "_lifecycle.resolve_build_metadata",
+                return_value=BuildMetadata(
+                    {"img": "x"}, {"postgres": "x"}, ["postgres"], override
+                ),
+            ),
+            patch("_lifecycle.service_fingerprints_match", return_value=False),
+        ):
+            assert lifecycle_up("int-go") is False
+        assert not override.exists()
+
+    def test_legacy_api_health_checks_include_database_and_redis(self):
+        with (
+            patch(
+                "_lifecycle._run",
+                side_effect=lambda command, **kwargs: self._compose_result(
+                    "" if "config" in command else "container-id\n"
+                ),
+            ),
+            patch("_lifecycle._container_healthy", return_value=True) as healthy,
+            patch("_lifecycle._has_legacy_api_services", return_value=True),
+            patch(
+                "_lifecycle._compose_service_container",
+                side_effect=lambda base, profiles, service, project: f"{service}-container",
+            ),
+            patch("_lifecycle.time.sleep"),
+        ):
+            assert lifecycle_up("api") is True
+        checked = [call.args[0] for call in healthy.call_args_list]
+        assert "db_system-container" in checked
+        assert "redis-container" in checked
+
     def test_api_mode_starts_backend(self) -> None:
         with (
             patch(
