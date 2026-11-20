@@ -680,13 +680,17 @@ def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
         return
     from _go_core import plan_lifecycle_go
 
-    from _devkit_config import container_provider_diagnostics
-
     provider = resolve_container_provider()
     compose_base = _compose_base_for_project(mode, project_name)
     payload = {
-        **container_provider_diagnostics(provider),
-        "provider": provider.name,
+        "provider": {
+            "name": provider.name,
+            "cli": list(provider.cli),
+            "compose": list(provider.compose),
+            "capabilities": sorted(provider.capabilities),
+            "settings": dict(provider.settings),
+            "source": provider.source,
+        },
         "project": project_name,
         "files": [],
         "profiles": resolve_lifecycle_profiles(mode),
