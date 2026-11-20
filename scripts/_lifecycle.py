@@ -239,7 +239,7 @@ def _go_lifecycle_shadow(
     if no_deps:
         expected.append("--no-deps")
     expected.extend(dict.fromkeys(services + (dependencies if native_wait else [])))
-    if response is None or response.get("up") != expected:
+    if response is None or response.get("args") != expected:
         raise RuntimeError("Go lifecycle shadow result differs from Python result")
 
 
@@ -674,6 +674,39 @@ def _write_cleanup_log(
         pass
 
 
+def _go_lifecycle_down_shadow(mode: str, project_name: str) -> None:
+    """Compare Compose teardown argv with Go when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return
+    from _go_core import plan_lifecycle_go
+
+    from _devkit_config import container_provider_diagnostics
+
+    provider = resolve_container_provider()
+    compose_base = _compose_base_for_project(mode, project_name)
+    payload = {
+        **container_provider_diagnostics(provider),
+        "provider": provider.name,
+        "project": project_name,
+        "files": [],
+        "profiles": resolve_lifecycle_profiles(mode),
+        "services": [],
+        "dependencies": [],
+        "build": False,
+        "native_wait": False,
+        "wait_timeout": 120,
+        "owns_project": True,
+        "no_deps": False,
+        "override_file": "",
+    }
+    response = plan_lifecycle_go(payload, operation="down")
+    expected = compose_base + ["down", "--remove-orphans", "--timeout", "1"]
+    if response is None or response.get("args") != expected:
+        raise RuntimeError(
+            "Go lifecycle teardown shadow result differs from Python result"
+        )
+
+
 def lifecycle_down(
     mode: str = "all",
     *,
@@ -684,6 +717,7 @@ def lifecycle_down(
     resolve_lifecycle_profiles(mode)
     project = project_name or os.environ.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
     compose_base = _compose_base_for_project(mode, project)
+    _go_lifecycle_down_shadow(mode, project)
     command = compose_base + ["down", "--remove-orphans", "--timeout", "1"]
     attempts: list[dict[str, typing.Any]] = []
     for attempt in range(1, 3):

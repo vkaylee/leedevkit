@@ -226,7 +226,7 @@ func TestPlanLifecycleProtocol(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatalf("lifecycle output is not JSON: %v", err)
 	}
-	if response.SchemaVersion != 1 || len(response.Up) == 0 || response.Up[len(response.Up)-1] != "postgres" {
+	if response.SchemaVersion != 1 || len(response.Args) == 0 || response.Args[len(response.Args)-1] != "postgres" {
 		t.Fatalf("lifecycle response = %#v", response)
 	}
 }

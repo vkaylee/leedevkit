@@ -40,12 +40,14 @@ type providerProtocolResponse struct {
 
 type lifecycleProtocolRequest struct {
 	SchemaVersion int            `json:"schema_version"`
+	Operation     string         `json:"operation"`
 	Plan          lifecycle.Plan `json:"plan"`
 }
 
 type lifecycleProtocolResponse struct {
 	SchemaVersion int      `json:"schema_version"`
-	Up            []string `json:"up"`
+	Operation     string   `json:"operation"`
+	Args          []string `json:"args"`
 }
 
 const usage = `leedevkit — Enterprise DevKit for AI-first projects
@@ -394,12 +396,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "unsupported lifecycle schema version: %d\n", request.SchemaVersion)
 			return 2
 		}
-		up, err := request.Plan.Up()
+		operation := request.Operation
+		if operation == "" {
+			operation = "up"
+		}
+		var planned []string
+		var err error
+		switch operation {
+		case "up":
+			planned, err = request.Plan.Up()
+		case "down":
+			planned, err = request.Plan.Down()
+		default:
+			err = fmt.Errorf("unsupported lifecycle operation %q", operation)
+		}
 		if err != nil {
 			fmt.Fprintf(stderr, "invalid lifecycle request: %v\n", err)
 			return 2
 		}
-		if err := json.NewEncoder(stdout).Encode(lifecycleProtocolResponse{SchemaVersion: 1, Up: up}); err != nil {
+		if err := json.NewEncoder(stdout).Encode(lifecycleProtocolResponse{SchemaVersion: 1, Operation: operation, Args: planned}); err != nil {
 			fmt.Fprintf(stderr, "failed to write lifecycle response: %v\n", err)
 			return 2
 		}

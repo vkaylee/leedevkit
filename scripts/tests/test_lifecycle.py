@@ -579,7 +579,7 @@ class TestGoLifecycleShadow:
             "_go_core.plan_lifecycle_go",
             return_value={
                 "schema_version": 1,
-                "up": [
+                "args": [
                     "docker",
                     "compose",
                     "-p",
@@ -622,7 +622,7 @@ class TestGoLifecycleShadow:
         )
         monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
         with (
-            patch("_go_core.plan_lifecycle_go", return_value={"up": []}),
+            patch("_go_core.plan_lifecycle_go", return_value={"args": []}),
             pytest.raises(RuntimeError, match="shadow result differs"),
         ):
             _go_lifecycle_shadow(

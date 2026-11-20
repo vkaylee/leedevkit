@@ -105,6 +105,7 @@ def plan_gates_go(
 def plan_lifecycle_go(
     payload: dict[str, Any],
     *,
+    operation: str = "up",
     binary_path: str | None = None,
     timeout: float = 10.0,
 ) -> dict[str, Any] | None:
@@ -113,7 +114,7 @@ def plan_lifecycle_go(
         return None
     return _run_protocol(
         "--plan-lifecycle",
-        {"schema_version": 1, "plan": payload},
+        {"schema_version": 1, "operation": operation, "plan": payload},
         binary_path=binary_path,
         timeout=timeout,
     )
