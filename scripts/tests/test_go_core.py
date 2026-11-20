@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, "scripts")
 
-from _go_core import plan_gates_go, plan_quality_gates_go, resolve_provider_go
+from _go_core import (
+    plan_gates_go,
+    plan_lifecycle_go,
+    plan_quality_gates_go,
+    resolve_provider_go,
+)
 
 
 def test_disabled_uses_python_path():
@@ -22,6 +27,13 @@ def test_missing_binary_fails_closed():
                 assert "binary missing" in str(exc)
             else:
                 raise AssertionError("missing Go binary passed")
+
+
+def test_protocol_disabled_returns_none_for_all_planners():
+    with patch.dict(os.environ, {}, clear=True):
+        assert plan_quality_gates_go([]) is None
+        assert plan_lifecycle_go({}) is None
+        assert resolve_provider_go({}) is None
 
 
 def test_malformed_response_fails_closed():
