@@ -19,7 +19,7 @@ for relative in "${documented[@]}"; do
 done
 
 while IFS= read -r script; do
-    PYTHONPYCACHEPREFIX="$PY_CACHE" python3 -I -m py_compile "$script"
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$PY_CACHE" python3 -I -m py_compile "$script"
 done < <(find "$ROOT/.agent/skills" -type f -name '*.py' | sort)
 
 run_skill() {
