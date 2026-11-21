@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -197,7 +198,20 @@ func LaunchValidated(ctx context.Context, environment Environment, compose, engi
 }
 
 func Launch(ctx context.Context, environment Environment, compose []string, run ComposeRunner) error {
-	override := filepath.Join(environment.ProjectRoot, ".leedevkit-debug.override.yml")
+	directory, err := os.MkdirTemp("", "leedevkit-debug-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(directory)
+	image := "leedevkit-debug:go"
+	networks := environment.Networks
+	if len(networks) == 0 {
+		networks = []string{"debug"}
+	}
+	override, err := WriteOverride(environment, networks, directory, image)
+	if err != nil {
+		return err
+	}
 	runArgs, err := BuildDebugRunArgs(compose, environment, override)
 	if err != nil {
 		return err
