@@ -255,7 +255,6 @@ class Orchestrator:
             "migrate:run",
             "migrate:revert",
             "migrate:status",
-            "db:setup",
             "db:query",
             "fmt:infra",
             "verify:infra",
@@ -290,7 +289,6 @@ class Orchestrator:
             "migrate:run": lambda: self.handle_diesel(["migration", "run"]),
             "migrate:revert": lambda: self.handle_diesel(["migration", "revert"]),
             "migrate:status": lambda: self.handle_diesel(["migration", "list"]),
-            "db:setup": lambda: self.run_phase("Database Setup", "all", args),
             "fmt:infra": self.handle_fmt_infra,
             "doctor": lambda: self.handle_doctor(getattr(args, "fix", False)),
             "verify:infra": self.handle_verify_infra,
@@ -401,9 +399,6 @@ class Orchestrator:
 
     def print_test_summary(self, target: str) -> None:
         self._test_handler.print_test_summary(target)
-
-    def handle_db_setup_phase(self) -> bool:
-        return self._db_handler.handle_db_setup_phase()
 
 
 if __name__ == "__main__":  # pragma: no cover

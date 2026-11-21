@@ -1188,15 +1188,6 @@ class TestRunMethod:
                 orch.run()
         mock_update.assert_called_once()
 
-    def test_command_db_setup_dry(self):
-        from _orchestrator import Orchestrator
-
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            orch.dry_run = True
-            args = argparse.Namespace(subcommand="db:setup")
-            orch.handle_command(args)
-
     def test_command_verify_infra_dry(self):
         from _orchestrator import Orchestrator
 
@@ -1831,17 +1822,6 @@ class TestOrchestratorCoverageGaps:
             monkeypatch.setattr(TestHandler, "print_test_summary", fake_summary)
             orch.print_test_summary("api")
         assert called == ["api"]
-
-    def test_handle_db_setup_phase_delegates(self, monkeypatch):
-        """handle_db_setup_phase delegates to DbHandler."""
-        from _db_handler import DbHandler
-        from _orchestrator import Orchestrator
-
-        with patch.object(Orchestrator, "register_traps", return_value=None):
-            orch = Orchestrator()
-            monkeypatch.setattr(DbHandler, "handle_db_setup_phase", lambda self: True)
-            result = orch.handle_db_setup_phase()
-        assert result is True
 
     def test_get_compose_files_delegates(self, monkeypatch):
         """get_compose_files delegates to DbHandler."""

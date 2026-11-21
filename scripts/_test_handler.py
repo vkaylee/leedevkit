@@ -657,7 +657,6 @@ class TestHandler(HandlerBase):
                     getattr(args, "unit_only", False),
                     getattr(args, "pattern", "") or "",
                 ),
-                "Database Setup": self._orch.handle_db_setup_phase,
             }
             func = func_map.get(phase_name)
             if func is None:

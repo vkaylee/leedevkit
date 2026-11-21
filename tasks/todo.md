@@ -131,7 +131,8 @@
 - [ ] Migrate `update`.
 - [ ] Migrate `skills`.
   - [x] Migrate read-only `skills list`; retain Python for transactional skill changes.
-- [ ] Migrate `db:*` and `migrate:*`.
+- [x] `db:setup` removed — customer repositories own DB schema, migrations, seeds, and test lifecycle.
+- [ ] Migrate remaining `db:*` and `migrate:*` paths.
 - [ ] Migrate `debug`.
 - [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, coverage.
 

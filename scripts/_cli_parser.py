@@ -245,7 +245,6 @@ class CliParser:
             "migrate:run",
             "migrate:revert",
             "migrate:status",
-            "db:setup",
             "fmt:infra",
             "verify:infra",
         ]:
