@@ -931,7 +931,9 @@ def resolve_test_targets(target: str = "all") -> list[str]:
             }
         )
         if response is None or response.get("targets") != result:
-            raise RuntimeError("Go test target shadow result differs from Python result")
+            raise RuntimeError(
+                "Go test target shadow result differs from Python result"
+            )
     return result
 
 

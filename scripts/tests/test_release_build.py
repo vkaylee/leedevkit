@@ -159,7 +159,9 @@ class TestBuildRelease:
         (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
         (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
         (repo / "container" / "go").mkdir(parents=True, exist_ok=True)
-        (repo / "container" / "go" / "docker-compose.core.yml").write_text("services: {}\n")
+        (repo / "container" / "go" / "docker-compose.core.yml").write_text(
+            "services: {}\n"
+        )
         with pytest.raises(FileNotFoundError, match="cmd/debug-mcp/main.go"):
             build_release(repo, tmp_path / "dist")
 

@@ -1011,9 +1011,7 @@ class TestBuildModeMap:
     def test_shadow_matches_python_mode_map(self, tmp_path, monkeypatch):
         from _devkit_config import build_mode_map
 
-        (tmp_path / "leedevkit.toml").write_text(
-            '[services.backend]\nlang = "go"\n'
-        )
+        (tmp_path / "leedevkit.toml").write_text('[services.backend]\nlang = "go"\n')
         monkeypatch.setenv("LEEDEVKIT_USE_GO_CORE", "1")
         monkeypatch.setattr(
             "_go_core.resolve_modes_go",
