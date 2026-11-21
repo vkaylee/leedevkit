@@ -15,34 +15,6 @@ DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
 
 mkdir -p "$INSTALL_DIR"
 TMP_DIR="$(mktemp -d "${INSTALL_DIR%/}/.install.XXXXXX")"
-DOWNLOAD_HELPER=""
-SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
-if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
-    DOWNLOAD_HELPER="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)/scripts/_download.py"
-else
-    DOWNLOAD_HELPER="$TMP_DIR/_download.py"
-    python3 - "$DOWNLOAD_HELPER" "${LEEDEVKIT_DOWNLOADER_URL:-https://raw.githubusercontent.com/$REPO/main/scripts/_download.py}" "$DOWNLOAD_TIMEOUT" <<'PY'
-import sys
-import time
-import urllib.request
-
-destination, url, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
-deadline = time.monotonic() + timeout
-request = urllib.request.Request(url, headers={"User-Agent": "leedevkit"})
-with urllib.request.urlopen(request, timeout=timeout) as response, open(destination, "wb") as output:
-    size = 0
-    while True:
-        if time.monotonic() >= deadline:
-            raise SystemExit(f"downloader helper timed out after {timeout:g}s")
-        chunk = response.read(1024 * 1024)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > 8 * 1024 * 1024:
-            raise SystemExit("downloader helper exceeds maximum size")
-        output.write(chunk)
-PY
-fi
 
 echo "🚀 Bootstrapping leedevkit $VERSION..."
 
@@ -99,8 +71,10 @@ finish() {
 trap finish EXIT
 
 if [ "$VERSION" = "latest" ]; then
-    LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \
-        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT"
+    VERSION_TAG="$(curl --fail --silent --show-error --location --max-time "$DOWNLOAD_TIMEOUT" \
+        -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest" \
+        | awk -F'"' '/"tag_name"/ { print $4; exit }')"
+    [ -n "$VERSION_TAG" ] || { echo "latest release tag missing" >&2; exit 1; }
 else
     VERSION_TAG="$VERSION"
 fi
@@ -114,20 +88,21 @@ mkdir -p "$STAGE_DIR"
 VER="${VERSION_TAG#v}"
 TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
-LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
-    "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
-EXTRACTED="$STAGE_DIR"
-platform_key="$(LEEDEVKIT_PLATFORM=auto python3 - <<'PY'
-import platform
-
-system = platform.system().lower()
-machine = platform.machine().lower()
-arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
-if system not in {"linux", "darwin", "windows"} or arch is None:
-    raise SystemExit(f"unsupported platform: {platform.system()}/{platform.machine()}")
-print(f"{system}-{arch}")
-PY
-)"
+curl --fail --silent --show-error --location --max-time "$DOWNLOAD_TIMEOUT" \
+    "$TARBALL_URL" -o "$STAGE_DIR/release.tar.gz"
+mkdir -p "$STAGE_DIR/extracted"
+tar -xzf "$STAGE_DIR/release.tar.gz" -C "$STAGE_DIR/extracted"
+EXTRACTED="$STAGE_DIR/extracted/leedevkit-$VER"
+[ -d "$EXTRACTED" ] || { echo "release root missing" >&2; exit 1; }
+actual="$(tr -d '[:space:]' < "$EXTRACTED/VERSION" | sed 's/^v//')"
+[ "$actual" = "$VER" ] || { echo "release version mismatch" >&2; exit 1; }
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64) platform_key="linux-amd64" ;;
+    Linux:aarch64|Linux:arm64) platform_key="linux-arm64" ;;
+    Darwin:x86_64) platform_key="darwin-amd64" ;;
+    Darwin:arm64) platform_key="darwin-arm64" ;;
+    *) echo "unsupported platform" >&2; exit 1 ;;
+esac
 native_binary="bin/go/leedevkit-go-${platform_key}"
 for REQUIRED in bin/leedevkit "$native_binary"; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
@@ -164,7 +139,6 @@ ln -s "$VERSION_DIR" "$INSTALL_DIR/current"
 CURRENT_ACTIVATED=1
 
 # Ensure scripts and native binaries are executable before committing the transaction.
-chmod +x "$VERSION_DIR"/scripts/*.py 2>/dev/null || true
 chmod +x "$VERSION_DIR"/scripts/*.sh 2>/dev/null || true
 chmod +x "$VERSION_DIR"/bin/* 2>/dev/null || true
 chmod +x "$VERSION_DIR"/bin/go/* 2>/dev/null || true

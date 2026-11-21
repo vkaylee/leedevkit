@@ -46,39 +46,14 @@ BOOTSTRAP_LOCK_HELD=1
 DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
 TMP_DIR="$(mktemp -d)"
 trap 'rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true' EXIT
-SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
-if [ -n "$SCRIPT_SOURCE" ] && [ -f "$SCRIPT_SOURCE" ]; then
-    DOWNLOAD_HELPER="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)/scripts/_download.py"
-else
-    DOWNLOAD_HELPER="$TMP_DIR/_download.py"
-    python3 - "$DOWNLOAD_HELPER" "${LEEDEVKIT_DOWNLOADER_URL:-https://raw.githubusercontent.com/$REPO/main/scripts/_download.py}" "$DOWNLOAD_TIMEOUT" <<'PY'
-import sys
-import time
-import urllib.request
-
-destination, url, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
-deadline = time.monotonic() + timeout
-request = urllib.request.Request(url, headers={"User-Agent": "leedevkit"})
-with urllib.request.urlopen(request, timeout=timeout) as response, open(destination, "wb") as output:
-    size = 0
-    while True:
-        if time.monotonic() >= deadline:
-            raise SystemExit(f"downloader helper timed out after {timeout:g}s")
-        chunk = response.read(1024 * 1024)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > 8 * 1024 * 1024:
-            raise SystemExit("downloader helper exceeds maximum size")
-        output.write(chunk)
-PY
-fi
 if [ "$VERSION" = "latest" ] && [ -f leedevkit.toml ]; then
     VERSION="$(read_config_version leedevkit.toml)"
 fi
 if [ "$VERSION" = "latest" ]; then
-    VERSION_TAG="$(LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \
-        "https://api.github.com/repos/$REPO/releases/latest" --timeout "$DOWNLOAD_TIMEOUT")"
+    VERSION_TAG="$(curl --fail --silent --show-error --location --max-time "$DOWNLOAD_TIMEOUT" \
+        -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest" \
+        | awk -F'"' '/"tag_name"/ { print $4; exit }')"
+    [ -n "$VERSION_TAG" ] || { echo "latest release tag missing" >&2; exit 1; }
 else
     VERSION_TAG="$VERSION"
     case "$VERSION_TAG" in
@@ -146,23 +121,21 @@ VER="${VERSION_TAG#v}"
 TARBALL_URL="$RELEASE_BASE_URL/download/$VERSION_TAG/leedevkit-${VER}.tar.gz"
 echo "   Downloading: $TARBALL_URL"
 mkdir -p "$STAGE_DIR"
-LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" download "$TARBALL_URL" \
-    "$STAGE_DIR" --timeout "$DOWNLOAD_TIMEOUT" --expected-version "$VER"
-EXTRACTED="$STAGE_DIR"
-platform_key="$(LEEDEVKIT_PLATFORM=auto python3 - <<'PY'
-import os
-import platform
-
-system = platform.system().lower()
-machine = platform.machine().lower()
-arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
-if system == "windows":
-    system = "windows"
-if system not in {"linux", "darwin", "windows"} or arch is None:
-    raise SystemExit(f"unsupported platform: {platform.system()}/{platform.machine()}")
-print(f"{system}-{arch}")
-PY
-)"
+curl --fail --silent --show-error --location --max-time "$DOWNLOAD_TIMEOUT" \
+    "$TARBALL_URL" -o "$STAGE_DIR/release.tar.gz"
+mkdir -p "$STAGE_DIR/extracted"
+tar -xzf "$STAGE_DIR/release.tar.gz" -C "$STAGE_DIR/extracted"
+EXTRACTED="$STAGE_DIR/extracted/leedevkit-$VER"
+[ -d "$EXTRACTED" ] || { echo "release root missing" >&2; exit 1; }
+actual="$(tr -d '[:space:]' < "$EXTRACTED/VERSION" | sed 's/^v//')"
+[ "$actual" = "$VER" ] || { echo "release version mismatch" >&2; exit 1; }
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64) platform_key="linux-amd64" ;;
+    Linux:aarch64|Linux:arm64) platform_key="linux-arm64" ;;
+    Darwin:x86_64) platform_key="darwin-amd64" ;;
+    Darwin:arm64) platform_key="darwin-arm64" ;;
+    *) echo "unsupported platform" >&2; exit 1 ;;
+esac
 for REQUIRED in bin/leedevkit "bin/go/leedevkit-go-${platform_key}"; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
@@ -174,25 +147,13 @@ done
 
 if [ -f leedevkit.toml ]; then
     cp leedevkit.toml "$CONFIG_STAGE"
-    python3 - "$VER" "$CONFIG_STAGE" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[2])
-version = sys.argv[1]
-content = path.read_text()
-updated, count = re.subn(
-    r'(\[devkit\][^\[]*?\bversion\s*=\s*)"[^"]*"',
-    lambda match: f'{match.group(1)}"{version}"',
-    content,
-    count=1,
-    flags=re.DOTALL,
-)
-if count == 0:
-    raise SystemExit("❌ Existing leedevkit.toml has no [devkit] version entry")
-path.write_text(updated)
-PY
+    awk -v version="$VER" '
+        BEGIN { in_devkit=0; changed=0 }
+        /^\[/{ in_devkit=($0 == "[devkit]") }
+        in_devkit && $1 == "version" { print "version = \"" version "\""; changed=1; next }
+        { print }
+        END { if (!changed) exit 1 }
+    ' "$CONFIG_STAGE" > "$CONFIG_STAGE.tmp" && mv "$CONFIG_STAGE.tmp" "$CONFIG_STAGE"
 else
     PROJECT_NAME="$(basename "$(pwd)")"
     PROJECT_NAMESPACE="$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')"
@@ -220,18 +181,10 @@ cp .gitignore "$GITIGNORE_STAGE" 2>/dev/null || :
 if [ ! -f "$GITIGNORE_STAGE" ]; then
     : > "$GITIGNORE_STAGE"
 fi
-python3 - "$GITIGNORE_STAGE" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-legacy = {"leedevkit", "leedevkit/", "/leedevkit", "/leedevkit/", "./leedevkit", "./leedevkit/"}
-lines = [line for line in path.read_text().splitlines() if line.strip() not in legacy]
-for entry in ("leedevkit", ".leedevkit/", ".leedevkit.bootstrap.lock", ".leedevkit-bootstrap-*/", ".leedevkit.new-*", ".leedevkit.previous-*"):
-    if entry not in lines:
-        lines.append(entry)
-path.write_text("\n".join(lines).rstrip() + "\n")
-PY
+awk '
+    $0 != "leedevkit" && $0 != "leedevkit/" && $0 != "/leedevkit" && $0 != "/leedevkit/" && $0 != "./leedevkit" && $0 != "./leedevkit/" { print }
+    END { print "leedevkit"; print ".leedevkit/"; print ".leedevkit.bootstrap.lock"; print ".leedevkit-bootstrap-*/"; print ".leedevkit.new-*"; print ".leedevkit.previous-*" }
+' "$GITIGNORE_STAGE" | awk '!seen[$0]++' > "$GITIGNORE_STAGE.tmp" && mv "$GITIGNORE_STAGE.tmp" "$GITIGNORE_STAGE"
 if [ ! -f .gitignore ] || ! cmp -s .gitignore "$GITIGNORE_STAGE"; then
     GITIGNORE_CHANGED=1
 fi
