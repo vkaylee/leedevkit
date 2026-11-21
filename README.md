@@ -453,13 +453,17 @@ additional symlink projections for plugin compatibility.
 User-owned files in destination directories are never overwritten or removed.
 
 ### Community Catalog
-Installed community skills live in `.leedevkit/skills.d/` per project. Catalog metadata lives in `.agent/skills-catalog.toml`.
+Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skills.d/` per-project. Catalog at `.agent/skills-catalog.toml`.
 
 ```bash
-./leedevkit skills list              # show built-in + installed skills
+./leedevkit skills list              # show built-in + catalog + installed
+./leedevkit skills install <name>    # install from catalog by name
+./leedevkit skills add <git-url>     # install external (not in catalog)
+./leedevkit skills update            # git pull all installed skills
+./leedevkit skills remove <name>     # remove
 ```
 
-Community install, add, update, and remove commands are not exposed by current Go CLI. Use project-owned tooling until those operations receive a tested Go command path.
+Skill-owned utilities under `.agent/skills/**/scripts/` remain payloads for AI agents. They run in the project environment documented by each skill and are separate from Go control-plane commands.
 
 ## LeeDevKit development project
 
