@@ -108,6 +108,11 @@ class TestBuildRelease:
         core_compose = repo / "container" / "go" / "docker-compose.core.yml"
         core_compose.parent.mkdir(parents=True, exist_ok=True)
         core_compose.write_text("services: {}\n")
+        (repo / "cmd" / "debug-mcp").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "debug-mcp" / "main.go").write_text("package main\n")
+        debug_dockerfile = repo / "container" / "debug" / "Dockerfile"
+        debug_dockerfile.parent.mkdir(parents=True, exist_ok=True)
+        debug_dockerfile.write_text("FROM scratch\n")
 
         out_dir = tmp_path / "dist"
         result = build_release(repo, out_dir)
@@ -132,6 +137,31 @@ class TestBuildRelease:
             assert manifest["version"] == "0.4.0"
             assert manifest["file_count"] == len(manifest["files"])
             assert "bin/leedevkit" in manifest["files"]
+
+    def test_debug_mcp_sources_are_required(self, tmp_path):
+        import pytest
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "VERSION").write_text("0.4.0")
+        for directory in INCLUDE_DIRS:
+            (repo / directory).mkdir(parents=True, exist_ok=True)
+        for filename in INCLUDE_FILES:
+            (repo / filename).write_text("dummy")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "scripts" / "_orchestrator.py").write_text("# orchestrator\n")
+        (repo / "scripts" / "_devkit_integrity.py").write_text("# integrity\n")
+        (repo / "scripts" / "requirements.lock").write_text("pytest==1.0.0\n")
+        (repo / "scripts" / "requirements-runtime.lock").write_text("psutil==1.0.0\n")
+        (repo / "scripts" / "_go_core_build.py").write_text("# build\n")
+        (repo / "scripts" / "_go_core_matrix.py").write_text("# matrix\n")
+        (repo / "scripts" / "_platform.py").write_text("# platform\n")
+        (repo / "cmd" / "leedevkit").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "leedevkit" / "main.go").write_text("package main\n")
+        (repo / "container" / "go").mkdir(parents=True, exist_ok=True)
+        (repo / "container" / "go" / "docker-compose.core.yml").write_text("services: {}\n")
+        with pytest.raises(FileNotFoundError, match="cmd/debug-mcp/main.go"):
+            build_release(repo, tmp_path / "dist")
 
     def test_missing_version_file_raises(self, tmp_path):
         """build_release should raise FileNotFoundError when VERSION is missing."""
@@ -172,6 +202,11 @@ class TestBuildRelease:
         core_compose = repo / "container" / "go" / "docker-compose.core.yml"
         core_compose.parent.mkdir(parents=True, exist_ok=True)
         core_compose.write_text("services: {}\n")
+        (repo / "cmd" / "debug-mcp").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "debug-mcp" / "main.go").write_text("package main\n")
+        debug_dockerfile = repo / "container" / "debug" / "Dockerfile"
+        debug_dockerfile.parent.mkdir(parents=True, exist_ok=True)
+        debug_dockerfile.write_text("FROM scratch\n")
 
         out_dir = tmp_path / "nested" / "dist"
         result = build_release(repo, out_dir)
@@ -206,6 +241,11 @@ class TestBuildRelease:
         core_compose = repo / "container" / "go" / "docker-compose.core.yml"
         core_compose.parent.mkdir(parents=True, exist_ok=True)
         core_compose.write_text("services: {}\n")
+        (repo / "cmd" / "debug-mcp").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "debug-mcp" / "main.go").write_text("package main\n")
+        debug_dockerfile = repo / "container" / "debug" / "Dockerfile"
+        debug_dockerfile.parent.mkdir(parents=True, exist_ok=True)
+        debug_dockerfile.write_text("FROM scratch\n")
 
         # Create a pycache file that should be excluded
         pycache_dir = repo / "scripts" / "__pycache__"
@@ -276,6 +316,11 @@ class TestMain:
         core_compose = repo / "container" / "go" / "docker-compose.core.yml"
         core_compose.parent.mkdir(parents=True, exist_ok=True)
         core_compose.write_text("services: {}\n")
+        (repo / "cmd" / "debug-mcp").mkdir(parents=True, exist_ok=True)
+        (repo / "cmd" / "debug-mcp" / "main.go").write_text("package main\n")
+        debug_dockerfile = repo / "container" / "debug" / "Dockerfile"
+        debug_dockerfile.parent.mkdir(parents=True, exist_ok=True)
+        debug_dockerfile.write_text("FROM scratch\n")
 
         out_dir = tmp_path / "custom-dist"
         main_args = [

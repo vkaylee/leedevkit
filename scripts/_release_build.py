@@ -31,6 +31,8 @@ from _sbom import write_sbom
 INCLUDE_DIRS = ["scripts", "templates", "bin", ".agent", "container", "cmd", "internal"]
 INCLUDE_FILES = ["VERSION", "go.mod"]
 REQUIRED_FILES = [
+    "cmd/debug-mcp/main.go",
+    "container/debug/Dockerfile",
     "VERSION",
     "bin/leedevkit",
     "scripts/_orchestrator.py",

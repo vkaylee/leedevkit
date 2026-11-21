@@ -21,6 +21,8 @@ from _runtime import enforce_project_venv
 from _platform import platform_key
 
 REQUIRED_PATHS = {
+    "cmd/debug-mcp/main.go",
+    "container/debug/Dockerfile",
     "VERSION",
     "devkit.manifest.json",
     "sbom.cdx.json",
