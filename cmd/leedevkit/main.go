@@ -839,7 +839,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runDev(args[1], providerConfig, projectRootOrCWD(), stdout, stderr, process.Run)
-	case "debug", "init", "skills", "update":
+	case "skills":
+		if len(args) == 2 && args[1] == "list" {
+			return runSkillsList(projectRootOrCWD(), stdout, stderr)
+		}
+		return runPythonCommand(args, stdin, stdout, stderr)
+	case "debug", "init", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])
