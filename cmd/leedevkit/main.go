@@ -218,6 +218,23 @@ func parseMigrationCommand(args []string) (string, error) {
 	}
 }
 
+func buildGoCoverageCommand(compose []string, service, pattern string, jsonOutput bool) ([]string, error) {
+	if len(compose) == 0 || service == "" {
+		return nil, fmt.Errorf("compose and coverage service are required")
+	}
+	goTest := "go test"
+	if jsonOutput {
+		goTest += " -json"
+	}
+	if pattern != "" {
+		goTest += " -run=" + pattern
+	}
+	command := "mkdir -p /workspace/.test_logs && " + goTest + " -coverprofile=/workspace/.test_logs/coverage-go.out ./... && go tool cover -func=/workspace/.test_logs/coverage-go.out"
+	args := append([]string{}, compose...)
+	args = append(args, "exec", "-T", service, "-w", "/workspace", "sh", "-c", command)
+	return args, nil
+}
+
 func buildGeneratedGateCommand(compose []string, service, defaultService string, command []string, workdir string) ([]string, error) {
 	if len(compose) == 0 || (service == "" && defaultService == "") || len(command) == 0 {
 		return nil, fmt.Errorf("compose, service, and generated command are required")
@@ -1124,6 +1141,42 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
+	case "coverage":
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		projectConfig, err := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid project config: %v\n", err)
+			return 2
+		}
+		service := configuredServiceName(projectConfig, "go")
+		pattern := ""
+		jsonOutput := false
+		for index := 1; index < len(args); index++ {
+			switch args[index] {
+			case "--pattern":
+				if index+1 >= len(args) {
+					fmt.Fprintln(stderr, "--pattern requires a value")
+					return 2
+				}
+				pattern = args[index+1]
+				index++
+			case "--json":
+				jsonOutput = true
+			default:
+				fmt.Fprintf(stderr, "unsupported coverage argument %q\n", args[index])
+				return 2
+			}
+		}
+		coverageArgs, err := buildGoCoverageCommand(providerConfig.Compose, service, pattern, jsonOutput)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return runCommand(projectRootOrCWD(), projectRootOrCWD(), coverageArgs, stdin, stdout, stderr)
 	case "generated":
 		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
 		if err != nil {

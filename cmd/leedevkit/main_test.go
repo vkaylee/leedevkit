@@ -362,6 +362,27 @@ func TestBuildGeneratedGateCommandUsesComposeExec(t *testing.T) {
 	}
 }
 
+func TestBuildGoCoverageCommandUsesProfileAndReport(t *testing.T) {
+	got, err := buildGoCoverageCommand([]string{"compose"}, "go", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"compose", "exec", "-T", "go", "-w", "/workspace", "sh", "-c", "mkdir -p /workspace/.test_logs && go test -coverprofile=/workspace/.test_logs/coverage-go.out ./... && go tool cover -func=/workspace/.test_logs/coverage-go.out"}
+	if !sameStrings(got, want) {
+		t.Fatalf("coverage args = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildGoCoverageCommandAddsPattern(t *testing.T) {
+	got, err := buildGoCoverageCommand([]string{"compose"}, "backend", "auth.*", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || !strings.Contains(got[len(got)-1], "go test -run=auth.*") {
+		t.Fatalf("coverage pattern missing: %#v", got)
+	}
+}
+
 func TestBuildGeneratedGateCommandUsesConfiguredWorkdir(t *testing.T) {
 	got, err := buildGeneratedGateCommand([]string{"compose"}, "backend", "backend", []string{"make", "generate"}, "services/backend")
 	if err != nil {
