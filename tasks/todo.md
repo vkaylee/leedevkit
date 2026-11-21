@@ -128,8 +128,8 @@
   - [x] Migrate read-only checks to Go.
 - [ ] Migrate transactional `doctor --fix`.
   - [x] Move local AI rule repair to Go; runtime download/integrity/venv/harness transaction remains.
-- [ ] Migrate `init`.
-- [ ] Migrate `update`.
+- [x] Migrate `init` to Go-only runtime transaction.
+- [x] Migrate `update` to Go-only runtime transaction.
 - [ ] Migrate `skills`.
   - [x] Migrate read-only `skills list`; retain Python for transactional skill changes.
 - [x] `db:setup` removed — customer repositories own DB schema, migrations, seeds, and test lifecycle.

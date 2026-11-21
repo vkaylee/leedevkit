@@ -1,44 +1,36 @@
 #!/bin/bash
-# LeeDevKit — unified CLI entry point
-# Usage: leedevkit [command] [args...]
-#
-# Commands:
-#   test    Run test suite (./test.sh)
-#   dev     Manage development environment (./dev up|down)
-#   init    Initialize project
-#   doctor  System health check
-#   skills  Manage community skills
-
-
+# LeeDevKit — Go-only CLI launcher
 set -euo pipefail
 
 RESOLVED="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$RESOLVED")/.." && pwd)"
 
 print_usage() {
-    echo "leedevkit — Enterprise DevKit for AI-first projects"
-    echo ""
-    echo "Usage: leedevkit <command> [args...]"
-    echo ""
-    echo "Commands:"
-    echo "  test     Run tests       (leedevkit test infra --lint-only)"
-    echo "  dev      Dev environment (leedevkit dev up|down)"
-    echo "  init     Initialize a project with leedevkit"
-    echo "  update   Update devkit to the latest (or pinned) release"
-    echo "  doctor   System health check"
-    echo "  skills   Browse and install community skills"
-    echo "  version  Show devkit version"
-    echo ""
-    echo "Run 'leedevkit <command> --help' for details."
+    cat <<'USAGE'
+leedevkit — Enterprise DevKit for AI-first projects
+
+Usage: leedevkit <command> [args...]
+
+Commands:
+  test     Run tests
+  dev      Dev environment
+  init     Initialize a project
+  update   Update the devkit
+  doctor   System health check
+  skills   Browse skills
+  version  Show devkit version
+USAGE
 }
 
-if [ $# -eq 0 ]; then
+if [ "$#" -eq 0 ]; then
     print_usage
     exit 0
 fi
 
-COMMAND="$1"
-shift
+if [ "${LEEDEVKIT_CORE:-go}" = "python" ]; then
+    echo "Python control plane removed; Go-only mode is required" >&2
+    exit 2
+fi
 
 find_go_core() {
     GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
@@ -66,70 +58,24 @@ find_go_core() {
     fi
 }
 
-CORE_MODE="${LEEDEVKIT_CORE:-}"
-if [ -z "$CORE_MODE" ]; then
-    find_go_core
-    [ -n "$GO_CORE" ] && CORE_MODE="go" || CORE_MODE="python"
-fi
-
-if [ "$CORE_MODE" = "go" ]; then
-    find_go_core
-    if [ -z "$GO_CORE" ] || [ ! -x "$GO_CORE" ]; then
-        echo "Go core enabled but leedevkit-go binary missing" >&2
-        exit 2
-    fi
-    exec "$GO_CORE" "$COMMAND" "$@"
-fi
-
+COMMAND="$1"
+shift
 case "$COMMAND" in
-    version|--version|-v)
-        cat "$SCRIPT_DIR/VERSION"
-        exit 0
-        ;;
     help|--help|-h)
         print_usage
         exit 0
         ;;
-    test|dev|debug|init|doctor|skills|update)
+    version|--version|-v)
+        cat "$SCRIPT_DIR/VERSION"
+        exit 0
         ;;
     *)
-        echo "Unknown command: $COMMAND"
-        echo "Run 'leedevkit' without arguments for usage."
-        exit 1
         ;;
 esac
 
-if [ "$COMMAND" = "doctor" ]; then
-    exec python3 "$SCRIPT_DIR/scripts/_doctor.py" "$@"
+find_go_core
+if [ -z "$GO_CORE" ] || [ ! -x "$GO_CORE" ]; then
+    echo "Go-only mode requires executable leedevkit-go binary" >&2
+    exit 2
 fi
-
-# Commands that run test/lint tooling need the full development lock.
-PROFILE=runtime
-if [ "$COMMAND" = "test" ]; then
-    PROFILE=test
-fi
-PYTHON_BIN=$("$SCRIPT_DIR/scripts/_ensure-venv.sh" "$PROFILE" | tail -n 1)
-
-case "$COMMAND" in
-    test)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" test "$@"
-        ;;
-    debug)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" debug "$@"
-        ;;
-    dev)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" dev "$@"
-        ;;
-    init)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" init "$@"
-        ;;
-    doctor)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" doctor "$@"
-        ;;
-    skills)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" skills "$@"
-        ;;
-    update)
-        exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/_orchestrator.py" update "$@"
-        ;;
-esac
+exec "$GO_CORE" "$COMMAND" "$@"
