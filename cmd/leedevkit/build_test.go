@@ -61,6 +61,34 @@ func TestBuildFlowForServiceRejectsPartialBuildConfig(t *testing.T) {
 	}
 }
 
+func TestBuildCallbackRunsBuildBeforePhaseLifecycle(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{"compose.yml": "services: {}", "Dockerfile": "FROM scratch"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := []string{}
+	plan := lifecycle.Plan{
+		Provider: provider.Provider{Name: "docker", CLI: []string{"docker"}, Compose: []string{"docker", "compose"}, Capabilities: []string{"compose", "config", "up", "down", "ps", "build"}},
+		Project:  "test-project",
+	}
+	callback, selected, err := buildCallbackForService(root, "test-project", plan, config.Service{Image: "test-image", Dockerfile: "Dockerfile", ComposeFile: "compose.yml"}, "phase", false, lifecycle.BuildRunner{
+		Execute: func(context.Context, []string) error { calls = append(calls, "build"); return nil },
+		Verify:  func(context.Context, string, string) error { calls = append(calls, "verify"); return nil },
+		Publish: func(lifecycle.BuildMetadata) error { calls = append(calls, "publish"); return nil },
+	})
+	if err != nil || !selected || callback == nil {
+		t.Fatalf("callback=%v selected=%v err=%v", callback != nil, selected, err)
+	}
+	if err := callback(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 || calls[0] != "build" || calls[1] != "verify" || calls[2] != "publish" {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestBuildCallbackBuildsEveryPhaseForPhasePolicy(t *testing.T) {
 	root := t.TempDir()
 	for name, content := range map[string]string{"compose.yml": "services: {}", "Dockerfile": "FROM scratch"} {
