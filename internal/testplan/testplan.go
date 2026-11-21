@@ -6,7 +6,6 @@ import (
 
 	"github.com/vkaylee/leedevkit/internal/config"
 	"github.com/vkaylee/leedevkit/internal/modes"
-	"github.com/vkaylee/leedevkit/internal/targets"
 )
 
 type Alias struct {
@@ -60,16 +59,16 @@ func Plan(request Request) (Result, error) {
 	if request.Target == "" {
 		return Result{}, fmt.Errorf("test target is required")
 	}
-	aliases := make([]targets.Alias, len(request.Aliases))
-	for index, alias := range request.Aliases {
-		aliases[index] = targets.Alias{Name: alias.Name, Services: alias.Services}
+	resolvedTargets, err := ExpandTargets(request)
+	if err != nil {
+		return Result{}, err
 	}
 	serviceDefinitions := make([]modes.Service, len(request.Services))
 	for index, service := range request.Services {
 		serviceDefinitions[index] = modes.Service{Name: service.Name, Language: service.Language}
 	}
 	return Result{
-		Targets: targets.Resolve(targets.Request{Target: request.Target, AllServices: request.AllServices, Aliases: aliases}),
+		Targets: resolvedTargets,
 		Modes:   modes.Resolve(serviceDefinitions),
 	}, nil
 }
