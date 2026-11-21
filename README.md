@@ -453,15 +453,13 @@ additional symlink projections for plugin compatibility.
 User-owned files in destination directories are never overwritten or removed.
 
 ### Community Catalog
-Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skills.d/` per-project. Catalog at `.agent/skills-catalog.toml`. Includes UI/UX Pro Max, Claude Code Model Router, and Superpowers Methodology.
+Installed community skills live in `.leedevkit/skills.d/` per project. Catalog metadata lives in `.agent/skills-catalog.toml`.
 
 ```bash
-./leedevkit skills list              # show built-in + catalog + installed
-./leedevkit skills install <name>    # install from catalog by name
-./leedevkit skills add <git-url>     # install external (not in catalog)
-./leedevkit skills update            # git pull all installed skills
-./leedevkit skills remove <name>     # remove
+./leedevkit skills list              # show built-in + installed skills
 ```
+
+Community install, add, update, and remove commands are not exposed by current Go CLI. Use project-owned tooling until those operations receive a tested Go command path.
 
 ## LeeDevKit development project
 

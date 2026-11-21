@@ -43,7 +43,10 @@ func TestManagerRejectsUnsafeAddURL(t *testing.T) {
 func TestManagerParsesConfiguredSkills(t *testing.T) {
 	root := t.TempDir()
 	config := `[addons]
-skills = [{ url = "https://example.test/alpha.git", version = "v1" }]
+skills = [
+  { url = "https://example.test/alpha.git", version = "v1" },
+  { url = "https://example.test/beta.git" },
+]
 `
 	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
@@ -52,7 +55,21 @@ skills = [{ url = "https://example.test/alpha.git", version = "v1" }]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name != "alpha" || entries[0].Version != "v1" {
+	if len(entries) != 2 || entries[0].Name != "alpha" || entries[0].Version != "v1" || entries[1].Name != "beta" || entries[1].Version != "main" {
 		t.Fatalf("entries = %#v", entries)
+	}
+}
+
+func TestManagerRejectsInvalidActionsAndNames(t *testing.T) {
+	manager := &Manager{Root: t.TempDir()}
+	for _, args := range [][]string{
+		{"unknown"},
+		{"remove"},
+		{"remove", "../escape"},
+		{"add", "https://example.test/skill.git"},
+	} {
+		if err := manager.Run(args); err == nil {
+			t.Fatalf("accepted invalid args %#v", args)
+		}
 	}
 }
