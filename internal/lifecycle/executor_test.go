@@ -40,6 +40,32 @@ func TestExecutorBlocksWorkWhenUpFailsAndStillAttemptsDown(t *testing.T) {
 	}
 }
 
+func TestExecutorUsesLiveContextForTeardownAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	teardownCanceled := false
+	executor := Executor{
+		UpArgs: []string{"compose", "up"}, DownArgs: []string{"compose", "down"},
+		Execute: func(callCtx context.Context, args []string) error {
+			if args[1] == "down" {
+				calls++
+				if callCtx.Err() != nil {
+					teardownCanceled = true
+					return callCtx.Err()
+				}
+			}
+			return nil
+		},
+	}
+	result := executor.Run(ctx, func() error {
+		cancel()
+		return context.Canceled
+	})
+	if result == nil || calls != 1 || teardownCanceled {
+		t.Fatalf("result = %v, teardown calls = %d, canceled = %v", result, calls, teardownCanceled)
+	}
+}
+
 func TestExecutorReturnsWorkErrorAndRunsDown(t *testing.T) {
 	calls := []string{}
 	workErr := errors.New("gate failed")

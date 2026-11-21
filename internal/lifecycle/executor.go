@@ -28,7 +28,8 @@ func (e Executor) Run(ctx context.Context, work func() error) (result error) {
 		}
 	}
 	defer func() {
-		if err := e.Execute(ctx, e.DownArgs); result == nil && err != nil {
+		cleanupCtx := context.WithoutCancel(ctx)
+		if err := e.Execute(cleanupCtx, e.DownArgs); result == nil && err != nil {
 			result = fmt.Errorf("lifecycle teardown: %w", err)
 		}
 	}()
