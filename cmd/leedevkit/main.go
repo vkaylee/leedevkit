@@ -729,6 +729,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				flags.SkipLint = true
 			case "--skip-e2e":
 				flags.SkipE2E = true
+			case "--fix":
+				flags.Fix = true
 			case "--json-stream":
 				flags.JSONStream = true
 			}
@@ -792,7 +794,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				},
 				Lifecycle: lifecycleExecutor,
 				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
-					return testplan.GatePhaseExecutor{Definitions: gates.Defaults(), ComposeRun: compose.Run}.ExecuteContext(ctx, phase)
+					return testplan.GatePhaseExecutor{Definitions: projectConfig.Gates, ComposeRun: compose.Run, Fix: flags.Fix}.ExecuteContext(ctx, phase)
 				},
 			}, stdout)
 			if flags.JSONStream {

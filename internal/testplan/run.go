@@ -31,6 +31,8 @@ type GatePhaseExecutor struct {
 	Definitions []gates.Gate
 	Run         func(context.Context, process.Request) process.Result
 	ComposeRun  func(context.Context, []string, []string) process.Result
+	Fix         bool
+	Done        map[string]bool
 }
 
 func (e GatePhaseExecutor) Execute(phase Phase) PhaseResult {
@@ -44,7 +46,7 @@ func (e GatePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) Phas
 			return e.ComposeRun(ctx, request.Args, request.Env)
 		}
 	}
-	result := gates.Executor{Run: run}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
+	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
 	return PhaseResult{Status: result.Status, ExitCode: result.ExitCode, Diagnostic: result.Diagnostic}
 }
 
