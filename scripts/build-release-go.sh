@@ -12,18 +12,21 @@ for item in templates bin .agent container cmd internal VERSION go.mod; do
     cp -a "$ROOT/$item" "$CANONICAL/"
 done
 mkdir -p "$OUT" "$OUT/.go-core" "$OUT/.debug-mcp"
+export LEEDEVKIT_PROJECT_ROOT="$ROOT"
+export LEEDEVKIT_GO_DOCKERFILE="$ROOT/container/go/Dockerfile"
+export LEEDEVKIT_GO_MODULE_CACHE="${LEEDEVKIT_GO_MODULE_CACHE:-$HOME/go/pkg/mod}"
 COMPOSE=(docker compose -f "$ROOT/container/go/docker-compose.core.yml" --profile go-core)
 TARGETS=("linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64")
 for target in "${TARGETS[@]}"; do
     read -r goos goarch <<< "$target"
     name="leedevkit-go-$goos-$goarch"; [[ "$goos" == windows ]] && name+=".exe"
     rm -rf "$ROOT/.leedevkit-go-build"
-    "${COMPOSE[@]}" run --rm --build -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-go build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-go ./cmd/leedevkit
+    "${COMPOSE[@]}" run --rm --build -e GOPROXY=off -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-go build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-go ./cmd/leedevkit
     cp "$ROOT/.leedevkit-go-build/leedevkit-go" "$OUT/.go-core/$name"
     chmod +x "$OUT/.go-core/$name"
     rm -rf "$ROOT/.leedevkit-go-build"
     dname="leedevkit-debug-$goos-$goarch"; [[ "$goos" == windows ]] && dname+=".exe"
-    "${COMPOSE[@]}" run --rm --build -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-debug-build build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-debug ./cmd/debug-mcp
+    "${COMPOSE[@]}" run --rm --build -e GOPROXY=off -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-debug-build build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-debug ./cmd/debug-mcp
     cp "$ROOT/.leedevkit-go-build/leedevkit-debug" "$OUT/.debug-mcp/$dname"
     chmod +x "$OUT/.debug-mcp/$dname"
 done
