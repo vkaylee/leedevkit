@@ -27,11 +27,6 @@ if [ "$#" -eq 0 ]; then
     exit 0
 fi
 
-if [ "${LEEDEVKIT_CORE:-go}" = "python" ]; then
-    echo "Python control plane removed; Go-only mode is required" >&2
-    exit 2
-fi
-
 find_go_core() {
     GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
     if [ -z "$GO_CORE" ]; then
