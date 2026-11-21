@@ -6,7 +6,7 @@ type Alias struct {
 	Services []string `json:"services"`
 }
 
-// Request contains normalized target configuration. Python owns TOML loading.
+// Request contains normalized target configuration loaded by Go TOML parsing.
 type Request struct {
 	Target      string   `json:"target"`
 	AllServices []string `json:"all_services"`

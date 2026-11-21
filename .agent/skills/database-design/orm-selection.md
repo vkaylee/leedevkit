@@ -16,7 +16,7 @@ What's the context?
 ├── Maximum control
 │   └── Raw SQL with query builder
 │
-└── Python ecosystem
+└── Go ecosystem
     └── SQLAlchemy 2.0 (async support)
 ```
 

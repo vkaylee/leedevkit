@@ -34,7 +34,6 @@ Quick-start scaffolding for new projects. **Read the matching template only!**
 | [nextjs-static](templates/nextjs-static/TEMPLATE.md) | Next.js + Framer | Landing page |
 | [nuxt-app](templates/nuxt-app/TEMPLATE.md) | Nuxt 3 + Pinia | Vue full-stack app |
 | [express-api](templates/express-api/TEMPLATE.md) | Express + JWT | REST API |
-| [python-fastapi](templates/python-fastapi/TEMPLATE.md) | FastAPI | Python API |
 | [react-native-app](templates/react-native-app/TEMPLATE.md) | Expo + Zustand | Mobile app |
 | [flutter-app](templates/flutter-app/TEMPLATE.md) | Flutter + Riverpod | Cross-platform mobile |
 | [electron-desktop](templates/electron-desktop/TEMPLATE.md) | Electron + React | Desktop app |

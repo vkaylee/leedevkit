@@ -33,7 +33,7 @@ Installs native `leedevkit` to `~/.leedevkit/current/bin`, then `init` downloads
 
 `init` or `bootstrap` creates this structure:
 
-- `.leedevkit/` — pinned project runtime and isolated Python environment
+- `.leedevkit/` — pinned per-project Go runtime
 - `.agent/rules/` — project's AI rulebooks (copied from devkit base)
 - `leedevkit` — global executable
 
@@ -47,9 +47,9 @@ cd my-project && git init
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
 
 # Focused commands provide fast feedback; select completion checks by affected risk.
-./leedevkit test infra --lint-only  # focused lint
-./leedevkit test infra --unit-only  # focused unit
-./leedevkit test all                # all configured targets/phases
+./leedevkit test go --lint-only   # focused Go lint
+./leedevkit test go --unit-only   # focused Go unit tests
+./leedevkit test all              # all configured targets/phases
 ./leedevkit test all --json         # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents; logs stay in .test_logs/
 # Human mode streams parallel task output as [task-name] lines and tees it to .test_logs/.
@@ -135,11 +135,12 @@ my-project/
 ├── leedevkit.toml            # project config (commit this)
 ├── leedevkit.lock            # skill version pins (commit this)
 ├── .leedevkit/               # gitignored — devkit engine (downloaded on init)
-│   ├── scripts/              # orchestrator, bootstrap, etc.
+│   ├── cmd/                  # Go command entrypoints
+│   ├── internal/             # Go runtime packages
 │   ├── templates/            # default config templates
 │   ├── bin/leedevkit         # CLI entry point
 │   ├── .agent/               # base rules, agents, built-in skills catalog
-│   ├── .venv/                # project-local Python env
+│   ├── bin/go/               # platform Go runtime binaries
 │   ├── skills.d/             # cloned community skills (like node_modules)
 │   ├── VERSION
 │   └── dev-state.json        # { version, source }
@@ -225,10 +226,11 @@ all = ["apiserver", "agent-main", "webdashboard"]
 # "int-go" = ["postgres"]
 # "int-api" = ["postgres", "redis"]
 
-# For Python-only projects:
+# For Go-only projects:
+# languages = ["go"]
 # [targets]
-# infra = ["infra"]
-# all = ["infra"]
+# go = ["go"]
+# all = ["go"]
 
 # For Rust-only projects (no web, no DB):
 # See "Rust-Only Project" section below or templates/leedevkit.rust.toml
@@ -461,26 +463,24 @@ Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skill
 ./leedevkit skills remove <name>     # remove
 ```
 
-## Python Project (dogfooding devkit itself)
+## LeeDevKit development project
+
+This repository uses Go package tests and project-owned Compose gates.
 
 ```toml
-# leedevkit.toml
-[devkit]
-version = "0.1.0"
-
 [project]
 name = "leedevkit"
-languages = ["python", "bash"]
+languages = ["go", "bash"]
 
 [targets]
-all = ["infra"]
-infra = ["infra"]
+all = ["go"]
+go = ["go"]
 ```
 
 ```bash
-leedevkit test infra --lint-only   # ruff + mypy
-leedevkit test infra               # format + lint + pytest --cov
-leedevkit test all                 # full pipeline with an 80% coverage gate
+leedevkit test go --lint-only   # focused Go checks
+leedevkit test go --unit-only   # Go package tests
+leedevkit test all              # full configured pipeline
 ```
 
 ## License

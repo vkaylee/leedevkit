@@ -93,7 +93,7 @@ Before completing:
 |----------|--------|
 | Edge deployment | Drizzle (smallest) |
 | Best DX, schema-first | Prisma |
-| Python ecosystem | SQLAlchemy 2.0 |
+| Go ecosystem | database/sql or project-selected driver |
 | Maximum control | Raw SQL + query builder |
 
 ### Normalization Decision

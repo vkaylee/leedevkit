@@ -2,7 +2,7 @@ package gates
 
 import "testing"
 
-func TestDefaultsMatchPythonGoCoreGates(t *testing.T) {
+func TestDefaultsMatchGoCoreGates(t *testing.T) {
 	got := Defaults()
 	want := []string{"gofmt", "go-vet", "go-test", "go-coverage"}
 	for index, name := range want {

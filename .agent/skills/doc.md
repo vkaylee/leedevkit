@@ -25,7 +25,7 @@ Skills are folder-based packages. You can define these scopes based on your need
 ```
 my-skill/
 ├── SKILL.md      # (Required) Metadata & instructions
-├── scripts/      # (Optional) Python or Bash scripts
+├── scripts/      # (Optional) Go or Bash scripts
 ├── references/   # (Optional) Text, documentation, templates
 └── assets/       # (Optional) Images or logos
 ```
@@ -72,9 +72,9 @@ When reviewing code, follow these steps:
 
 ### Try it out
 
-Create a file `demo_bad_code.py`:
+Create a file `demo_bad_code.go`:
 
-```python
+```go
 import time
 
 def get_user_data(users, id):
@@ -154,14 +154,14 @@ This skill ensures that all new source files have the correct copyright header.
 2. **Apply to File**: When creating a new file, prepend this exact content.
 3. **Adapt Syntax**:
    - For C-style languages (Java, TS), keep the `/* */` block.
-   - For Python/Shell, convert to `#` comments.
+   - For Go/Shell, use language-native comments.
 ```
 
 ### Try it out
 
-**Prompt**: `Create a new Python script named data_processor.py that prints 'Hello World'.`
+**Prompt**: `Create a new Go command named data_processor.go that prints 'Hello World'.`
 
-The Agent will read the template, convert the comments to Python style, and automatically add it to the top of the file.
+The Agent will read the template, use Go comments, and add it to the requested package.
 
 ---
 

@@ -16,10 +16,10 @@ allowed-tools: Read, Glob, Grep, Bash
 3. **Types:** Run the configured type-check command.
 4. **Security:** Run dependency auditing when dependencies or release inputs changed.
 
-#### Python
-1. **Linter:** Use the configured Ruff command or project wrapper; inspect findings before applying semantic fixes.
+#### Go
+1. **Formatter/linter:** Use configured `gofmt`, `go vet`, and project lint targets; inspect findings before applying semantic fixes.
 2. **Security (Bandit):** `bandit -r "path" -ll`
-3. **Types (MyPy):** `mypy "path"`
+3. **Types:** Run project-configured type checks through the documented test command.
 
 ## The Quality Loop
 1. **Write/Edit Code**
@@ -41,5 +41,5 @@ allowed-tools: Read, Glob, Grep, Bash
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `.agent/skills/lint-and-validate/scripts/lint_runner.py` | Unified lint check | Run through the documented project Python environment |
-| `.agent/skills/lint-and-validate/scripts/type_coverage.py` | Type coverage analysis | Run through the documented project Python environment |
+| Project lint target | Unified lint check | Run through `./leedevkit test <target>` |
+| Project coverage target | Type/coverage analysis | Run through the documented project test command |

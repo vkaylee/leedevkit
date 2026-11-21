@@ -35,7 +35,7 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `.agent/skills/frontend-design/scripts/ux_audit.py` | UX Psychology & Accessibility Audit | `./.venv/bin/python3 .agent/skills/frontend-design/scripts/ux_audit.py <project_path>` |
+| Project accessibility checks | UX Psychology & Accessibility Audit | Run configured frontend checks through the project test command |
 
 ---
 

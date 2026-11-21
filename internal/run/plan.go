@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// Request is normalized run context. Python remains responsible for config and
-// Compose discovery until this planner reaches parity and ownership changes.
+// Request is normalized run context. Go owns configuration and Compose
+// discovery alongside argv planning and execution policy.
 type Request struct {
 	Compose  []string `json:"compose"`
 	Project  string   `json:"project"`
@@ -161,7 +161,7 @@ func validateArgs(args []string) error {
 			}
 		}
 	}
-	if len(args) >= 2 && (args[0] == "python" || args[0] == "python3" || args[0] == "node" || args[0] == "ruby" || args[0] == "perl" || args[0] == "php") && (args[1] == "-c" || args[1] == "-e" || args[1] == "-r") {
+	if len(args) >= 2 && (args[0] == "node" || args[0] == "ruby" || args[0] == "perl" || args[0] == "php") && (args[1] == "-c" || args[1] == "-e" || args[1] == "-r") {
 		return fmt.Errorf("unsafe run argument: inline interpreter execution")
 	}
 	return nil

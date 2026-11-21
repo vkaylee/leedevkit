@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -114,7 +113,7 @@ const usage = `leedevkit — Enterprise DevKit for AI-first projects
 Usage: leedevkit <command> [args...]
 
 Commands:
-  test     Run tests       (leedevkit test infra --lint-only)
+  test     Run tests       (leedevkit test all)
   dev      Dev environment (leedevkit dev up|down)
   init     Initialize a project with leedevkit
   update   Update the devkit to the latest (or pinned) release
@@ -399,49 +398,6 @@ func resolveBaseRef(root, value string) (string, error) {
 		return "", fmt.Errorf("base ref %q could not be resolved", value)
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-func parseInfraTestArgs(args []string) (string, error) {
-	if len(args) < 1 || args[0] != "test:infra" {
-		return "", fmt.Errorf("test:infra command required")
-	}
-	pattern := ""
-	for index := 1; index < len(args); index++ {
-		switch args[index] {
-		case "--pattern":
-			if index+1 >= len(args) {
-				return "", fmt.Errorf("--pattern requires a value")
-			}
-			pattern = args[index+1]
-			index++
-		default:
-			return "", fmt.Errorf("unsupported test:infra argument %q", args[index])
-		}
-	}
-	return pattern, nil
-}
-
-func validateInfraPattern(pattern string) (string, error) {
-	if pattern == "" {
-		return "", nil
-	}
-	for _, character := range pattern {
-		if character < 32 || character == 127 {
-			return "", fmt.Errorf("pattern cannot contain control characters")
-		}
-	}
-	if _, err := regexp.Compile(pattern); err != nil {
-		return "", fmt.Errorf("invalid pattern regex: %w", err)
-	}
-	return pattern, nil
-}
-
-func isInfraLint(args []string) bool {
-	return len(args) >= 3 && args[0] == "test" && args[1] == "infra" && args[2] == "--lint-only"
-}
-
-func isInfraUnit(args []string) bool {
-	return len(args) >= 3 && args[0] == "test" && args[1] == "infra" && args[2] == "--unit-only"
 }
 
 func decodeSingleJSON(input io.Reader, target any) error {

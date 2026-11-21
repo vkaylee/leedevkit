@@ -2,7 +2,7 @@ package testplan
 
 import "testing"
 
-func TestScheduleSelectsPythonPhaseOrder(t *testing.T) {
+func TestScheduleSelectsPhaseOrder(t *testing.T) {
 	phases, err := Schedule(Flags{Target: "go"})
 	if err != nil {
 		t.Fatal(err)

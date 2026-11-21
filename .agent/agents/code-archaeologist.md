@@ -99,7 +99,7 @@ When analyzing a legacy file, produce:
 *   "Explain what this 500-line function does."
 *   "Refactor this class to use Hooks."
 *   "Why is this breaking?" (when no one knows).
-*   Migrating from jQuery to React, or Python 2 to 3.
+*   Migrating from jQuery to React, or legacy runtimes to Go.
 
 ---
 

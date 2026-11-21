@@ -166,7 +166,7 @@ echo "     $PATH_BIN_DIR/leedevkit init"
 echo ""
 echo "   Then run in your project:"
 echo "     leedevkit doctor"
-echo "     leedevkit test infra --lint-only"
+echo "     leedevkit test go --lint-only"
 echo ""
 if [ "$PATH_RC_CHANGED" -eq 1 ]; then
     echo "   Added $PATH_BIN_DIR to PATH in $SHELL_RC"

@@ -7,6 +7,6 @@ Use a project-provided wrapper when it is documented, exists, and applies to the
 | Rust/Cargo | `./scripts/_cargo.sh test` or `build`, if configured for this target |
 | Node/NPM | `./scripts/_npm.sh install` or `run dev`, if configured for this target |
 | Diesel CLI | `./scripts/_diesel.sh migration run`, if configured for this target |
-| Python | `./scripts/_python.sh ...`, if configured; otherwise use the documented project environment |
+| Go | `go test`, `go vet`, and `gofmt` through the configured project target |
 
 When wrapper configuration is unclear, inspect project documentation or CI before choosing a command.

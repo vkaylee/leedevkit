@@ -298,7 +298,7 @@ Before assigning agents, determine project type:
 
 Plan verification from the affected behavior, configured project targets, and material risks. Follow `.agent/rules/development-workflow.md` for the behavior loop and `.agent/rules/testing-standards.md` for execution and coverage gates.
 
-- Discover actual wrappers, scripts, and environments before listing commands. Do not assume Node, a web server, browser tooling, or a fixed Python path.
+- Discover actual wrappers, scripts, and environments before listing commands. Do not assume Node, a web server, browser tooling, or a fixed Go path.
 - Include security, accessibility, migration, performance, or release checks when the changed surface warrants them; do not run every specialist script for every task.
 - Exercise the changed user-visible behavior in a safe environment. Report exact checks executed, outcomes, and unavailable evidence.
 - Mark completion only from observed results, not a copied success marker. Respect project design decisions rather than imposing unrelated style bans.

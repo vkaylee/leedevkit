@@ -12,28 +12,7 @@ Comprehensive design guide for web and mobile applications. Contains 50+ styles,
 
 ## Prerequisites
 
-Check if Python is installed:
-
-```bash
-.leedevkit/.venv/bin/python3 --version
-```
-
-If Python is not installed, install it based on user's OS:
-
-**macOS:**
-```bash
-brew install python3
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update && sudo apt install python3
-```
-
-**Windows:**
-```powershell
-winget install Python.Python.3.12
-```
+Use project-provided design-search tooling when available. If no search tool is configured, continue with the guidance below and document manual recommendations.
 
 ---
 
@@ -54,7 +33,7 @@ Extract key information from user request:
 **Always start with `--design-system`** to get comprehensive recommendations with reasoning:
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
+leedevkit design-search "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
 ```
 
 This command:
@@ -65,7 +44,7 @@ This command:
 
 **Example:**
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "beauty spa wellness service" --design-system -p "Serenity Spa"
+leedevkit design-search "beauty spa wellness service" --design-system -p "Serenity Spa"
 ```
 
 ### Step 2b: Persist Design System (Master + Overrides Pattern)
@@ -73,7 +52,7 @@ This command:
 To save the design system for hierarchical retrieval across sessions, add `--persist`:
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name"
+leedevkit design-search "<query>" --design-system --persist -p "Project Name"
 ```
 
 This creates:
@@ -82,7 +61,7 @@ This creates:
 
 **With page-specific override:**
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "Project Name" --page "dashboard"
+leedevkit design-search "<query>" --design-system --persist -p "Project Name" --page "dashboard"
 ```
 
 This also creates:
@@ -98,7 +77,7 @@ This also creates:
 After getting the design system, use domain searches to get additional details:
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n <max_results>]
+leedevkit design-search "<keyword>" --domain <domain> [-n <max_results>]
 ```
 
 **When to use detailed searches:**
@@ -116,7 +95,7 @@ After getting the design system, use domain searches to get additional details:
 Get implementation-specific best practices. If user doesn't specify a stack, **default to `html-tailwind`**.
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "<keyword>" --stack html-tailwind
+leedevkit design-search "<keyword>" --stack html-tailwind
 ```
 
 Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`, `react-native`, `flutter`, `shadcn`, `jetpack-compose`
@@ -170,7 +149,7 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 ### Step 2: Generate Design System (REQUIRED)
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
+leedevkit design-search "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
 ```
 
 **Output:** Complete design system with pattern, style, colors, typography, effects, and anti-patterns.
@@ -179,16 +158,16 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 
 ```bash
 # Get UX guidelines for animation and accessibility
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "animation accessibility" --domain ux
+leedevkit design-search "animation accessibility" --domain ux
 
 # Get alternative typography options if needed
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "elegant luxury serif" --domain typography
+leedevkit design-search "elegant luxury serif" --domain typography
 ```
 
 ### Step 4: Stack Guidelines
 
 ```bash
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "layout responsive form" --stack html-tailwind
+leedevkit design-search "layout responsive form" --stack html-tailwind
 ```
 
 **Then:** Synthesize design system + detailed searches and implement the design.
@@ -201,10 +180,10 @@ The `--design-system` flag supports two output formats:
 
 ```bash
 # ASCII box (default) - best for terminal display
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system
+leedevkit design-search "fintech crypto" --design-system
 
 # Markdown - best for documentation
-.leedevkit/.venv/bin/python3 .leedevkit/skills.d/ui-ux-pro-max/scripts/search.py "fintech crypto" --design-system -f markdown
+leedevkit design-search "fintech crypto" --design-system -f markdown
 ```
 
 ---

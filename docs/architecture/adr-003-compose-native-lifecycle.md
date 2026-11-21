@@ -6,7 +6,7 @@
 
 ## Context
 
-LeeDevKit lifecycle code previously split ownership between Compose and engine-specific Python code. Startup used separate dependency calls and health polling; teardown force-removed Docker/Podman resources; a Podman-only scheduler duplicated Compose dependency semantics. This created provider drift, container-name assumptions, and cross-project cleanup risk.
+LeeDevKit lifecycle code previously split ownership between Compose and engine-specific runtime code. Startup used separate dependency calls and health polling; teardown force-removed Docker/Podman resources; a Podman-only scheduler duplicated Compose dependency semantics. This created provider drift, container-name assumptions, and cross-project cleanup risk.
 
 ## Decision
 
@@ -74,10 +74,7 @@ Revert commits through `5b50196`, `2bfd075`, `ad2d0f3`, `3118804`, `904f68b`, `4
 
 ## Verification
 
-- Direct suite: `PYTHONPATH=scripts .venv/bin/pytest scripts/tests -q`
-- Focused lifecycle/provider suite
-- `ruff format --check scripts`
-- `ruff check scripts`
-- `mypy scripts`
+- `go test ./...`
+- Focused lifecycle/provider package tests
 - `git diff --check`
 - Runtime Docker/Podman matrix when providers are available

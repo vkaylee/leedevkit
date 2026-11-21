@@ -20,7 +20,6 @@ allowed-tools: Read, Glob, Grep
 | [nextjs-saas](nextjs-saas/TEMPLATE.md) | Next.js + Stripe | SaaS product |
 | [nextjs-static](nextjs-static/TEMPLATE.md) | Next.js + Framer | Landing page |
 | [express-api](express-api/TEMPLATE.md) | Express + JWT | REST API |
-| [python-fastapi](python-fastapi/TEMPLATE.md) | FastAPI | Python API |
 | [react-native-app](react-native-app/TEMPLATE.md) | Expo + Zustand | Mobile app |
 | [flutter-app](flutter-app/TEMPLATE.md) | Flutter + Riverpod | Cross-platform |
 | [electron-desktop](electron-desktop/TEMPLATE.md) | Electron + React | Desktop app |

@@ -36,7 +36,7 @@ func TestSummaryEncodesStableMachineContract(t *testing.T) {
 	}
 }
 
-func TestPhaseEncodesPythonContractFields(t *testing.T) {
+func TestPhaseEncodesContractFields(t *testing.T) {
 	phase := Phase{Phase: "Unit Tests", Target: "go", Command: "go test ./...", StartTime: "start", EndTime: "end", DurationS: 1.25, Status: "passed", Required: true}
 	encoded, err := json.Marshal(phase)
 	if err != nil {

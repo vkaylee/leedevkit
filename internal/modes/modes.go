@@ -1,6 +1,6 @@
 package modes
 
-// Service describes normalized service configuration. Python owns TOML loading.
+// Service describes normalized service configuration loaded by Go TOML parsing.
 type Service struct {
 	Name     string `json:"name"`
 	Language string `json:"language"`

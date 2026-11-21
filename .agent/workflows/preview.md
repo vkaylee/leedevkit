@@ -71,11 +71,5 @@ Which one? (default: 1)
 
 ## Technical
 
-Auto preview uses `auto_preview.py` script:
-
-```bash
-.leedevkit/.venv/bin/python3 .agent/scripts/auto_preview.py start [port]
-.leedevkit/.venv/bin/python3 .agent/scripts/auto_preview.py stop
-.leedevkit/.venv/bin/python3 .agent/scripts/auto_preview.py status
-```
+Auto preview uses the project-owned preview command. Run the documented project command for start, stop, and status.
 

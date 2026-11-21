@@ -77,5 +77,5 @@ Before designing an API:
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| `.agent/skills/api-patterns/scripts/api_validator.py` | API endpoint validation | `./.venv/bin/python3 .agent/skills/api-patterns/scripts/api_validator.py <project_path>` |
+| Project API test command | API endpoint validation | Run project-configured API tests through `./leedevkit test <target>` |
 

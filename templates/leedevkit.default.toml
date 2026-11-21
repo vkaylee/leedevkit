@@ -12,7 +12,7 @@ source = "release"               # "release" | "git" | "local"
 [project]
 name = "MyProject"               # display name
 namespace = "myproject"           # compose project prefix
-languages = ["rust", "typescript"] # ["rust", "typescript", "python", "go"]
+languages = ["rust", "typescript"] # Go projects use ["go"]
 
 # Container selection is explicit. This config declares commands only; runtime
 # adapters and capability checks must support the selected provider.

@@ -1,4 +1,4 @@
-# Devkit Internals — Python & Bash Conventions
+# Devkit Internals — Go & Bash Conventions
 
 > **Scope:** Developing leedevkit itself (the meta-tool), NOT projects that use it.
 
@@ -12,16 +12,16 @@ Changes here ship to downstream projects through release artifacts installed int
 |-----------|----------|---------|
 | Control plane | Go 1.24+ | `cmd/leedevkit/main.go` |
 | CLI launcher | Bash | `leedevkit`, `bin/leedevkit` |
-| Release/CI helpers | Transitional Python | `scripts/_release_*.py`, `scripts/_go_core_*.py` |
+| Release/CI helpers | Bash + Go | `scripts/build-release-go.sh`, `cmd/release-manifest` |
 | Shell lint | Bash | `shellcheck` |
 | Container engine | | podman-compose preferred, docker fallback |
 
 ## Key Commands
 
-./leedevkit test infra --lint-only   # focused feedback only
-./leedevkit test infra --unit-only    # focused feedback only
-./leedevkit test infra                # infra verification
-./leedevkit test all                  # all configured targets; this checkout configures infra
+./leedevkit test go --lint-only   # focused feedback only
+./leedevkit test go --unit-only   # focused feedback only
+./leedevkit test go                # Go verification
+./leedevkit test all              # all configured targets
 ./leedevkit test all --json           # stable final JSON report
 ./leedevkit test all --json-stream --quiet  # JSONL events for AI agents
 
@@ -39,14 +39,11 @@ Focused flags, `--pattern`, `--skip-e2e`, and `--skip-build` produce partial/unv
 
 Trigger this gate after changes to any of:
 - `bootstrap.sh`, `install.sh`, `bin/leedevkit`
-- `scripts/_release_build.py`, `scripts/_release_acceptance.py` (transitional build tooling)
+- `scripts/build-release-go.sh` (release build and artifact generation)
 - `VERSION`, Go release layout, manifest, and artifact behavior
 
 ```bash
-.venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/dist
-.venv/bin/python3 scripts/_release_acceptance.py \
-  --repo-root . \
-  --artifact /tmp/dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz
+scripts/build-release-go.sh /tmp/dist
 ```
 
 What the gate proves:
@@ -57,7 +54,7 @@ What the gate proves:
 
 Notes:
 - Manifest is a **build output**, not a hand-edited source file.
-- `./leedevkit test infra` uses `ruff format --check` and must not rewrite source.
+- `./leedevkit test go` uses Go-native formatting and test gates; it must not rewrite source unless `--fix` is explicit.
 - Keep packaging acceptance independent of Docker/PyPI/GitHub.
 
 ## Go Conventions
@@ -69,5 +66,5 @@ Notes:
 
 ## Bash Conventions
 
-1. `bin/*` scripts are **passthrough only** — set up venv, delegate to orchestrator.
+1. `bin/*` scripts are **passthrough only** — delegate to the Go runtime.
 2. Preserve exit status and clean up owned child processes/resources when a command is interrupted; do not impose terminal restoration or redirection on every harness.

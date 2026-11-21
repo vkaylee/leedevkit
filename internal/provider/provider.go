@@ -37,7 +37,7 @@ type Options struct {
 }
 
 // ProtocolProvider is the normalized provider contract exchanged with the Go core.
-// Python remains responsible for TOML loading while Go validates policy and diagnostics.
+// Go owns TOML loading, policy validation, and diagnostics.
 type ProtocolProvider struct {
 	Name         string         `json:"provider"`
 	CLI          []string       `json:"cli"`

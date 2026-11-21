@@ -39,7 +39,7 @@ $ARGUMENTS
 | `project-planner` | Task breakdown, planning |
 | `explorer-agent` | Codebase discovery |
 | `frontend-specialist` | UI/UX, web components |
-| `backend-specialist` | Server, API, Node.js, Python |
+| `backend-specialist` | Server, API, Node.js, Go |
 | `database-architect` | SQL, NoSQL, schema |
 | `security-auditor` | Vulnerabilities, auth |
 | `penetration-tester` | Active security testing |
