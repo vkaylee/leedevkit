@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/vkaylee/leedevkit/internal/process"
 )
@@ -271,7 +272,8 @@ func launchWithNetworks(ctx context.Context, environment Environment, compose []
 		return fmt.Errorf("compose runner is required")
 	}
 	defer func() {
-		cleanupCtx := context.WithoutCancel(ctx)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
 		_ = run(cleanupCtx, cleanupArgs)
 		_ = run(cleanupCtx, psArgs)
 	}()
