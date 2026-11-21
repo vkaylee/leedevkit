@@ -324,6 +324,26 @@ func TestParseMigrationCommandRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestBuildAPISyncCommandUsesTwoComposeExecs(t *testing.T) {
+	got, err := buildAPISyncCommands([]string{"docker", "compose"}, "apiserver", "webdashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"docker", "compose", "exec", "-T", "apiserver", "bash", "-c", "cargo run -- gen-openapi > /workspace/shared/openapi.json"},
+		{"docker", "compose", "exec", "-T", "webdashboard", "bash", "-c", "npx openapi-typescript /workspace/shared/openapi.json -o ./src/types/api-generated.ts"},
+	}
+	if len(got) != len(want) || !sameStrings(got[0], want[0]) || !sameStrings(got[1], want[1]) {
+		t.Fatalf("sync args = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildAPISyncCommandRejectsMissingServices(t *testing.T) {
+	if _, err := buildAPISyncCommands([]string{"compose"}, "", "web"); err == nil {
+		t.Fatal("missing API service accepted")
+	}
+}
+
 func TestBuildMigrationCommandUsesConfiguredRustService(t *testing.T) {
 	got, err := buildMigrationCommand(
 		"/repo",

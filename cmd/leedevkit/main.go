@@ -218,6 +218,17 @@ func parseMigrationCommand(args []string) (string, error) {
 	}
 }
 
+func buildAPISyncCommands(compose []string, rustService, webService string) ([][]string, error) {
+	if len(compose) == 0 || rustService == "" || webService == "" {
+		return nil, fmt.Errorf("compose and API services are required")
+	}
+	first := append([]string{}, compose...)
+	first = append(first, "exec", "-T", rustService, "bash", "-c", "cargo run -- gen-openapi > /workspace/shared/openapi.json")
+	second := append([]string{}, compose...)
+	second = append(second, "exec", "-T", webService, "bash", "-c", "npx openapi-typescript /workspace/shared/openapi.json -o ./src/types/api-generated.ts")
+	return [][]string{first, second}, nil
+}
+
 func buildMigrationCommand(root string, config provider.Provider, project, service, action string) ([]string, error) {
 	migrationArgs, err := dbcommands.MigrationArgs(action)
 	if err != nil {
@@ -1062,6 +1073,30 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
+	case "sync:api":
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		projectConfig, err := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid project config: %v\n", err)
+			return 2
+		}
+		rustService := configuredServiceName(projectConfig, "rust")
+		webService := configuredServiceName(projectConfig, "web")
+		commands, err := buildAPISyncCommands(providerConfig.Compose, rustService, webService)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		for _, command := range commands {
+			if code := runCommand(projectRootOrCWD(), projectRootOrCWD(), command, stdin, stdout, stderr); code != 0 {
+				return code
+			}
+		}
+		return 0
 	case "migrate:run", "migrate:revert", "migrate:status":
 		action, err := parseMigrationCommand(args)
 		if err != nil {
