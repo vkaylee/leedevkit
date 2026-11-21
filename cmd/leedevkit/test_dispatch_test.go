@@ -6,6 +6,12 @@ import (
 	"github.com/vkaylee/leedevkit/internal/config"
 )
 
+func TestShouldUseGoTestUsesGoForInfra(t *testing.T) {
+	if !shouldUseGoTest(config.Project{}, "infra") {
+		t.Fatal("infra dispatch should use Go")
+	}
+}
+
 func TestShouldUseGoTestRequiresConfiguredGoTarget(t *testing.T) {
 	project := config.Project{Services: map[string]config.Service{"backend": {Language: "go"}}, Targets: map[string][]string{"all": {"go"}}}
 	if !shouldUseGoTest(project, "go") {
@@ -20,8 +26,5 @@ func TestShouldUseGoTestRejectsUnsupportedTargets(t *testing.T) {
 	goProject := config.Project{Services: map[string]config.Service{"backend": {Language: "go"}}, Targets: map[string][]string{"all": {"go", "web"}}}
 	if shouldUseGoTest(goProject, "all") {
 		t.Fatal("mixed target must not claim Go parity")
-	}
-	if shouldUseGoTest(config.Project{}, "infra") {
-		t.Fatal("infra must not claim Go test lifecycle parity")
 	}
 }

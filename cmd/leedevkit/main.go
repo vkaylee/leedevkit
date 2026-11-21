@@ -345,7 +345,10 @@ func configuredServiceName(project config.Project, language string) string {
 }
 
 func shouldUseGoTest(project config.Project, target string) bool {
-	if target == "infra" || len(project.Services) == 0 {
+	if target == "infra" {
+		return true
+	}
+	if len(project.Services) == 0 {
 		return false
 	}
 	selected := project.Targets[target]
@@ -1089,7 +1092,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
 			if runtime == "" {
-				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				fmt.Fprintln(stderr, "Go test tools runtime missing")
 				return 2
 			}
 			pattern, err := parseInfraTestArgs(args)
@@ -1103,7 +1106,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
 			if runtime == "" {
-				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				fmt.Fprintln(stderr, "Go test tools runtime missing")
 				return 2
 			}
 			pattern := ""
@@ -1116,7 +1119,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
 			if runtime == "" {
-				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				fmt.Fprintln(stderr, "Go test tools runtime missing")
 				return 2
 			}
 			if isInfraLint(args) {
@@ -1180,7 +1183,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		project := findProjectRoot()
 		runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
 		if runtime == "" {
-			fmt.Fprintln(stderr, "Python compatibility runtime missing")
+			fmt.Fprintln(stderr, "Go test tools runtime missing")
 			return 2
 		}
 		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
