@@ -133,6 +133,31 @@ func BuildDebugCleanupArgs(compose []string, environment Environment, override s
 	return append(args, "-f", override, "rm", "--force", "--stop", "--no-deps", "leedevkit-debug"), nil
 }
 
+func LaunchValidated(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, configOutput, networkOutput []byte) error {
+	config, err := ParseComposeConfig(configOutput)
+	if err != nil {
+		return err
+	}
+	if err := ValidateComposeConfig(config, environment); err != nil {
+		return err
+	}
+	networks, err := ResolveNetworkNames(config, environment)
+	if err != nil {
+		return err
+	}
+	for _, network := range networks {
+		inspect, err := BuildNetworkInspectArgs(engine, network)
+		if err != nil {
+			return err
+		}
+		_ = inspect
+		if err := ValidateNetworkOwner(networkOutput, environment.ComposeProject); err != nil {
+			return err
+		}
+	}
+	return Launch(ctx, environment, compose, run)
+}
+
 func Launch(ctx context.Context, environment Environment, compose []string, run ComposeRunner) error {
 	override := filepath.Join(environment.ProjectRoot, ".leedevkit-debug.override.yml")
 	runArgs, err := BuildDebugRunArgs(compose, environment, override)

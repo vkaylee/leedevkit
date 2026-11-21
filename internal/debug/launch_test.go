@@ -56,6 +56,30 @@ func TestComposeConfigValidationRequiresApprovedNetworkAndService(t *testing.T) 
 	}
 }
 
+func TestLaunchRunsValidationBeforeDebugRun(t *testing.T) {
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}, Profiles: []string{"debug"}, Networks: []string{"backend"}, ProjectRoot: "/repo", SourcePath: "/repo/leedevkit.toml", Services: map[string]Service{"api": {ID: "api", Host: "api", Aliases: []string{"api"}}}}
+	calls := [][]string{}
+	runner := func(_ context.Context, args []string) error {
+		calls = append(calls, args)
+		return nil
+	}
+	if err := LaunchValidated(context.Background(), environment, []string{"compose"}, []string{"docker"}, runner, []byte(`{"services":{"api":{}},"networks":{"backend":{}}}`), []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestLaunchRunsValidationBeforeDebugRunRejectsOwnerMismatch(t *testing.T) {
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: "/repo", SourcePath: "/repo/leedevkit.toml", Networks: []string{"backend"}}
+	calls := 0
+	err := LaunchValidated(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(context.Context, []string) error { calls++; return nil }, []byte(`{"services":{},"networks":{"backend":{}}}`), []byte(`[{"Labels":{"com.docker.compose.project":"other"}}]`))
+	if err == nil || calls != 0 {
+		t.Fatalf("err = %v, calls = %d", err, calls)
+	}
+}
+
 func TestLaunchRunsComposeAndCleansOwnedService(t *testing.T) {
 	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}, Profiles: []string{"debug"}, ProjectRoot: "/repo", SourcePath: "/repo/leedevkit.toml"}
 	calls := [][]string{}
