@@ -18,11 +18,49 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import subprocess
 from pathlib import Path
 
 from _go_core_build import DEFAULT_TARGETS, target_binary_name
-from _devkit_integrity import verify_devkit, write_manifest
 from _runtime import enforce_project_venv
+from _sbom import write_sbom
+
+
+def _go_manifest(root: Path, verify: bool) -> None:
+    command = ["go", "run", "./cmd/release-manifest", "--root", "/workspace"]
+    if verify:
+        command.append("--verify")
+    if shutil.which("go"):
+        subprocess.run(command, cwd=root, check=True)
+        return
+    repo = Path(__file__).resolve().parents[1]
+    module_cache = Path.home() / "go" / "pkg" / "mod"
+    docker = [
+        "docker",
+        "run",
+        "--rm",
+        "-e",
+        "GOPROXY=off",
+        "-v",
+        f"{root}:/workspace",
+        "-v",
+        f"{repo}:/source:ro",
+        "-v",
+        f"{module_cache}:/go/pkg/mod",
+        "-w",
+        "/workspace",
+        "golang:1.26.11-bookworm",
+        *command,
+    ]
+    subprocess.run(docker, check=True)
+
+
+def write_manifest(root: Path) -> None:
+    _go_manifest(root, False)
+
+
+def verify_manifest(root: Path) -> None:
+    _go_manifest(root, True)
 
 
 def log_info(message: str) -> None:
@@ -35,7 +73,6 @@ def log_success(message: str) -> None:
 
 def log_error(message: str) -> None:
     print(f"❌ {message}", file=sys.stderr)
-from _sbom import write_sbom
 
 
 # ── Items to include in the release tarball ──
@@ -157,9 +194,7 @@ def build_release(
         )
         write_manifest(stage_root)
 
-        verification = verify_devkit(stage_root)
-        if not verification.is_clean:
-            raise RuntimeError(verification.report())
+        verify_manifest(stage_root)
 
         with tarfile.open(tarball_path, "w:gz") as tf:
             tf.add(

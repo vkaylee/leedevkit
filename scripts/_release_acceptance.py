@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
 
-from _devkit_integrity import verify_devkit
+
 from _go_core_build import DEFAULT_TARGETS, target_binary_name
 from _go_core_matrix import build_matrix
 from _release_build import build_release
@@ -103,9 +103,40 @@ def _assert_artifact_contract(artifact: Path, version: str, workspace: Path) -> 
     extracted = _extract_artifact(artifact, workspace, expected_root)
     if (extracted / "VERSION").read_text().strip() != version:
         raise RuntimeError("artifact VERSION does not match filename")
-    verification = verify_devkit(extracted)
-    if not verification.is_clean:
-        raise RuntimeError(verification.report())
+    command = [
+        "go",
+        "run",
+        "./cmd/release-manifest",
+        "--root",
+        "/workspace",
+        "--verify",
+    ]
+    if shutil.which("go"):
+        _run(command, extracted, os.environ.copy())
+    else:
+        repo = Path(__file__).resolve().parents[1]
+        module_cache = Path.home() / "go" / "pkg" / "mod"
+        _run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-e",
+                "GOPROXY=off",
+                "-v",
+                f"{extracted}:/workspace",
+                "-v",
+                f"{repo}:/source:ro",
+                "-v",
+                f"{module_cache}:/go/pkg/mod",
+                "-w",
+                "/workspace",
+                "golang:1.26.11-bookworm",
+                *command,
+            ],
+            extracted,
+            os.environ.copy(),
+        )
     return extracted
 
 
@@ -192,9 +223,40 @@ def _assert_bootstrap(
     installed = project / ".leedevkit"
     if not (installed / "scripts" / "requirements-runtime.lock").is_file():
         raise RuntimeError("bootstrap did not install the runtime dependency lock")
-    verification = verify_devkit(installed)
-    if not verification.is_clean:
-        raise RuntimeError(verification.report())
+    manifest_command = [
+        "go",
+        "run",
+        "./cmd/release-manifest",
+        "--root",
+        "/workspace",
+        "--verify",
+    ]
+    if shutil.which("go"):
+        _run(manifest_command, installed, os.environ.copy())
+    else:
+        repo = Path(__file__).resolve().parents[1]
+        module_cache = Path.home() / "go" / "pkg" / "mod"
+        _run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-e",
+                "GOPROXY=off",
+                "-v",
+                f"{installed}:/workspace",
+                "-v",
+                f"{repo}:/source:ro",
+                "-v",
+                f"{module_cache}:/go/pkg/mod",
+                "-w",
+                "/workspace",
+                "golang:1.26.11-bookworm",
+                *manifest_command,
+            ],
+            installed,
+            os.environ.copy(),
+        )
     binary = Path(bootstrap_env["DEVKIT_HOME"]) / "bin" / "leedevkit"
     result = _run([str(binary), "version"], project, bootstrap_env)
     if result.stdout.strip() != version:
