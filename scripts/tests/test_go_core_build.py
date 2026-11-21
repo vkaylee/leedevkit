@@ -160,12 +160,21 @@ def test_build_main_reads_version_and_dispatches(tmp_path: Path, monkeypatch):
     assert calls[0][0][2] == "1.2.3"
 
 
+def _record_build_call(
+    calls: list[tuple[Path, dict[str, object]]],
+    output: Path,
+    kwargs: dict[str, object],
+) -> Path:
+    calls.append((output, kwargs))
+    return output
+
+
 def test_build_matrix_builds_all_default_targets(tmp_path: Path, monkeypatch) -> None:
-    calls = []
+    calls: list[tuple[Path, dict[str, object]]] = []
     monkeypatch.setattr(
         "_go_core_matrix.build_go_core",
-        lambda repo, output, version, **kwargs: (
-            calls.append((output, kwargs)) or output
+        lambda repo, output, version, **kwargs: _record_build_call(
+            calls, output, kwargs
         ),
     )
     results = build_matrix(tmp_path, tmp_path / "dist", "1.0.0")

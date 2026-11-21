@@ -33,11 +33,20 @@ def test_go_launcher_uses_explicit_binary(tmp_path: Path) -> None:
 
 def test_go_launcher_routes_migrated_commands(tmp_path: Path) -> None:
     binary = _binary(tmp_path, "go-command")
-    for command in (["run", "go", "version"], ["doctor"], ["skills", "list"], ["dev", "up"]):
+    for command in (
+        ["run", "go", "version"],
+        ["doctor"],
+        ["skills", "list"],
+        ["dev", "up"],
+    ):
         result = subprocess.run(
             [str(ROOT / "bin" / "leedevkit"), *command],
             cwd=ROOT,
-            env={**os.environ, "LEEDEVKIT_CORE": "go", "LEEDEVKIT_GO_BINARY": str(binary)},
+            env={
+                **os.environ,
+                "LEEDEVKIT_CORE": "go",
+                "LEEDEVKIT_GO_BINARY": str(binary),
+            },
             capture_output=True,
             text=True,
             check=False,
