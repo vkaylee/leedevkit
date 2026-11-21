@@ -110,7 +110,7 @@
   - [x] Load configured Dockerfile, Compose file, and image paths from service config.
   - [x] Fingerprint directory build context deterministically while excluding runtime/cache dirs.
   - [x] Wire build input/fingerprint validation into lifecycle CLI path.
-  - [ ] Execute BuildFlow and publish verified metadata in lifecycle CLI path.
+  - [x] Execute BuildFlow and publish verified metadata in lifecycle CLI path.
 
 ### Checkpoint 3
 
