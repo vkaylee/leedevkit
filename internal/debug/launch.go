@@ -167,6 +167,14 @@ func BuildDebugCleanupArgs(compose []string, environment Environment, override s
 	return append(args, "-f", override, "rm", "--force", "--stop", "--no-deps", "leedevkit-debug"), nil
 }
 
+func BuildDebugPSArgs(compose []string, environment Environment, override string) ([]string, error) {
+	args, err := ComposeBaseArgs(compose, environment)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "-f", override, "ps", "-q", "leedevkit-debug"), nil
+}
+
 func LaunchWithValidation(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, output ComposeOutputRunner) error {
 	configArgs, err := BuildComposeConfigArgs(compose, environment)
 	if err != nil {
@@ -255,9 +263,17 @@ func launchWithNetworks(ctx context.Context, environment Environment, compose []
 	if err != nil {
 		return err
 	}
+	psArgs, err := BuildDebugPSArgs(compose, environment, override)
+	if err != nil {
+		return err
+	}
 	if run == nil {
 		return fmt.Errorf("compose runner is required")
 	}
-	defer func() { _ = run(context.WithoutCancel(ctx), cleanupArgs) }()
+	defer func() {
+		cleanupCtx := context.WithoutCancel(ctx)
+		_ = run(cleanupCtx, cleanupArgs)
+		_ = run(cleanupCtx, psArgs)
+	}()
 	return run(ctx, runArgs)
 }

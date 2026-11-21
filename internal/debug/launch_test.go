@@ -29,6 +29,18 @@ func TestBuildComposeConfigArgs(t *testing.T) {
 	}
 }
 
+func TestBuildDebugPSArgsTargetsOwnedDebugService(t *testing.T) {
+	environment := Environment{ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}}
+	got, err := BuildDebugPSArgs([]string{"compose"}, environment, "/tmp/debug.override.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"compose", "-p", "fixture-project", "-f", "compose.yml", "-f", "/tmp/debug.override.json", "ps", "-q", "leedevkit-debug"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("args = %#v, want %#v", got, want)
+	}
+}
+
 func TestBuildDebugRunArgsUsesReadOnlyContainer(t *testing.T) {
 	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}, Profiles: []string{"debug"}, ProjectRoot: "/repo", SourcePath: "/repo/leedevkit.toml"}
 	got, err := BuildDebugRunArgs([]string{"compose"}, environment, "/tmp/debug.override.yml")
@@ -69,7 +81,7 @@ func TestLaunchRunsValidationBeforeDebugRun(t *testing.T) {
 	if err := LaunchValidated(context.Background(), environment, []string{"compose"}, []string{"docker"}, runner, []byte(`{"services":{"api":{}},"networks":{"backend":{}}}`), []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`)); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 2 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") {
+	if len(calls) != 3 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") || !contains(calls[2], "ps") {
 		t.Fatalf("calls = %#v", calls)
 	}
 }
@@ -90,7 +102,7 @@ func TestLaunchRunsComposeAndCleansOwnedService(t *testing.T) {
 		calls = append(calls, args)
 		return nil
 	})
-	if result != nil || len(calls) != 2 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") {
+	if result != nil || len(calls) != 3 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") || !contains(calls[2], "ps") {
 		t.Fatalf("result = %v, calls = %#v", result, calls)
 	}
 }
@@ -113,12 +125,15 @@ func TestLaunchCleansUpAfterContextCancellation(t *testing.T) {
 		if callCtx.Err() != nil {
 			t.Fatalf("cleanup context canceled: %v", callCtx.Err())
 		}
-		if !contains(args, "rm") || contains(args, "down") {
+		if calls == 2 && (!contains(args, "rm") || contains(args, "down")) {
 			t.Fatalf("unsafe cleanup args: %#v", args)
+		}
+		if calls == 3 && (!contains(args, "ps") || !contains(args, "-q")) {
+			t.Fatalf("cleanup verification args: %#v", args)
 		}
 		return nil
 	})
-	if result == nil || calls != 2 {
+	if result == nil || calls != 3 {
 		t.Fatalf("result = %v, calls = %d", result, calls)
 	}
 }
@@ -172,7 +187,7 @@ func TestLaunchValidatedUsesResolvedNetworkNamesInOverride(t *testing.T) {
 	}, []byte(`{"services":{"api":{}},"networks":{"backend":{"name":"shared_backend"}}}`), []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`)); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 2 || !strings.Contains(string(overrideData), "shared_backend") {
+	if len(calls) != 3 || !strings.Contains(string(overrideData), "shared_backend") {
 		t.Fatalf("calls = %#v, override = %s", calls, overrideData)
 	}
 }
