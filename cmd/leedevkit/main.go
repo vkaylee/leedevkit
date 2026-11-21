@@ -829,7 +829,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runPythonCommand(args, stdin, stdout, stderr)
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
-	case "dev", "debug", "init", "skills", "update":
+	case "dev":
+		if len(args) < 2 || (args[1] != "up" && args[1] != "down") {
+			return runPythonCommand(args, stdin, stdout, stderr)
+		}
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		return runDev(args[1], providerConfig, projectRootOrCWD(), stdout, stderr, process.Run)
+	case "debug", "init", "skills", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])
