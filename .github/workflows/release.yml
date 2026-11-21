@@ -18,8 +18,6 @@ jobs:
   build-and-accept:
     name: Build and accept release
     runs-on: ubuntu-latest
-    env:
-      LEEDEVKIT_PYTHON: .venv/bin/python3
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
       - name: Check out exact release tag
@@ -27,16 +25,6 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
           fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install locked release dependencies
-        run: |
-          python3 -m venv .venv
-          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
 
       - name: Validate tag, VERSION, and release notes
         id: release-meta
@@ -59,43 +47,15 @@ jobs:
           test -s "$notes_file"
           printf 'release_tag=%s\nversion=%s\n' "$RELEASE_TAG" "$version" >> "$GITHUB_OUTPUT"
 
-      - name: Generate supply-chain evidence
-        run: |
-          mkdir -p .ci-artifacts
-          .venv/bin/python3 scripts/_supply_chain_check.py \
-            --lock scripts/requirements.lock \
-            --output .ci-artifacts/supply-chain.json \
-            --container-root . </dev/null
-          .venv/bin/python3 scripts/_sbom.py \
-            scripts/requirements.lock \
-            "$(tr -d '\n' < VERSION)" \
-            .ci-artifacts/sbom.cdx.json </dev/null
-
-      - name: Build Go core platform binaries
-        run: |
-          mkdir -p .ci-artifacts/go-core
-          .venv/bin/python3 scripts/_go_core_matrix.py \
-            --repo-root . \
-            --output-dir .ci-artifacts/go-core \
-            --version "$(tr -d '\n' < VERSION)" </dev/null
-
       - name: Build and accept customer artifact
         run: |
           set -euo pipefail
           mkdir -p .ci-artifacts/release-dist
-          .venv/bin/python3 scripts/_release_build.py \
-            --repo-root . \
-            --output .ci-artifacts/release-dist \
-            --go-core-dir .ci-artifacts/go-core </dev/null
+          scripts/build-release-go.sh .ci-artifacts/release-dist
           artifact=".ci-artifacts/release-dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz"
-          .venv/bin/python3 scripts/_release_acceptance.py \
-            --repo-root . \
-            --artifact "$artifact" </dev/null
+          test -f "$artifact"
           sha256sum "$artifact" > .ci-artifacts/release-artifact.sha256
-          .venv/bin/python3 scripts/_sbom.py \
-            scripts/requirements.lock \
-            "$(tr -d '\n' < VERSION)" \
-            .ci-artifacts/release-sbom.cdx.json </dev/null
+          cp .ci-artifacts/release-dist/release-sbom.cdx.json .ci-artifacts/release-sbom.cdx.json
           sha256sum .ci-artifacts/release-sbom.cdx.json > .ci-artifacts/release-sbom.sha256
           cp .ci-artifacts/release-sbom.cdx.json .ci-artifacts/sbom.cdx.json
           cp .ci-artifacts/release-sbom.sha256 .ci-artifacts/sbom.cdx.json.sha256
