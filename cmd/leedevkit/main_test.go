@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,9 +119,13 @@ func TestRunUnknownCommand(t *testing.T) {
 }
 
 func TestResolveBaseRefValidatesWithoutShell(t *testing.T) {
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
+	root := t.TempDir()
+	for _, args := range [][]string{{"init"}, {"-c", "user.name=LeeDevKit Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "initial"}} {
+		command := exec.Command("git", args...)
+		command.Dir = root
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
 	}
 	if got, err := resolveBaseRef(root, "HEAD"); err != nil || len(got) != 40 {
 		t.Fatalf("resolved base ref = %q, err = %v", got, err)
