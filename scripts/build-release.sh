@@ -69,7 +69,7 @@ fi
 echo "   4/6 Generating manifest ..."
 (
     cd "$STAGED"
-    LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py checksum
+    go run ./cmd/release-manifest --root .
 )
 
 # Step 5: Verify
@@ -80,7 +80,7 @@ if [ ! -f "$STAGED/devkit.manifest.json" ]; then
 fi
 if ! (
     cd "$STAGED"
-    LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$STAGED" python3 scripts/_devkit_integrity.py verify
+    go run ./cmd/release-manifest --root . --verify
 ); then
     echo "❌ Integrity check failed"
     exit 1
