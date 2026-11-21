@@ -1134,8 +1134,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
 	case "dev":
-		if len(args) < 2 || (args[1] != "up" && args[1] != "down" && args[1] != "ps" && args[1] != "logs" && args[1] != "exec") {
-			return runPythonCommand(args, stdin, stdout, stderr)
+		if len(args) < 2 || (args[1] != "up" && args[1] != "down" && args[1] != "ps" && args[1] != "clean" && args[1] != "logs" && args[1] != "exec") {
+			fmt.Fprintln(stderr, "unsupported dev command")
+			return 2
 		}
 		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
 		if err != nil {

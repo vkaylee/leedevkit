@@ -35,6 +35,17 @@ func TestDevComposeArgsSupportsReadOnlyOperations(t *testing.T) {
 	}
 }
 
+func TestDevComposeArgsMapsCleanToVolumeTeardown(t *testing.T) {
+	got, err := devComposeArgs([]string{"compose"}, "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"compose", "-p", "leedevkit-dev", "-f", "docker-compose.yml", "-f", ".compose/docker-compose.dev.yml", "down", "-v"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("clean args = %#v, want %#v", got, want)
+	}
+}
+
 func TestDevComposeArgsRejectsExecWithoutService(t *testing.T) {
 	if _, err := devComposeArgsWithOptions([]string{"compose"}, "exec", "", nil); err == nil {
 		t.Fatal("exec without service accepted")

@@ -14,14 +14,20 @@ func devComposeArgs(compose []string, operation string) ([]string, error) {
 }
 
 func devComposeArgsWithOptions(compose []string, operation, service string, command []string) ([]string, error) {
-	if operation != "up" && operation != "down" && operation != "ps" && operation != "logs" && operation != "exec" {
+	if operation != "up" && operation != "down" && operation != "ps" && operation != "logs" && operation != "exec" && operation != "clean" {
 		return nil, fmt.Errorf("unsupported dev operation %q", operation)
 	}
 	args := append([]string{}, compose...)
-	args = append(args, "-p", "leedevkit-dev", "-f", "docker-compose.yml", "-f", ".compose/docker-compose.dev.yml", operation)
+	composeOperation := operation
+	if operation == "clean" {
+		composeOperation = "down"
+	}
+	args = append(args, "-p", "leedevkit-dev", "-f", "docker-compose.yml", "-f", ".compose/docker-compose.dev.yml", composeOperation)
 	switch operation {
 	case "up":
 		args = append(args, "-d")
+	case "clean":
+		args = append(args, "-v")
 	case "logs":
 		args = append(args, "-f")
 		if service != "" {
