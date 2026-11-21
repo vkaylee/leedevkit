@@ -16,15 +16,18 @@ type Counts struct {
 }
 
 type Phase struct {
-	Phase      string `json:"phase"`
-	Target     string `json:"target"`
-	Command    string `json:"command,omitempty"`
-	Status     string `json:"status"`
-	ExitCode   *int   `json:"exit_code,omitempty"`
-	Required   bool   `json:"required"`
-	Log        string `json:"log,omitempty"`
-	Rerun      string `json:"rerun,omitempty"`
-	Diagnostic string `json:"diagnostic,omitempty"`
+	Phase      string  `json:"phase"`
+	Target     string  `json:"target"`
+	Command    string  `json:"command"`
+	StartTime  string  `json:"start_time"`
+	EndTime    string  `json:"end_time"`
+	DurationS  float64 `json:"duration_s"`
+	Status     string  `json:"status"`
+	ExitCode   *int    `json:"exit_code"`
+	Required   bool    `json:"required"`
+	Log        string  `json:"log,omitempty"`
+	Rerun      string  `json:"rerun,omitempty"`
+	Diagnostic string  `json:"diagnostic,omitempty"`
 }
 
 type Summary struct {

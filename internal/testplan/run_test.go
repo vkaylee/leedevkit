@@ -32,6 +32,19 @@ func TestRunProducesSummaryAndJSONL(t *testing.T) {
 	}
 }
 
+func TestRunRecordsPhaseTiming(t *testing.T) {
+	result := Run(Flags{Target: "go", UnitOnly: true}, ExecutorFunc(func(Phase) PhaseResult {
+		return PhaseResult{Status: "passed"}
+	}), nil)
+	if len(result.Phases) != 3 {
+		t.Fatalf("phases = %#v", result.Phases)
+	}
+	phase := result.Phases[0]
+	if phase.StartTime == "" || phase.EndTime == "" || phase.DurationS < 0 {
+		t.Fatalf("phase timing = %#v", phase)
+	}
+}
+
 func TestRunFailureBecomesFailedSummary(t *testing.T) {
 	result := Run(Flags{Target: "go"}, ExecutorFunc(func(phase Phase) PhaseResult {
 		if phase.Name == "Unit Tests" {

@@ -36,6 +36,23 @@ func TestSummaryEncodesStableMachineContract(t *testing.T) {
 	}
 }
 
+func TestPhaseEncodesPythonContractFields(t *testing.T) {
+	phase := Phase{Phase: "Unit Tests", Target: "go", Command: "go test ./...", StartTime: "start", EndTime: "end", DurationS: 1.25, Status: "passed", Required: true}
+	encoded, err := json.Marshal(phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"phase", "target", "command", "start_time", "end_time", "duration_s", "exit_code", "status", "required"} {
+		if _, ok := decoded[key]; !ok {
+			t.Fatalf("missing phase field %q: %s", key, encoded)
+		}
+	}
+}
+
 func TestStreamWritesOrderedJSONLEvents(t *testing.T) {
 	var output bytes.Buffer
 	stream, err := NewStream(&output, "run-1")
