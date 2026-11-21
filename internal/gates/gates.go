@@ -138,6 +138,9 @@ func Validate(gate Gate) error {
 	if strings.TrimSpace(gate.Condition) == "" {
 		return fmt.Errorf("condition must be non-empty")
 	}
+	if gate.Condition != "always" {
+		return fmt.Errorf("condition %q is unsupported", gate.Condition)
+	}
 	for _, name := range gate.Environment {
 		if name == "" || strings.Contains(name, "=") {
 			return fmt.Errorf("environment must contain variable names")
