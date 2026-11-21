@@ -9,6 +9,8 @@ import (
 
 type ComposeRunner func(context.Context, []string) error
 
+type ComposeOutputRunner func(context.Context, []string) ([]byte, error)
+
 func ComposeBaseArgs(compose []string, environment Environment) ([]string, error) {
 	if len(compose) == 0 || environment.ComposeProject == "" {
 		return nil, fmt.Errorf("compose command and project are required")
@@ -131,6 +133,42 @@ func BuildDebugCleanupArgs(compose []string, environment Environment, override s
 		return nil, err
 	}
 	return append(args, "-f", override, "rm", "--force", "--stop", "--no-deps", "leedevkit-debug"), nil
+}
+
+func LaunchWithValidation(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, output ComposeOutputRunner) error {
+	configArgs, err := BuildComposeConfigArgs(compose, environment)
+	if err != nil {
+		return err
+	}
+	configOutput, err := output(ctx, configArgs)
+	if err != nil {
+		return err
+	}
+	config, err := ParseComposeConfig(configOutput)
+	if err != nil {
+		return err
+	}
+	if err := ValidateComposeConfig(config, environment); err != nil {
+		return err
+	}
+	networks, err := ResolveNetworkNames(config, environment)
+	if err != nil {
+		return err
+	}
+	for _, network := range networks {
+		inspect, err := BuildNetworkInspectArgs(engine, network)
+		if err != nil {
+			return err
+		}
+		ownerOutput, err := output(ctx, inspect)
+		if err != nil {
+			return err
+		}
+		if err := ValidateNetworkOwner(ownerOutput, environment.ComposeProject); err != nil {
+			return err
+		}
+	}
+	return Launch(ctx, environment, compose, run)
 }
 
 func LaunchValidated(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, configOutput, networkOutput []byte) error {
