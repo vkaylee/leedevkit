@@ -965,7 +965,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
 	case "dev":
-		if len(args) < 2 || (args[1] != "up" && args[1] != "down") {
+		if len(args) < 2 || (args[1] != "up" && args[1] != "down" && args[1] != "ps" && args[1] != "logs" && args[1] != "exec") {
 			return runPythonCommand(args, stdin, stdout, stderr)
 		}
 		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
@@ -973,7 +973,29 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
 			return 2
 		}
-		return runDev(args[1], providerConfig, projectRootOrCWD(), stdout, stderr, process.Run)
+		service := ""
+		var command []string
+		if args[1] == "logs" && len(args) > 2 {
+			service = args[2]
+		}
+		if args[1] == "exec" {
+			if len(args) < 3 {
+				fmt.Fprintln(stderr, "dev exec requires service")
+				return 2
+			}
+			service = args[2]
+			command = args[3:]
+		}
+		if args[1] == "up" || args[1] == "down" {
+			return runDev(args[1], providerConfig, projectRootOrCWD(), stdout, stderr, process.Run)
+		}
+		argv, err := devComposeArgsWithOptions(providerConfig.Compose, args[1], service, command)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		result := process.Run(context.Background(), process.Request{Args: argv, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
+		return result.ExitCode
 	case "skills":
 		if len(args) == 2 && args[1] == "list" {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
