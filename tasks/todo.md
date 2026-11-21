@@ -13,6 +13,6 @@ Final gate:
 git ls-files '*.py'
 git diff --check
 docker run --rm -e GOPROXY=off -v "$PWD":/workspace -v "$HOME/go/pkg/mod":/go/pkg/mod -w /workspace golang:1.26.11-bookworm go test ./...
-bash -n bin/leedevkit leedevkit templates/leedevkit-wrapper.sh bootstrap.sh install.sh scripts/build-release.sh scripts/build-release-go.sh
+bash -n bin/leedevkit leedevkit bootstrap.sh install.sh scripts/build-release.sh scripts/build-release-go.sh
 scripts/build-release-go.sh /tmp/dist-final
 ```

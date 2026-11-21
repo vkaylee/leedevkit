@@ -23,7 +23,7 @@ jobs:
 
       - name: Check shell syntax
         run: |
-          bash -n install.sh bootstrap.sh bin/leedevkit leedevkit templates/leedevkit-wrapper.sh </dev/null
+          bash -n install.sh bootstrap.sh bin/leedevkit leedevkit </dev/null
 
       - name: Run Go regression gate
         run: |

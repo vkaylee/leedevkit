@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# LeeDevKit — Go project launcher
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-if [ -x "$ROOT/bin/leedevkit" ]; then
-    exec "$ROOT/bin/leedevkit" "$@"
-fi
-printf '%s\n' "Go runtime missing; run bootstrap.sh first" >&2
-exit 2
