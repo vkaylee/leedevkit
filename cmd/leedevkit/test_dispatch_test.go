@@ -16,12 +16,12 @@ func TestShouldUseGoTestRequiresConfiguredGoTarget(t *testing.T) {
 	}
 }
 
-func TestShouldUseGoTestKeepsInfraAndMixedTargetsOnPython(t *testing.T) {
+func TestShouldUseGoTestRejectsUnsupportedTargets(t *testing.T) {
 	goProject := config.Project{Services: map[string]config.Service{"backend": {Language: "go"}}, Targets: map[string][]string{"all": {"go", "web"}}}
 	if shouldUseGoTest(goProject, "all") {
-		t.Fatal("mixed all target must remain on Python until all paths migrate")
+		t.Fatal("mixed target must not claim Go parity")
 	}
 	if shouldUseGoTest(config.Project{}, "infra") {
-		t.Fatal("infra must remain on Python")
+		t.Fatal("infra must not claim Go test lifecycle parity")
 	}
 }

@@ -1009,7 +1009,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 		if !shouldUseGoTest(projectConfig, flags.Target) {
-			return runPythonCommand(args, stdin, stdout, stderr)
+			fmt.Fprintf(stderr, "Go test path does not support target %q\n", flags.Target)
+			return 2
 		}
 		if flags.Target != "infra" {
 			env := environMap(os.Environ())
@@ -1173,7 +1174,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if len(args) == 2 && args[1] == "list" {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
 		}
-		return runPythonCommand(args, stdin, stdout, stderr)
+		fmt.Fprintln(stderr, "unsupported skills command")
+		return 2
 	case "fmt:infra":
 		project := findProjectRoot()
 		runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
@@ -1325,7 +1327,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "debug":
 		options, err := parseDebugMCPArgs(args)
 		if err != nil {
-			return runPythonCommand(args, stdin, stdout, stderr)
+			fmt.Fprintln(stderr, err)
+			return 2
 		}
 		root := options.ProjectRoot
 		if root == "" {
