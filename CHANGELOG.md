@@ -4,6 +4,15 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-11-22
+
+### Fixed
+- Make base-ref tests independent from checkout Git metadata in Docker CI.
+- Fix release workflow job-level `RELEASE_TAG` environment scope.
+
+### Verification
+- Go package tests, shell syntax checks, skill utility smoke checks, and CI-equivalent verification pass.
+
 ## [0.11.5] - 2026-11-21
 
 ### Added
