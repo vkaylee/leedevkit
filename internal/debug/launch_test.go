@@ -39,6 +39,23 @@ func TestBuildDebugRunArgsUsesReadOnlyContainer(t *testing.T) {
 	}
 }
 
+func TestComposeConfigValidationRejectsMissingServices(t *testing.T) {
+	if err := ValidateComposeConfig(map[string]any{}, Environment{}); err == nil {
+		t.Fatal("missing services accepted")
+	}
+}
+
+func TestComposeConfigValidationRequiresApprovedNetworkAndService(t *testing.T) {
+	environment := Environment{ComposeProject: "fixture-project", Networks: []string{"backend"}, Services: map[string]Service{"api": {ID: "api", Host: "api", Aliases: []string{"api"}}}}
+	config := map[string]any{
+		"services": map[string]any{"api": map[string]any{}},
+		"networks": map[string]any{"backend": map[string]any{"name": "fixture-project_backend"}},
+	}
+	if err := ValidateComposeConfig(config, environment); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLaunchRunsComposeAndCleansOwnedService(t *testing.T) {
 	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}, Profiles: []string{"debug"}, ProjectRoot: "/repo", SourcePath: "/repo/leedevkit.toml"}
 	calls := [][]string{}

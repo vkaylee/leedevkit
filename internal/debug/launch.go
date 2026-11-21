@@ -23,6 +23,38 @@ func ComposeBaseArgs(compose []string, environment Environment) ([]string, error
 	return args, nil
 }
 
+func ValidateComposeConfig(config map[string]any, environment Environment) error {
+	services, ok := config["services"].(map[string]any)
+	if !ok || len(services) == 0 {
+		return fmt.Errorf("Compose config has no services")
+	}
+	networks, ok := config["networks"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("Compose config has no networks")
+	}
+	for _, approved := range environment.Networks {
+		if _, ok := networks[approved]; !ok {
+			return fmt.Errorf("approved network is not in selected Compose project: %s", approved)
+		}
+	}
+	for _, service := range environment.Services {
+		if _, ok := services[service.Host]; ok {
+			continue
+		}
+		found := false
+		for _, alias := range service.Aliases {
+			if _, ok := services[alias]; ok {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("approved service is not in selected Compose project: %s", service.ID)
+		}
+	}
+	return nil
+}
+
 func BuildComposeConfigArgs(compose []string, environment Environment) ([]string, error) {
 	args, err := ComposeBaseArgs(compose, environment)
 	if err != nil {
