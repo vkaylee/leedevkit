@@ -201,6 +201,35 @@ func envProviderName(env map[string]string) string {
 	return "docker"
 }
 
+func shouldUseGoTest(project config.Project, target string) bool {
+	if target == "infra" || len(project.Services) == 0 {
+		return false
+	}
+	selected := project.Targets[target]
+	if target == "all" {
+		selected = project.Targets["all"]
+	}
+	if len(selected) == 0 {
+		for name := range project.Services {
+			selected = append(selected, name)
+		}
+	}
+	for _, name := range selected {
+		service, ok := project.Services[name]
+		if ok {
+			if service.Language != "go" {
+				return false
+			}
+			continue
+		}
+		if name == "go" {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func envProviderCLI(env map[string]string) string {
 	if value := env["CONTAINER_ENGINE"]; value != "" {
 		return value
@@ -734,6 +763,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			case "--json-stream":
 				flags.JSONStream = true
 			}
+		}
+		if !shouldUseGoTest(projectConfig, flags.Target) {
+			return runPythonCommand(args, stdin, stdout, stderr)
 		}
 		if flags.Target != "infra" {
 			env := environMap(os.Environ())

@@ -1,0 +1,27 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/vkaylee/leedevkit/internal/config"
+)
+
+func TestShouldUseGoTestRequiresConfiguredGoTarget(t *testing.T) {
+	project := config.Project{Services: map[string]config.Service{"backend": {Language: "go"}}, Targets: map[string][]string{"all": {"go"}}}
+	if !shouldUseGoTest(project, "go") {
+		t.Fatal("configured Go target should use Go")
+	}
+	if !shouldUseGoTest(project, "all") {
+		t.Fatal("Go-only all target should use Go")
+	}
+}
+
+func TestShouldUseGoTestKeepsInfraAndMixedTargetsOnPython(t *testing.T) {
+	goProject := config.Project{Services: map[string]config.Service{"backend": {Language: "go"}}, Targets: map[string][]string{"all": {"go", "web"}}}
+	if shouldUseGoTest(goProject, "all") {
+		t.Fatal("mixed all target must remain on Python until all paths migrate")
+	}
+	if shouldUseGoTest(config.Project{}, "infra") {
+		t.Fatal("infra must remain on Python")
+	}
+}
