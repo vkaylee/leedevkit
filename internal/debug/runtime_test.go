@@ -53,6 +53,14 @@ func TestRuntimeRejectsUnsafeLogSource(t *testing.T) {
 	}
 }
 
+func TestRedactValueRemovesSecretsFromJSON(t *testing.T) {
+	got := RedactValue(map[string]any{"token": "secret", "safe": "ok"}, nil)
+	values, ok := got.(map[string]any)
+	if !ok || values["token"] != "[REDACTED]" || values["safe"] != "ok" {
+		t.Fatalf("redacted = %#v", got)
+	}
+}
+
 func TestRuntimeReadOnlyDatabaseTemplate(t *testing.T) {
 	environment := runtimeFixture(t)
 	environment.Database = map[string]any{"enabled": true, "schemas": []string{"public"}, "templates": map[string]any{"health": "SELECT 1"}}

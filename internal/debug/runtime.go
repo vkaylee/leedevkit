@@ -30,7 +30,32 @@ type HTTPResult struct {
 }
 
 func NewRuntime(environment Environment) Runtime { return Runtime{Environment: environment} }
-func (r Runtime) Metadata() map[string]any       { return r.Environment.Metadata() }
+
+func RedactValue(value any, patterns []string) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if regexp.MustCompile(`(?i)(password|secret|token|authorization|cookie|api[_-]?key|jwt|set-cookie)`).MatchString(key) {
+				result[key] = "[REDACTED]"
+			} else {
+				result[key] = RedactValue(item, patterns)
+			}
+		}
+		return result
+	case []any:
+		result := make([]any, len(typed))
+		for index, item := range typed {
+			result[index] = RedactValue(item, patterns)
+		}
+		return result
+	case string:
+		return redactText(typed, patterns)
+	default:
+		return value
+	}
+}
+func (r Runtime) Metadata() map[string]any { return r.Environment.Metadata() }
 func (r Runtime) service(id string) (Service, error) {
 	service, ok := r.Environment.Services[id]
 	if !ok {
