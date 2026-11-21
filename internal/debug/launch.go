@@ -2,6 +2,7 @@ package debug
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 )
@@ -60,7 +61,55 @@ func BuildComposeConfigArgs(compose []string, environment Environment) ([]string
 	if err != nil {
 		return nil, err
 	}
-	return append(args, "config"), nil
+	return append(args, "config", "--format", "json"), nil
+}
+
+func ParseComposeConfig(data []byte) (map[string]any, error) {
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil || config == nil {
+		return nil, fmt.Errorf("Compose config output is not valid JSON")
+	}
+	return config, nil
+}
+
+func ResolveNetworkNames(config map[string]any, environment Environment) ([]string, error) {
+	networks, ok := config["networks"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("Compose config has no networks")
+	}
+	result := make([]string, 0, len(environment.Networks))
+	for _, approved := range environment.Networks {
+		network, ok := networks[approved].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("approved network is not in selected Compose project: %s", approved)
+		}
+		name := environment.ComposeProject + "_" + approved
+		if configured, ok := network["name"].(string); ok && configured != "" {
+			name = configured
+		}
+		result = append(result, name)
+	}
+	return result, nil
+}
+
+func BuildNetworkInspectArgs(engine []string, network string) ([]string, error) {
+	if len(engine) == 0 || network == "" {
+		return nil, fmt.Errorf("engine and network are required")
+	}
+	return append(append([]string{}, engine...), "network", "inspect", network), nil
+}
+
+func ValidateNetworkOwner(data []byte, project string) error {
+	var inspected []struct {
+		Labels map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(data, &inspected); err != nil || len(inspected) == 0 {
+		return fmt.Errorf("network inspection output is invalid")
+	}
+	if inspected[0].Labels["com.docker.compose.project"] != project {
+		return fmt.Errorf("network is not owned by selected Compose project")
+	}
+	return nil
 }
 
 func BuildDebugRunArgs(compose []string, environment Environment, override string) ([]string, error) {

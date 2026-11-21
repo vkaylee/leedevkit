@@ -21,7 +21,7 @@ func TestComposeBaseArgsIncludesProjectFilesAndProfiles(t *testing.T) {
 func TestBuildComposeConfigArgs(t *testing.T) {
 	environment := Environment{ComposeProject: "fixture-project", ComposeFiles: []string{"compose.yml"}, Profiles: []string{"debug"}}
 	got, err := BuildComposeConfigArgs([]string{"compose"}, environment)
-	if err != nil || got[len(got)-1] != "config" {
+	if err != nil || got[len(got)-3] != "config" || got[len(got)-2] != "--format" || got[len(got)-1] != "json" {
 		t.Fatalf("args = %#v, err = %v", got, err)
 	}
 }
