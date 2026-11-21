@@ -56,6 +56,24 @@ func TestExecutorRunsSetupAndTeardownAroundGate(t *testing.T) {
 	}
 }
 
+func TestExecutorMarksOptionalFailurePassedAndContinues(t *testing.T) {
+	calls := 0
+	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {
+		calls++
+		if request.Args[0] == "optional" {
+			return process.Result{ExitCode: 4, Err: errors.New("optional failure")}
+		}
+		return process.Result{ExitCode: 0}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", []Gate{
+		{Name: "optional", Phase: "lint", Command: []string{"optional"}, Required: false, FailurePolicy: "optional"},
+		{Name: "required", Phase: "lint", Command: []string{"required"}},
+	})
+	if result.Status != "passed" || calls != 2 {
+		t.Fatalf("result = %#v, calls = %d", result, calls)
+	}
+}
+
 func TestExecutorRunsTeardownAfterSetupFailure(t *testing.T) {
 	var calls []string
 	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {
@@ -68,6 +86,16 @@ func TestExecutorRunsTeardownAfterSetupFailure(t *testing.T) {
 	result := executor.RunPhase(context.Background(), "integration", []Gate{{Name: "integration", Phase: "integration", Command: []string{"gate"}, SetupCommand: []string{"setup"}, TeardownCommand: []string{"teardown"}}})
 	if result.Status != "failed" || len(calls) != 2 || calls[0] != "setup" || calls[1] != "teardown" {
 		t.Fatalf("result = %#v, calls = %#v", result, calls)
+	}
+}
+
+func TestExecutorMarksBlockFailurePolicyAsBlocked(t *testing.T) {
+	executor := Executor{Run: func(context.Context, process.Request) process.Result {
+		return process.Result{ExitCode: 9, Err: errors.New("gate failed")}
+	}}
+	result := executor.RunPhase(context.Background(), "unit", []Gate{{Name: "unit", Phase: "unit", Command: []string{"unit"}, Required: true, FailurePolicy: "block"}})
+	if result.Status != "blocked" || result.ExitCode != 9 {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

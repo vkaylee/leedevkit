@@ -72,9 +72,13 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 			}
 		}()
 		if result.Status == "failed" {
-			if gate.FailurePolicy == "optional" && !gate.Required {
+			switch {
+			case gate.FailurePolicy == "optional" && !gate.Required:
 				result.Status = "passed"
-			} else {
+			case gate.FailurePolicy == "block":
+				result.Status = "blocked"
+				return result
+			default:
 				return result
 			}
 		}

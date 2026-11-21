@@ -89,7 +89,7 @@
   - [x] Add argv-only Go gate executor for normalized phase gates.
   - [x] Preserve required failure stop and optional gate handling.
   - [x] Adapt gate executor into test scheduler phases.
-  - [ ] Add version/setup/teardown/requires/new-findings semantics.
+  - [x] Add version/setup/teardown/requires/new-findings semantics.
 - [ ] Task 9: Integrate lifecycle/build policy, DB/migration argv, and phase cleanup.
   - [x] Load configured dependencies and pass build/skip-build policy into lifecycle Plan.
   - [x] Add readiness polling to actual lifecycle phase execution.
