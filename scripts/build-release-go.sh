@@ -8,7 +8,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 CANONICAL="$STAGE/leedevkit-$VERSION"
 mkdir -p "$CANONICAL"
-for item in scripts templates bin .agent container cmd internal VERSION go.mod; do
+for item in templates bin .agent container cmd internal VERSION go.mod; do
     cp -a "$ROOT/$item" "$CANONICAL/"
 done
 mkdir -p "$OUT" "$OUT/.go-core" "$OUT/.debug-mcp"
