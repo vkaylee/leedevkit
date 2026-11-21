@@ -800,7 +800,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if flags.JSONStream {
 				return result.ExitCode
 			}
-			if err := json.NewEncoder(stdout).Encode(testProtocolResponse{SchemaVersion: 1, Result: result}); err != nil {
+			if err := json.NewEncoder(stdout).Encode(result.Summary(flags.Target, "go-cli")); err != nil {
 				fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
 				return 2
 			}

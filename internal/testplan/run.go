@@ -78,6 +78,32 @@ type RunResult struct {
 	Skipped        []report.Phase
 }
 
+func (r RunResult) Summary(target, runID string) report.Summary {
+	nextAction := ""
+	switch r.Status {
+	case "passed":
+		nextAction = "No further action required."
+	case "partial":
+		nextAction = "Run without focused or skip flags for full regression verification."
+	case "failed", "blocked":
+		nextAction = "Inspect failed phase logs and rerun the reported command."
+	}
+	return report.Summary{
+		SchemaVersion:  1,
+		RunID:          runID,
+		Status:         r.Status,
+		FullRegression: r.FullRegression,
+		ExitCode:       r.ExitCode,
+		Target:         target,
+		Counts:         r.Counts,
+		Phases:         r.Phases,
+		Failed:         r.Failed,
+		Blocked:        r.Blocked,
+		Skipped:        r.Skipped,
+		NextAction:     nextAction,
+	}
+}
+
 func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 	started := time.Now()
 	phases, err := Schedule(flags)
@@ -145,7 +171,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 		result.FullRegression = true
 	}
 	if stream != nil {
-		_ = stream.Emit("run_finished", map[string]any{"status": result.Status, "full_regression": result.FullRegression})
+		_ = stream.Emit("run_finished", map[string]any{"status": result.Status, "full_regression": result.FullRegression, "summary": result.Summary(flags.Target, runID)})
 	}
 	return result
 }
