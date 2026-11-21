@@ -24,6 +24,9 @@ func TestRunResultBuildsMachineSummary(t *testing.T) {
 	if summary.Target != "go" || summary.Counts != result.Counts || len(summary.Phases) != 2 {
 		t.Fatalf("summary fields = %#v", summary)
 	}
+	if !summary.Phases[0].Required || summary.Phases[1].Required {
+		t.Fatalf("phase required flags = %#v", summary.Phases)
+	}
 	if summary.NextAction == "" {
 		t.Fatal("partial summary missing next action")
 	}

@@ -121,7 +121,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 	result := RunResult{}
 	for _, phase := range phases {
 		phaseStarted := time.Now().UTC()
-		record := report.Phase{Phase: phase.Name, Target: flags.Target, Status: phase.Status, Required: true, StartTime: phaseStarted.Format(time.RFC3339Nano)}
+		record := report.Phase{Phase: phase.Name, Target: flags.Target, Status: phase.Status, Required: phase.Status == "selected", StartTime: phaseStarted.Format(time.RFC3339Nano)}
 		if phase.Status == "selected" {
 			if executor == nil {
 				record.Status = "blocked"
