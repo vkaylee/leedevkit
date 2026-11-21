@@ -23,6 +23,7 @@ import (
 	"github.com/vkaylee/leedevkit/internal/provider"
 	runplan "github.com/vkaylee/leedevkit/internal/run"
 	runtimepkg "github.com/vkaylee/leedevkit/internal/runtime"
+	"github.com/vkaylee/leedevkit/internal/skills"
 	"github.com/vkaylee/leedevkit/internal/targets"
 	"github.com/vkaylee/leedevkit/internal/testplan"
 )
@@ -1007,8 +1008,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if len(args) == 2 && args[1] == "list" {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
 		}
-		fmt.Fprintln(stderr, "unsupported skills command")
-		return 2
+		action := append([]string(nil), args[1:]...)
+		if err := (&skills.Manager{Root: projectRootOrCWD()}).Run(action); err != nil {
+			fmt.Fprintf(stderr, "skills failed: %v\n", err)
+			return 2
+		}
+		return 0
 	case "fmt:infra":
 		project := findProjectRoot()
 		runtime := goToolsRoot(project)
