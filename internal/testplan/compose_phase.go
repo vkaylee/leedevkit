@@ -8,6 +8,7 @@ import (
 )
 
 type ComposePhaseExecutor struct {
+	Build     func(context.Context, Phase) error
 	Lifecycle lifecycle.Executor
 	Gate      func(context.Context, Phase) PhaseResult
 	UpArgs    []string
@@ -24,6 +25,11 @@ func (e ComposePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) (
 	}
 	if e.Gate == nil {
 		return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "gate executor is required"}
+	}
+	if e.Build != nil {
+		if err := e.Build(ctx, phase); err != nil {
+			return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: fmt.Sprintf("build: %v", err)}
+		}
 	}
 	result = PhaseResult{}
 	err := e.Lifecycle.Run(ctx, func() error {

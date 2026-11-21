@@ -189,14 +189,6 @@ func environMap(values []string) map[string]string {
 	return result
 }
 
-func lifecycleFingerprint(root string, service config.Service) (string, error) {
-	compose, docker, contextData, err := lifecycle.ReadBuildInputs(filepath.Join(root, service.ComposeFile), filepath.Join(root, service.Dockerfile), root)
-	if err != nil {
-		return "", err
-	}
-	return lifecycle.BuildFingerprintInputs(compose, docker, contextData), nil
-}
-
 func resolveProviderForProject(root string, env map[string]string) (provider.Provider, error) {
 	repository := filepath.Join(root, "leedevkit.toml")
 	return provider.Resolve(provider.Options{Repository: repository, Environment: env, CLI: env["LEEDEVKIT_CONTAINER_PROVIDER"]})
@@ -765,20 +757,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 				compose = compose.WithService(service.Name, workdir)
 			}
-			build := projectConfig.BuildPolicy == "phase"
 			dependencies := projectConfig.Dependencies["int-go"]
 			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
-			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{"go"}, Dependencies: dependencies, Build: build, SkipBuild: flags.SkipBuild, OwnsProject: true}
+			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{"go"}, Dependencies: dependencies, SkipBuild: flags.SkipBuild, OwnsProject: true}
+			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, stderr))
+			if buildErr != nil {
+				fmt.Fprintf(stderr, "invalid build plan: %v\n", buildErr)
+				return 2
+			}
+			if buildCallback != nil {
+				lifecyclePlan.Build = projectConfig.BuildPolicy == "phase"
+			}
 			upArgs, upErr := lifecyclePlan.Up()
 			downArgs, downErr := lifecyclePlan.Down()
-			if build && serviceConfig.Dockerfile != "" && serviceConfig.ComposeFile != "" {
-				fingerprint, fingerprintErr := lifecycleFingerprint(projectRootOrCWD(), serviceConfig)
-				if fingerprintErr != nil {
-					fmt.Fprintf(stderr, "build fingerprint failed: %v\n", fingerprintErr)
-					return 2
-				}
-				_ = fingerprint
-			}
 			if upErr != nil || downErr != nil {
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v\n", upErr, downErr)
 				return 2
@@ -793,6 +784,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				},
 			}
 			result := testplan.Run(flags, testplan.ComposePhaseExecutor{
+				Build: func(ctx context.Context, _ testplan.Phase) error {
+					if buildCallback == nil {
+						return nil
+					}
+					return buildCallback(ctx)
+				},
 				Lifecycle: lifecycleExecutor,
 				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
 					return testplan.GatePhaseExecutor{Definitions: gates.Defaults(), ComposeRun: compose.Run}.ExecuteContext(ctx, phase)
