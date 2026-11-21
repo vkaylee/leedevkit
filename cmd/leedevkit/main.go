@@ -201,6 +201,13 @@ func envProviderName(env map[string]string) string {
 	return "docker"
 }
 
+func configuredServiceName(project config.Project, language string) string {
+	if service, ok := project.ServiceForLanguage(language); ok && service.Name != "" {
+		return service.Name
+	}
+	return language
+}
+
 func shouldUseGoTest(project config.Project, target string) bool {
 	if target == "infra" || len(project.Services) == 0 {
 		return false
@@ -824,7 +831,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 			composeTool = providerConfig.Compose
-			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: "go", Workdir: "/workspace", Execute: process.Run}
+			goService := configuredServiceName(projectConfig, "go")
+			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Execute: process.Run}
 			if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 				workdir := "/workspace"
 				if service.Workdir != "" {
@@ -834,7 +842,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			dependencies := projectConfig.Dependencies["int-go"]
 			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
-			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{"go"}, Dependencies: dependencies, SkipBuild: flags.SkipBuild, OwnsProject: true}
+			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{goService}, Dependencies: dependencies, SkipBuild: flags.SkipBuild, OwnsProject: true}
 			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, stderr))
 			if buildErr != nil {
 				fmt.Fprintf(stderr, "invalid build plan: %v\n", buildErr)

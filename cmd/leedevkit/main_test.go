@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vkaylee/leedevkit/internal/config"
 )
 
 func TestRunHelp(t *testing.T) {
@@ -204,6 +206,21 @@ func TestResolveBaseRefValidatesWithoutShell(t *testing.T) {
 	}
 	if _, err := resolveBaseRef(root, "not-a-real-ref"); err == nil {
 		t.Fatal("invalid base ref accepted")
+	}
+}
+
+func TestConfiguredGoServiceNameUsesManifestService(t *testing.T) {
+	project := config.Project{Services: map[string]config.Service{
+		"backend": {Language: "go", Name: "backend"},
+	}}
+	if got := configuredServiceName(project, "go"); got != "backend" {
+		t.Fatalf("service = %q, want backend", got)
+	}
+}
+
+func TestConfiguredGoServiceNameFallsBackToGo(t *testing.T) {
+	if got := configuredServiceName(config.Project{}, "go"); got != "go" {
+		t.Fatalf("service = %q, want go", got)
 	}
 }
 
