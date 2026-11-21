@@ -72,6 +72,9 @@ class InitHandler(HandlerBase):
         project_rules = root / rules_rel
         devkit_rules = devkit / ".agent" / "rules"
         if devkit_rules.exists():
+            # Replace stale legacy links; preserve valid links and directories.
+            if project_rules.is_symlink() and not project_rules.exists():
+                self._remove_path(project_rules)
             project_rules.mkdir(parents=True, exist_ok=True)
             copied = 0
             for rule_file in sorted(devkit_rules.glob("*.md")):
@@ -234,6 +237,9 @@ class InitHandler(HandlerBase):
         project_rules = root / rules_rel
         devkit_rules = devkit / ".agent" / "rules"
         if devkit_rules.exists():
+            # Replace stale legacy links; preserve valid links and directories.
+            if project_rules.is_symlink() and not project_rules.exists():
+                self._remove_path(project_rules)
             project_rules.mkdir(parents=True, exist_ok=True)
             copied = 0
             for rule_file in sorted(devkit_rules.glob("*.md")):

@@ -190,6 +190,43 @@ func sameStrings(left, right []string) bool {
 	return true
 }
 
+func TestPlanRunProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"plan":{"compose":["docker","compose"],"project":"test","files":["compose.yml"],"tool":"go","args":["version"],"service":"go"}}`
+	if code := run([]string{"--plan-run"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("plan run exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response runProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.SchemaVersion != 1 || !contains(response.Args, "--entrypoint") || !contains(response.Args, "version") {
+		t.Fatalf("run response = %#v", response)
+	}
+}
+
+func TestPlanRunRejectsSchema(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--plan-run"}, strings.NewReader(`{"schema_version":2}`), &stdout, &stderr); code != 2 {
+		t.Fatalf("invalid run schema exit code = %d", code)
+	}
+}
+
+func TestPlanTestProtocol(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := `{"schema_version":1,"flags":{"target":"go","unit_only":true}}`
+	if code := run([]string{"--plan-test"}, strings.NewReader(input), &stdout, &stderr); code != 0 {
+		t.Fatalf("plan test exit code = %d, stderr = %q", code, stderr.String())
+	}
+	var response testProtocolResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.SchemaVersion != 1 || response.Result.Status != "blocked" {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
 func TestResolveModesProtocol(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	input := `{"schema_version":1,"services":[{"name":"backend","language":"go"},{"name":"frontend","language":"typescript"}]}`

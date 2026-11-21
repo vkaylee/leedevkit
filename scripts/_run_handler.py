@@ -21,6 +21,47 @@ from _handler_base import HandlerBase
 from _lifecycle import lifecycle_up as _lifecycle_up
 from _logging import log_info
 
+
+def _plan_run_shadow(
+    *,
+    compose_cmd: list[str],
+    project_name: str,
+    profiles: list[str],
+    files: list[str],
+    tool: str,
+    tool_args: list[str],
+    service: str,
+    workdir: str = "",
+    running: bool = False,
+    dev: bool = False,
+    pooler: bool = False,
+) -> None:
+    """Compare deterministic run argv with Go in opt-in shadow mode."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return
+    from _go_core import plan_run_go
+
+    payload = {
+        "schema_version": 1,
+        "plan": {
+            "compose": compose_cmd,
+            "project": project_name,
+            "profiles": profiles,
+            "files": files,
+            "tool": tool,
+            "args": tool_args,
+            "service": service,
+            "workdir": workdir,
+            "running": running,
+            "dev": dev,
+            "pooler": pooler,
+        },
+    }
+    response = plan_run_go(payload)
+    if response is None or response.get("args") != compose_cmd:
+        raise RuntimeError("Go run plan shadow result differs from Python result")
+
+
 if TYPE_CHECKING:
     import argparse
 
@@ -136,6 +177,7 @@ class RunHandler(HandlerBase):
             compose_mode = {"cargo": "api", "npm": "web", "go": "go"}.get(tool, "all")
             compose_cmd.extend(["-f", self._compose_file_for_mode(compose_mode)])
 
+        running = False
         if tool == "npm":
             first = tool_args[0] if tool_args else ""
             is_standalone = tool_args and first in ("--version", "--help", "-v", "-h")
@@ -147,6 +189,7 @@ class RunHandler(HandlerBase):
                     compose_cmd.extend(tool_args)
             else:
                 is_running = self.is_service_running(service)
+                running = is_running
                 if is_running:
                     compose_cmd.extend(["exec", "-T", service])
                 else:
@@ -154,6 +197,7 @@ class RunHandler(HandlerBase):
                 self._handle_run_npm(compose_cmd, tool_args, service, is_running)
         elif tool == "cargo":
             is_running = is_dev_project and self.is_service_running(service)
+            running = is_running
             if is_running:
                 compose_cmd.extend(["exec", "-T"])
             elif not needs_db:
@@ -163,6 +207,7 @@ class RunHandler(HandlerBase):
             self._handle_run_cargo(compose_cmd, tool_args, service, is_running)
         elif tool == "go":
             if is_dev_project and self.is_service_running(service):
+                running = True
                 compose_cmd.extend(["exec", "-T", service, "go"])
             else:
                 compose_cmd.extend(
@@ -171,6 +216,7 @@ class RunHandler(HandlerBase):
             compose_cmd.extend(tool_args)
         else:  # diesel
             if is_dev_project and self.is_service_running(service):
+                running = True
                 compose_cmd.extend(["exec", "-T", service, "diesel"])
             else:
                 compose_cmd.extend(
@@ -179,6 +225,41 @@ class RunHandler(HandlerBase):
             if tool_args:  # pragma: no cover
                 compose_cmd.extend(tool_args)  # pragma: no cover
 
+        project_name = self._env_vars.get("COMPOSE_PROJECT_NAME", "leedevkit-test")
+        project_index = compose_cmd.index("-p")
+        compose_tool = compose_cmd[:project_index]
+        tail = compose_cmd[project_index + 2 :]
+        files: list[str] = []
+        profiles: list[str] = []
+        index = 0
+        while index < len(tail):
+            if tail[index] == "-f" and index + 1 < len(tail):
+                files.append(tail[index + 1])
+                index += 2
+            elif tail[index] == "--profile" and index + 1 < len(tail):
+                profiles.extend(tail[index : index + 2])
+                index += 2
+            else:
+                index += 1
+        _plan_run_shadow(
+            compose_cmd=compose_tool,
+            project_name=project_name,
+            profiles=profiles,
+            files=files,
+            tool=tool,
+            tool_args=tool_args,
+            service=service,
+            workdir=(
+                f"/workspace/{rel_dir}"
+                if tool == "cargo" and rel_dir
+                else "/workspace"
+                if tool == "cargo"
+                else ""
+            ),
+            running=running,
+            dev=is_dev_project,
+            pooler=bool(getattr(args, "pooler", False)),
+        )
         self._execute_safe(compose_cmd)
 
     def _compose_file_for_mode(self, mode: str) -> str:

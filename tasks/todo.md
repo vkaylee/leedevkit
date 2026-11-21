@@ -1,66 +1,145 @@
 # Python → Go Control-Plane Migration
 
-## Foundation
+## Phase 1 — Restore `run`
 
-- [ ] Define canonical Go command/config/runtime/report contracts.
-- [ ] Add explicit `LEEDEVKIT_CORE=go|python` routing; Go errors fail closed.
-- [ ] Add golden parity fixtures for argv, streams, exit codes, signals, JSON, and JSONL.
-- [x] Checkpoint A: outside-checkout Go binary and runtime precedence pass.
-  - [x] Explicit `DEVKIT_HOME` wins over project runtime.
-  - [x] Quoted `vX.Y.Z` project pin matches runtime `X.Y.Z`.
-  - [x] No-argument help, version aliases, and malformed gate JSON covered.
-  - [x] Go tests pass in `golang:1.26.11-bookworm` container.
-  - [x] Python Go-core/launcher tests pass.
+- [ ] Task 1: Freeze `run` golden contract and implement pure Go argv planner.
+  - [x] Add versioned `--plan-run` Go protocol.
+  - [x] Cover `go`, `cargo`, `npm`, `diesel` planner branches.
+  - [x] Cover project, running/non-running service, pooler, Cargo rewrite, sanitizer policy.
+  - [x] Add Python opt-in shadow comparison before execution.
+  - [ ] Expand exact golden fixtures for every tool/project combination.
+- [ ] Task 2: Port safe process supervisor.
+  - [x] Preserve argv-only execution, streams, cwd, timeout, signals, exit mapping.
+  - [x] Kill process groups on timeout/cancellation.
+  - [x] Add Go run execution adapter using process supervisor.
+  - [x] Wire owned/external cleanup behavior into execution adapter tests.
+  - [x] Integrate bounded project log writer into Go run execution adapter.
+- [ ] Task 3: Port ownership, locks, and cleanup safety.
+  - [x] Add immutable project identity and lock ownership session.
+  - [x] External sessions never auto-teardown.
+  - [x] Owned close is idempotent and releases lock after teardown.
+  - [x] Add bounded Compose teardown, retry, fallback, and no-volume invariant.
+  - [x] Add stale sweep policy: test prefix, age, lock, unknown-age safety.
+  - [ ] Add startup-failure integration.
+- [ ] Task 4: Switch production `run` dispatch.
+  - [x] Add Go CLI parser and normalized project/tool context.
+  - [x] Wire Go `run` execution into `cmd/leedevkit`.
+  - [x] `LEEDEVKIT_CORE=go` launcher routes all currently supported Go binary commands, including `run`.
+  - [x] `LEEDEVKIT_CORE=python` preserves Python path.
+  - [x] Go mode fails closed when binary is missing; launcher does not start `_orchestrator.py`.
 
-## Test control plane
+### Checkpoint 1
 
-- [x] Migrate focused paths `test infra --lint-only` and `test infra --unit-only` to Go.
-  - [x] Run runtime `ruff check`, `mypy`, and optional `shellcheck` through argv.
-  - [x] Run pytest with production coverage and 80% gate through argv.
-  - [x] Support validated `--pattern` filtering without full-coverage claims.
-  - [x] Preserve subprocess exit code and stdout/stderr forwarding.
-  - [x] Stop on first failed command.
-- [ ] Migrate remaining `test infra` and focused test paths to Go.
-- [ ] Preserve gate selection, process safety, logs, blocked/failed/skipped/partial semantics.
-- [ ] Migrate full `test all` phase state machine and DB/migration Compose command paths.
-- [ ] Checkpoint B: focused tests pass in Go mode.
-- [ ] Checkpoint C: full JSON/JSONL, Compose integration, isolation, teardown pass.
+- [ ] Golden argv/cwd/env/output/exit parity passes.
+- [ ] Timeout/signal/descendant and ownership tests pass.
+- [ ] Go and Python focused tests pass.
+- [ ] Shell syntax and `git diff --check` pass.
 
-## Compose command paths
+## Phase 2 — Contracts
 
-- [ ] Migrate `dev up/down/ps/logs/exec` to Go Compose adapter.
-- [ ] Keep `dev clean` explicit and destructive; never reuse for automatic cleanup.
-- [ ] Verify no Go code duplicates Compose dependency, health, identity, or volume logic.
+- [x] Task 5: Freeze Go JSON/JSONL report encoder against Python fixtures.
+  - [x] Stable summary schema fields and status/count contract.
+  - [x] Ordered JSONL stream with schema version, run ID, sequence, timestamp.
+- [x] Task 6: Port normalized target/mode command path with Python config boundary.
+  - [x] Add Go testplan adapter over existing targets/modes policy.
+  - [x] Preserve alias order, uncovered services, and compatibility modes.
 
-## Project state commands
+### Checkpoint 2
 
+- [ ] Report/schema/sequence fixtures stable.
+- [ ] No normal Go path silently invokes Python.
+
+## Phase 3 — Full `test all`
+
+- [x] Task 7: Port phase scheduler and all test flags.
+  - [x] Preserve Python phase order and selected/skipped statuses.
+  - [x] Handle lint/unit/e2e/coverage/skip and infra conflicts.
+  - [x] Add fake executor run integration with report summary/JSONL.
+  - [x] Add versioned `--plan-test` protocol and fail-closed validation.
+  - [x] Wire scheduler into Go `test` CLI with default gate executor.
+  - [x] Add Compose gate runner that builds `compose exec -T` argv.
+  - [x] Wire Go test scheduler gates through Compose argv boundary.
+  - [x] Add lifecycle phase wrapper with startup, gate execution, teardown, and blocked startup failures.
+  - [x] Add argv-only lifecycle executor with guaranteed teardown.
+  - [x] Add Compose executor for lifecycle argv with process exit propagation.
+  - [x] Verify lifecycle Plan.Up/Down argv integration.
+  - [x] Add Compose phase executor combining lifecycle and gate execution.
+  - [x] Wire lifecycle phase executor into Go `test` CLI path.
+  - [x] Provide lifecycle Plan.Up/Down args from normalized provider/project context.
+  - [x] Add readiness polling adapter with timeout and context cancellation.
+  - [x] Add build policy (`--build`/`--no-build`/`skip-build`) to lifecycle Plan.
+  - [x] Add normalized provider boundary and capability validation.
+  - [x] Add provider precedence/default/custom/unknown conformance fixtures.
+  - [x] Move provider TOML loading to pinned `github.com/pelletier/go-toml/v2` parser.
+  - [x] Preserve provider precedence and fail-closed malformed/unknown config behavior.
+  - [x] Connect Go test lifecycle to Go provider resolver for repository/env precedence.
+  - [x] Auto-load host config path when no explicit host file is provided.
+  - [x] Add nested host provider override conformance fixture.
+  - [x] Add nested host provider override conformance fixture.
+  - [x] Add arrays, escaped commas, inline hashes, and multiline TOML fixtures.
+  - [x] Remove obsolete line-based provider parser and compatibility array parser.
+  - [x] Correct host provider source diagnostics for auto-loaded host config.
+  - [x] Add Go project config loader for services, targets, and build policy.
+- [x] Add Go project config loader for services, targets, and build policy.
+- [x] Connect config loading to Go test command validation boundary.
+- [x] Select Compose service/workdir from configured Go service instead of hardcoded values.
+- [x] Make config-derived service/target mapping deterministic.
+- [x] Complete deep-merge/host override parity and switch all config ownership.
+- [ ] Task 8: Port quality-gate execution and failure policy.
+  - [x] Add argv-only Go gate executor for normalized phase gates.
+  - [x] Preserve required failure stop and optional gate handling.
+  - [x] Adapt gate executor into test scheduler phases.
+  - [ ] Add version/setup/teardown/requires/new-findings semantics.
+- [ ] Task 9: Integrate lifecycle/build policy, DB/migration argv, and phase cleanup.
+  - [x] Load configured dependencies and pass build/skip-build policy into lifecycle Plan.
+  - [x] Add readiness polling to actual lifecycle phase execution.
+  - [x] Add build/image freshness policy primitives.
+  - [x] Add deterministic build fingerprint and metadata persistence primitives.
+  - [x] Add build/image verification decision to lifecycle Plan via metadata fingerprint.
+  - [x] Add per-fingerprint build lock primitive.
+  - [x] Add locked build runner with post-success metadata publication.
+  - [x] Add Compose image label fingerprint verification primitive.
+  - [x] Add image fingerprint verification helper with mismatch failure.
+  - [x] Wire image label verification into locked build runner before metadata publication.
+  - [x] Add image verification across all built images.
+  - [x] Add lifecycle Plan.BuildArgs using same provider/profile/service boundary.
+  - [x] Add BuildFlow using Plan.BuildArgs → build lock → image verify → metadata publish.
+  - [x] Resolve configured service image field in project config.
+  - [x] Add build input loader and fingerprint source boundary.
+  - [x] Add file-based BuildFlow fingerprint + metadata publisher.
+  - [x] Load configured Dockerfile, Compose file, and image paths from service config.
+  - [x] Fingerprint directory build context deterministically while excluding runtime/cache dirs.
+  - [x] Wire build input/fingerprint validation into lifecycle CLI path.
+  - [ ] Execute BuildFlow and publish verified metadata in lifecycle CLI path.
+
+### Checkpoint 3
+
+- [ ] `test all --json` parity.
+- [ ] `test all --json-stream --quiet` parity.
+- [ ] Compose, readiness, build, isolation, teardown-on-failure, no-volume tests pass.
+- [ ] Full wrapper regression passes.
+
+## Phase 4 — Ownership and remaining paths
+
+- [ ] Task 10: TOML/provider conformance corpus and Go ownership switch.
+- [ ] Migrate `dev` as separate vertical slice.
 - [ ] Migrate read-only `doctor`.
-- [ ] Migrate transactional `doctor --fix` with rollback.
-- [ ] Migrate `init` acquisition, extraction, venv, rules, harness, skills, and pinning.
-- [ ] Migrate `update` staging, native binary activation, config sync, and rollback.
-- [ ] Migrate transactional `skills` operations and harness sync.
-
-## Remaining paths
-
-- [ ] Migrate `run` and safe process execution.
-- [ ] Migrate `db:*` and `migrate:*` Compose command builders.
-- [ ] Migrate `debug` read-only bounded MCP path.
-- [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, and coverage paths.
-- [ ] Prove no normal Go command launches `_orchestrator.py`.
+- [ ] Migrate transactional `doctor --fix`.
+- [ ] Migrate `init`.
+- [ ] Migrate `update`.
+- [ ] Migrate `skills`.
+- [ ] Migrate `db:*` and `migrate:*`.
+- [ ] Migrate `debug`.
+- [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, coverage.
 
 ## Packaging and retirement
 
-- [ ] Make release/install/bootstrap Go-first without requiring `_orchestrator.py`.
-- [ ] Keep Python fallback through two tagged compatibility releases.
-- [ ] Run full regression, release build/acceptance, local mirror, checksums, SBOM, and public release verification.
-- [ ] Human approval before deleting Python handlers, bridge, fallback env, or legacy wrapper.
+- [ ] Make release/install/bootstrap Go-first.
+- [ ] Keep explicit Python fallback through two compatibility releases.
+- [ ] Run release build, acceptance, checksums, SBOM, and public release verification.
+- [ ] Human approval before deleting bridge, handlers, fallback env, or wrapper.
 - [ ] Remove dead compatibility code in separate reviewed cleanup.
 
-## Cleanup Lifecycle Follow-up
+## Existing separate fix
 
-- [ ] Harden lock ownership and immutable invocation project identity
-- [ ] Add bounded, observable, retrying idempotent Compose teardown
-- [ ] Implement age/lock/ownership-safe stale sweep
-- [ ] Cover signal, timeout, child, watchdog, phase, and parallel cleanup paths
-- [ ] Add Debug MCP one-off cleanup on EOF, signals, timeout, and startup failure
-- [ ] Add cleanup regression tests and run full wrapper verification
+- [ ] Preserve broken `.agent/rules` symlink repair in `scripts/_init_handler.py` and its regression test.

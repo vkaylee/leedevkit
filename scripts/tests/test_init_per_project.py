@@ -457,6 +457,28 @@ class TestHandleInitFromSource:
         assert not project_rule.is_symlink()
         assert project_rule.read_text() == "# Coding Standards\n"
 
+    def test_replaces_broken_rules_symlink(self, tmp_path, monkeypatch):
+        """Init repairs stale legacy rules links before copying rulebooks."""
+        project = _make_project(tmp_path / "project")
+        source = _make_devkit_source(tmp_path / "source")
+        monkeypatch.setenv("DEVKIT_LOCAL_PATH", str(source))
+        monkeypatch.chdir(project)
+        rules_link = project / ".agent" / "rules"
+        rules_link.parent.mkdir()
+        rules_link.symlink_to(project / ".missing-rules")
+
+        import _devkit_config
+
+        _devkit_config._DEVKIT_ROOT = None
+        with patch("_orchestrator.Orchestrator.register_traps", return_value=None):
+            from _orchestrator import Orchestrator
+
+            Orchestrator().handle_init(force=False)
+
+        assert rules_link.is_dir()
+        assert not rules_link.is_symlink()
+        assert (rules_link / "coding-standards.md").exists()
+
     def test_idempotent_does_not_overwrite_existing_rules(self, tmp_path, monkeypatch):
         """Re-running init does not overwrite existing project rules."""
         project = _make_project(tmp_path / "project")

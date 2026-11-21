@@ -40,7 +40,7 @@ fi
 COMMAND="$1"
 shift
 
-if [ "${LEEDEVKIT_CORE:-python}" = "go" ] && { [ "$COMMAND" = "version" ] || [ "$COMMAND" = "--version" ] || [ "$COMMAND" = "-v" ]; }; then
+if [ "${LEEDEVKIT_CORE:-python}" = "go" ]; then
     GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
     if [ -z "$GO_CORE" ]; then
         case "$(uname -s):$(uname -m)" in

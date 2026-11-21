@@ -142,6 +142,23 @@ def plan_gates_go(
     return response
 
 
+def plan_run_go(
+    payload: dict[str, Any],
+    *,
+    binary_path: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Return Go Compose argv plan when shadow mode is enabled."""
+    if os.environ.get("LEEDEVKIT_USE_GO_CORE") != "1":
+        return None
+    response = _run_protocol(
+        "--plan-run", payload, binary_path=binary_path, timeout=timeout
+    )
+    if not isinstance(response.get("args"), list):
+        raise RuntimeError("Go core returned invalid run plan")
+    return response
+
+
 def plan_lifecycle_go(
     payload: dict[str, Any],
     *,

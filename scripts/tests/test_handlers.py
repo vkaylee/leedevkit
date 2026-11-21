@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import json
+import os
 import pytest
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -425,6 +426,26 @@ class TestRunHandler:
             with patch("pathlib.Path.cwd", return_value=MagicMock()):
                 handler.handle_run(args)
         orch.execute_safe.assert_called_once()
+
+    def test_run_shadow_compares_go_plan(self):
+        """Opt-in Go run planning compares exact Compose argv before execution."""
+        from _run_handler import _plan_run_shadow
+
+        with patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": "1"}):
+            with patch(
+                "_go_core.plan_run_go",
+                return_value={"schema_version": 1, "args": ["docker", "compose"]},
+            ) as plan:
+                _plan_run_shadow(
+                    compose_cmd=["docker", "compose"],
+                    project_name="test",
+                    profiles=[],
+                    files=[],
+                    tool="go",
+                    tool_args=["version"],
+                    service="go",
+                )
+        plan.assert_called_once()
 
     def test_handle_run_sanitize_args(self):
         """AI-provided args are sanitized before execution."""

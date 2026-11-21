@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/vkaylee/leedevkit/internal/config"
 	"github.com/vkaylee/leedevkit/internal/gates"
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/modes"
+	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/provider"
+	runplan "github.com/vkaylee/leedevkit/internal/run"
 	"github.com/vkaylee/leedevkit/internal/targets"
+	"github.com/vkaylee/leedevkit/internal/testplan"
 )
 
 type gateProtocolRequest struct {
@@ -82,6 +88,21 @@ type lifecycleProtocolResponse struct {
 	SchemaVersion int      `json:"schema_version"`
 	Operation     string   `json:"operation"`
 	Args          []string `json:"args"`
+}
+
+type runProtocolRequest struct {
+	SchemaVersion int             `json:"schema_version"`
+	Plan          runplan.Request `json:"plan"`
+}
+
+type runProtocolResponse struct {
+	SchemaVersion int      `json:"schema_version"`
+	Args          []string `json:"args"`
+}
+
+type testProtocolResponse struct {
+	SchemaVersion int                `json:"schema_version"`
+	Result        testplan.RunResult `json:"result"`
 }
 
 const usage = `leedevkit — Enterprise DevKit for AI-first projects
@@ -166,6 +187,48 @@ func environMap(values []string) map[string]string {
 		}
 	}
 	return result
+}
+
+func lifecycleFingerprint(root string, service config.Service) (string, error) {
+	compose, docker, contextData, err := lifecycle.ReadBuildInputs(filepath.Join(root, service.ComposeFile), filepath.Join(root, service.Dockerfile), root)
+	if err != nil {
+		return "", err
+	}
+	return lifecycle.BuildFingerprintInputs(compose, docker, contextData), nil
+}
+
+func resolveProviderForProject(root string, env map[string]string) (provider.Provider, error) {
+	repository := filepath.Join(root, "leedevkit.toml")
+	return provider.Resolve(provider.Options{Repository: repository, Environment: env, CLI: env["LEEDEVKIT_CONTAINER_PROVIDER"]})
+}
+
+func envProviderName(env map[string]string) string {
+	if value := env["CONTAINER_PROVIDER"]; value != "" {
+		return value
+	}
+	return "docker"
+}
+
+func envProviderCLI(env map[string]string) string {
+	if value := env["CONTAINER_ENGINE"]; value != "" {
+		return value
+	}
+	return "docker"
+}
+
+func splitCommand(value string) []string {
+	return strings.Fields(value)
+}
+
+func projectRootOrCWD() string {
+	if root := findProjectRoot(); root != "" {
+		return root
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return cwd
 }
 
 func findProjectRoot() string {
@@ -469,6 +532,44 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(args) == 1 && args[0] == "--plan-run" {
+		var request runProtocolRequest
+		if err := decodeSingleJSON(stdin, &request); err != nil {
+			fmt.Fprintf(stderr, "malformed run request: %v\n", err)
+			return 2
+		}
+		if request.SchemaVersion != 1 {
+			fmt.Fprintf(stderr, "unsupported run schema version: %d\n", request.SchemaVersion)
+			return 2
+		}
+		planned, err := runplan.Plan(request.Plan)
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid run request: %v\n", err)
+			return 2
+		}
+		if err := json.NewEncoder(stdout).Encode(runProtocolResponse{SchemaVersion: 1, Args: planned}); err != nil {
+			fmt.Fprintf(stderr, "failed to write run response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
+	if len(args) == 1 && args[0] == "--plan-test" {
+		var request testplan.ProtocolRequest
+		if err := decodeSingleJSON(stdin, &request); err != nil {
+			fmt.Fprintf(stderr, "malformed test request: %v\n", err)
+			return 2
+		}
+		if err := testplan.ValidateProtocol(request); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		result := testplan.Run(request.Flags, nil, nil)
+		if err := json.NewEncoder(stdout).Encode(testProtocolResponse{SchemaVersion: 1, Result: result}); err != nil {
+			fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
+			return 2
+		}
+		return 0
+	}
 	if len(args) == 1 && args[0] == "--resolve-modes" {
 		var request modeProtocolRequest
 		if err := decodeSingleJSON(stdin, &request); err != nil {
@@ -578,7 +679,135 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, version)
 		return 0
+	case "run":
+		request, err := runplan.ParseCLI(args)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		plan, err := runplan.ResolveContext(request, environMap(os.Environ()), projectRootOrCWD())
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid run request: %v\n", err)
+			return 2
+		}
+		result := runplan.Execute(context.Background(), runplan.ExecuteRequest{
+			Plan: plan, Owned: plan.Owned,
+			CleanupBase: append([]string(nil), plan.Compose...),
+			LogRoot:     projectRootOrCWD(), LogName: "run.log",
+			Stdout: stdout, Stderr: stderr,
+			RunCompose: func(argv []string) error {
+				command := exec.Command(argv[0], argv[1:]...)
+				command.Dir = projectRootOrCWD()
+				command.Stdout, command.Stderr = stderr, stderr
+				return command.Run()
+			},
+		})
+		if result.Err != nil {
+			fmt.Fprintf(stderr, "run failed: %v\n", result.Err)
+		}
+		return result.Process.ExitCode
 	case "test":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "test target is required")
+			return 2
+		}
+		flags := testplan.Flags{Target: args[1]}
+		projectConfig, configErr := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		if configErr != nil {
+			fmt.Fprintf(stderr, "invalid project config: %v\n", configErr)
+			return 2
+		}
+		flags.BuildPolicy = projectConfig.BuildPolicy
+		configuredPlan := testplan.RequestFromConfig(args[1], projectConfig)
+		if len(configuredPlan.Services) == 0 && args[1] != "all" {
+			fmt.Fprintf(stderr, "test target %q has no configured services\n", args[1])
+			return 2
+		}
+		for _, flag := range args[2:] {
+			switch flag {
+			case "--lint-only":
+				flags.LintOnly = true
+			case "--unit-only":
+				flags.UnitOnly = true
+			case "--e2e-only":
+				flags.E2EOnly = true
+			case "--coverage":
+				flags.Coverage = true
+			case "--skip-lint":
+				flags.SkipLint = true
+			case "--skip-e2e":
+				flags.SkipE2E = true
+			case "--json-stream":
+				flags.JSONStream = true
+			}
+		}
+		if flags.Target != "infra" {
+			env := environMap(os.Environ())
+			composeTool := splitCommand(env["DOCKER_COMPOSE_TOOL"])
+			if len(composeTool) == 0 {
+				composeTool = []string{"docker", "compose"}
+			}
+			project := env["COMPOSE_PROJECT_NAME"]
+			if project == "" {
+				project = "leedevkit-test"
+			}
+			providerConfig, providerErr := resolveProviderForProject(projectRootOrCWD(), env)
+			if providerErr != nil {
+				fmt.Fprintf(stderr, "invalid provider: %v\n", providerErr)
+				return 2
+			}
+			composeTool = providerConfig.Compose
+			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: "go", Workdir: "/workspace", Execute: process.Run}
+			if service, ok := projectConfig.ServiceForLanguage("go"); ok {
+				workdir := "/workspace"
+				if service.Workdir != "" {
+					workdir = filepath.Join("/workspace", service.Workdir)
+				}
+				compose = compose.WithService(service.Name, workdir)
+			}
+			build := projectConfig.BuildPolicy == "phase"
+			dependencies := projectConfig.Dependencies["int-go"]
+			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
+			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{"go"}, Dependencies: dependencies, Build: build, SkipBuild: flags.SkipBuild, OwnsProject: true}
+			upArgs, upErr := lifecyclePlan.Up()
+			downArgs, downErr := lifecyclePlan.Down()
+			if build && serviceConfig.Dockerfile != "" && serviceConfig.ComposeFile != "" {
+				fingerprint, fingerprintErr := lifecycleFingerprint(projectRootOrCWD(), serviceConfig)
+				if fingerprintErr != nil {
+					fmt.Fprintf(stderr, "build fingerprint failed: %v\n", fingerprintErr)
+					return 2
+				}
+				_ = fingerprint
+			}
+			if upErr != nil || downErr != nil {
+				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v\n", upErr, downErr)
+				return 2
+			}
+			readiness := lifecycle.Readiness{Run: process.Run}
+			readinessArgs := append(append([]string(nil), composeTool...), "-p", project, "ps", "--status", "running")
+			lifecycleExecutor := lifecycle.Executor{
+				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
+					return lifecycle.ComposeExecutor{Run: process.Run}.Execute(ctx, args)
+				}, Readiness: func(ctx context.Context) error {
+					return readiness.Wait(ctx, readinessArgs, []string{compose.Service}, 120*time.Second)
+				},
+			}
+			result := testplan.Run(flags, testplan.ComposePhaseExecutor{
+				Lifecycle: lifecycleExecutor,
+				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
+					return testplan.GatePhaseExecutor{Definitions: gates.Defaults(), ComposeRun: compose.Run}.ExecuteContext(ctx, phase)
+				},
+			}, stdout)
+			if flags.JSONStream {
+				return result.ExitCode
+			}
+			if err := json.NewEncoder(stdout).Encode(testProtocolResponse{SchemaVersion: 1, Result: result}); err != nil {
+				fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
+				return 2
+			}
+			return result.ExitCode
+		}
+
 		if isInfraLint(args) || isInfraUnit(args) {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))

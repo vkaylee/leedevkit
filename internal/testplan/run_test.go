@@ -1,0 +1,45 @@
+package testplan
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+)
+
+func TestRunProducesSummaryAndJSONL(t *testing.T) {
+	var stream bytes.Buffer
+	result := Run(Flags{Target: "go", UnitOnly: true, JSONStream: true}, ExecutorFunc(func(phase Phase) PhaseResult {
+		if phase.Name == "Unit Tests" {
+			return PhaseResult{Status: "passed", ExitCode: 0}
+		}
+		return PhaseResult{Status: phase.Status, ExitCode: 0}
+	}), &stream)
+	if result.Status != "partial" || result.FullRegression || result.Counts.Passed != 1 || result.Counts.Skipped != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+	lines := bytes.Split(bytes.TrimSpace(stream.Bytes()), []byte{'\n'})
+	if len(lines) != 5 {
+		t.Fatalf("JSONL lines = %d, want 5", len(lines))
+	}
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["schema_version"] != float64(1) {
+			t.Fatalf("event = %#v", event)
+		}
+	}
+}
+
+func TestRunFailureBecomesFailedSummary(t *testing.T) {
+	result := Run(Flags{Target: "go"}, ExecutorFunc(func(phase Phase) PhaseResult {
+		if phase.Name == "Unit Tests" {
+			return PhaseResult{Status: "failed", ExitCode: 7, Diagnostic: "unit failed"}
+		}
+		return PhaseResult{Status: "skipped"}
+	}), nil)
+	if result.Status != "failed" || result.ExitCode != 7 || len(result.Failed) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}

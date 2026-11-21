@@ -2,101 +2,138 @@
 
 ## Context
 
-Go currently owns only help/version/runtime lookup and delegates operational commands to `scripts/_orchestrator.py`. Goal: move complete user-visible command paths to Go, one vertical slice at a time. Python remains explicit compatibility fallback during migration; no silent fallback from Go errors.
+Go currently owns narrow policy/protocol paths; Python still owns TOML loading, orchestration, subprocess execution, and runtime mutation. No `SPEC.md` exists. This plan follows ADR-004 and preserves explicit Python fallback until Go parity is proven.
 
 ## Ownership boundary
 
-- Go owns CLI/config/provider policy, project identity, locks/ownership, build policy, phase orchestration, process supervision, timeout/signal handling, reports, and cleanup policy.
-- Docker Compose owns config validation, service graph, dependency ordering, healthchecks, create/start/stop/remove, networks, labels, service identity, logs, exec, and volumes.
-- Go must not recreate Compose lifecycle logic.
-- Consumer projects own DB schemas/migrations; LeeDevKit only builds Compose `run`/`exec` commands.
+- Go owns CLI contracts, normalized policy, process supervision, reports, locks, ownership, and cleanup policy.
+- Compose owns service graph, dependencies, health, containers, networks, volumes, and service identity.
+- Consumer projects own DB schemas/migrations; LeeDevKit builds Compose `run`/`exec` argv only.
+- Go errors fail closed. No silent Python fallback in Go mode.
 
 ## Dependency graph
 
 ```text
-Go CLI/runtime → config/provider policy → Compose argv boundary
-                         ├→ dev commands
-                         ├→ test lifecycle + phase runner → JSON/JSONL reports
-                         └→ DB/migration Compose commands
-Go project-state transactions → doctor → init → update → skills
-release/install/bootstrap → artifact acceptance → fallback retirement
+Go CLI dispatch + argument contract
+  → normalized project/provider boundary
+  → argv planner + process supervisor
+  → ownership/lock/cleanup
+  → explicit Go dispatch
+  → JSON/JSONL report contract
+  → target/mode + phase scheduler
+  → gate execution + lifecycle/build policy
+  → full test all
+
+Python TOML/provider resolver (temporary boundary) → run/test lifecycle
+TOML conformance corpus → Go provider ownership
+Project-state transactions → doctor → init/update/skills
+Release/install/bootstrap → Go-first routing → fallback retirement
 ```
 
-## Vertical slices
+## Phase 1 — Restore lost `run` path
 
-### 0. Contract and dispatch foundation
+### Task 1: Freeze `run` contract and argv planner
 
-Define command model, runtime precedence, explicit `LEEDEVKIT_CORE=go|python` routing, schema-versioned reports, process supervision, and fail-closed Go errors. Add parity fixtures. Preserve offline help/version and Python escape hatch.
+Port Python `RunHandler` policy into pure Go planning for `go`, `cargo`, `npm`, and `diesel`: project mode, service selection, profiles/files, pooler env, `--` stripping, Cargo test rewrite, and sanitizer policy. Planner must emit argv only; no shell interpolation.
 
-**Implemented narrow slice:** runtime precedence and protocol/CLI regression foundation. Explicit `DEVKIT_HOME` now wins over project runtime; quoted `vX.Y.Z` pins normalize before compatibility comparison; empty Python dispatch fails closed; no-argument help, version aliases, and malformed gate JSON have regression tests. Full command dispatch, report schema, and process supervisor remain future slices.
+Acceptance:
+- Exact argv, cwd, env additions, and ownership mode match Python fixtures for tools and project modes.
+- Unknown tools, malformed values, unsafe args fail closed before mutation.
+- Automatic paths never emit volume removal.
 
-**Checkpoint A:** Go binary works outside checkout; runtime selection matches Python; stdin/stdout/stderr, exit codes, signals, and version pin behavior pass.
+Verify with Go table tests, Python parity fixtures, fake Compose/tool argv checks, and `go test ./...` in configured Go container.
 
-**Status:** partial — runtime/CLI contract portion complete; full command model, reports, and process supervision not started.
+### Task 2: Add process supervisor parity
 
-### 1. Focused tests: `test infra`
+Port safe child execution needed by `run`: argv-only execution, streams, timeout, process-group termination, signals, exit mapping, bounded logs, and missing executable errors. Match `_safe_run.py`.
 
-Move parser flags, gate resolution, argv execution, logs, status/partial semantics, and JSON/JSONL output. Compose remains execution boundary. Switch production dispatch only after golden parity.
+Acceptance:
+- Exit behavior `0`, `1`, `124`, `127`, `130` matches contract.
+- Timeout/signals terminate descendants.
+- cwd, streams, and log paths preserved without secret leakage.
 
-**Implemented increments:** `test infra --lint-only` and `test infra --unit-only` now have Go-native argv runners. Lint runs runtime `ruff check`, `mypy`, and optional `shellcheck`; unit runs pytest with production coverage and the 80% gate. Unit supports validated `--pattern` filtering without claiming full coverage. All preserve project working directory and first-failure exit propagation. Gate resolution, reports, JSON/JSONL, and other focused modes remain Python until later increments.
+### Task 3: Add ownership, locks, and cleanup
 
-**Checkpoint B:** `test infra --lint-only`, `--unit-only`, pattern, dry-run, blocked/failed behavior pass in Go and Python regression remains green.
+Port immutable project identity, lock ownership, external-project protection, startup-failure cleanup, bounded idempotent teardown, stale sweep safety, and no-volume-removal invariant. Reuse `internal/lifecycle.Plan.Down()` for argv; Compose remains executor.
 
-### 2. Full `test all`
+### Task 4: Switch production `run` dispatch
 
-Move target expansion, phase state machine, build policy, lock/ownership, timeout/signal cleanup, DB setup/migration command construction, and reports. Compose remains container lifecycle authority. Automatic teardown never removes volumes.
+`LEEDEVKIT_CORE=go` executes Go `run`; `LEEDEVKIT_CORE=python` keeps Python path. Existing default remains backward-compatible until parity checkpoint. Go mode fails closed and never invokes `_orchestrator.py`.
 
-**Checkpoint C:** full JSON and JSONL, concurrent project isolation, shared cache safety, Docker integration, and teardown-on-failure pass.
+### Checkpoint 1 — run parity
 
-### 3. `dev`
+Golden argv/cwd/env/output/exit, sanitizer, timeout/signal/descendant cleanup, ownership, launcher routing, Python regression, shell syntax, and `git diff --check` pass.
 
-Move `up/down/ps/logs/exec`; keep explicit destructive `clean` separate. Use resolved Compose argv only.
+## Phase 2 — Freeze shared machine contracts
 
-### 4. `doctor`
+### Task 5: Freeze JSON/JSONL reports
 
-Move read-only diagnostics first. Move `--fix` only with staged writes, atomic replace, rollback, and failure-injection tests.
+Encode current Python contract: schema version, run ID, status/counts, phase records, timestamps/duration, exit code, logs/rerun diagnostics, `next_action`, `partial`, `full_regression`, and ordered JSONL sequence. Implement Go encode-only model before scheduler.
 
-### 5. `init`
+### Task 6: Port normalized target/mode selection
 
-Move config creation, release/local acquisition, safe extraction, version matching, `.venv`, rules/overrides/harness projection, skills initialization, pinning, and project-state ownership.
+Use existing Go modes/targets with Python config normalization as temporary boundary. Preserve order, aliases, uncovered services, compatibility defaults, and fail-closed shadow mismatch.
 
-### 6. `update`
+### Checkpoint 2 — contracts
 
-Move bounded download, archive/integrity validation, staged runtime/binary/config swap, post-sync, and byte-for-byte rollback of runtime, entrypoint, config, `.venv`, and `skills.d`.
+Run/process/cleanup/report fixtures stable. No normal Go path silently invokes Python.
 
-### 7. `skills`
+## Phase 3 — Full `test all`
 
-Move catalog/TOML/URL validation, bounded git operations, lock/pin updates, staged clone/update/remove, harness sync, and rollback.
+### Task 7: Port phase scheduler and flags
 
-### 8. Remaining paths
+Move target loop, phase selection, skip/only/coverage/fix/pattern/timeout/base-ref/dry-run/build-policy semantics. Scheduler uses fake executors first; no Compose ownership yet.
 
-Move `run`, `db:*`, `migrate:*`, `debug`, `sync:api`, `fmt:infra`, `verify:infra`, generated and coverage paths. Migrate complete command paths, not helper layers.
+### Task 8: Port gate execution
 
-### 9. Packaging and retirement
+Cover timeout, requires/conditions, version checks, optional/required/block policy, env, cwd, fix, new-findings, setup/teardown, coverage. Keep normalized resolution at Python boundary until parity.
 
-Make release/install/bootstrap Go-first without requiring `_orchestrator.py`. Keep Python fallback through two tagged compatibility releases. Remove dead handlers, bridge, and legacy wrapper only after static proof, full regression, release acceptance, and human approval.
+### Task 9: Integrate lifecycle/build policy
 
-## Rollback and removal gates
+Use `internal/lifecycle.Plan` plus narrow adapters for image fingerprints, build locks, readiness, dependencies, DB/migration argv, and teardown. Compose remains lifecycle authority.
 
-- `LEEDEVKIT_CORE=python` remains known-good escape hatch.
-- Explicit Go mode fails closed; no silent Python fallback.
-- Stop at failed checkpoint; do not stack slices on broken behavior.
-- Remove fallback only after two tagged releases, full JSON/JSONL regression, init/update rollback, two-project isolation, release acceptance, and static proof that no Go command launches Python.
+### Checkpoint 3 — full test parity
 
-## Required verification
+`test all --json` and `--json-stream --quiet`, fake Compose, build policy, readiness, two-project isolation, failure cleanup, no-volume removal, and full wrapper regression pass. Focused runs stay partial.
+
+## Phase 4 — Provider ownership and remaining commands
+
+### Task 10: Provider/TOML conformance and ownership
+
+Keep Python provider resolver until cross-language corpus matches. Then use standards-compliant TOML parser; preserve deep merge, CLI > environment > host > repository > Docker precedence, nested/multiline/escaped values, capabilities, malformed errors, and redaction. Approve dependency and supply-chain evidence.
+
+### Task 11+: Separate vertical slices
+
+Migrate `dev`, read-only `doctor`, transactional `doctor --fix`, `init`, `update`, `skills`, `db:*`/`migrate:*`, `debug`, `sync:api`, `fmt:infra`, `verify:infra`, generated, and coverage as separate paths. Reuse established contracts; do not bundle.
+
+### Final checkpoint — packaging and retirement
+
+After two compatibility releases, full regression, release acceptance, static proof normal Go commands do not launch `_orchestrator.py`, and human approval: make release/install/bootstrap Go-first and remove dead bridge/handlers in separate cleanup. Update ADR with ownership, rollback, expiry, and evidence.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Rewrite drops behavior | Vertical slices, golden fixtures, stop at checkpoints |
+| Go duplicates Compose | Compose remains executor; Go emits argv/supervises |
+| Child leaks | Process-group and descendant tests |
+| External cleanup damage | Immutable identity, lock ownership, no-volume invariant |
+| TOML drift | Standard parser and cross-language corpus |
+| Report breakage | Freeze Python JSON/JSONL fixtures first |
+| Shell injection | Existing sanitizer policy and argv-only execution |
+| Missing host Go | Use `golang:1.26.11-bookworm` container |
+
+## Verification baseline
 
 ```bash
-go test ./...
+docker run --rm -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./...
 ./leedevkit test infra --lint-only
 ./leedevkit test infra --unit-only
 ./leedevkit test all --json
 ./leedevkit test all --json-stream --quiet
-ruff format --check scripts
-ruff check scripts
-mypy scripts
-git diff --check
-.venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/dist
-.venv/bin/python3 scripts/_release_acceptance.py --repo-root . --artifact /tmp/dist/leedevkit-$(tr -d '\n' < VERSION).tar.gz
+.venv/bin/ruff format --check scripts
+.venv/bin/ruff check scripts
+.venv/bin/mypy scripts
 ```
 
-Packaging/runtime changes require release build and acceptance per `.agent/rules/devkit-internals.md`.
+Packaging/runtime changes additionally require release build and acceptance from `.agent/rules/devkit-internals.md`.

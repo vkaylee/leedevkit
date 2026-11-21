@@ -1,0 +1,49 @@
+package gates
+
+import (
+	"context"
+	"reflect"
+	"testing"
+
+	"github.com/vkaylee/leedevkit/internal/process"
+)
+
+func TestComposeRunnerBuildsExecArgv(t *testing.T) {
+	var got []string
+	runner := ComposeRunner{
+		Compose: []string{"docker", "compose"}, Project: "test", Service: "go", Workdir: "/workspace",
+		Execute: func(_ context.Context, request process.Request) process.Result {
+			got = request.Args
+			return process.Result{ExitCode: 0}
+		},
+	}
+	result := runner.Run(context.Background(), []string{"go", "test", "./..."}, nil)
+	if result.ExitCode != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+	want := []string{"docker", "compose", "-p", "test", "exec", "-T", "-w", "/workspace", "go", "go", "test", "./..."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv = %#v, want %#v", got, want)
+	}
+}
+
+func hasArg(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func TestComposeRunnerAddsEnvironment(t *testing.T) {
+	var got []string
+	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Execute: func(_ context.Context, request process.Request) process.Result {
+		got = request.Args
+		return process.Result{}
+	}}
+	runner.Run(context.Background(), []string{"go", "vet", "./..."}, []string{"GOFLAGS"})
+	if !hasArg(got, "-e") || !hasArg(got, "GOFLAGS") {
+		t.Fatalf("argv = %#v", got)
+	}
+}

@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"net/url"
@@ -10,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 var allCapabilities = []string{
@@ -130,7 +131,11 @@ func Resolve(options Options) (Provider, error) {
 	if err != nil {
 		return Provider{}, err
 	}
-	host, err := load(options.Host)
+	hostPath := options.Host
+	if hostPath == "" {
+		hostPath = HostConfigPath(options.Environment, "")
+	}
+	host, err := load(hostPath)
 	if err != nil {
 		return Provider{}, err
 	}
@@ -141,7 +146,7 @@ func Resolve(options Options) (Provider, error) {
 	hostName := strings.Trim(strings.TrimSpace(host["container"]["provider"]), "\"'")
 	selected, source := repoName, "repository configuration"
 	if hostName != "" {
-		selected, source = hostName, options.Host
+		selected, source = hostName, hostPath
 	}
 	if options.Environment != nil && options.Environment["CONTAINER_PROVIDER"] != "" {
 		selected, source = options.Environment["CONTAINER_PROVIDER"], "CONTAINER_PROVIDER"
@@ -153,27 +158,21 @@ func Resolve(options Options) (Provider, error) {
 		return Provider{}, errors.New("container provider must be a non-empty string")
 	}
 
-	raw := map[string]string{}
-	for key, value := range repo["container.providers."+selected] {
-		raw[key] = value
-	}
-	for key, value := range host["container.providers."+selected] {
-		raw[key] = value
-	}
+	raw := mergeSettings(repo["container.providers."+selected], host["container.providers."+selected])
 	if len(raw) == 0 && selected == "docker" {
 		raw["cli"] = `['docker']`
 		raw["compose"] = `['docker', 'compose']`
 		source = "LeeDevKit default"
 	}
-	cli, err := parseStringArray(raw["cli"])
+	cli, err := parseTOMLStringArray(raw["cli"])
 	if err != nil {
 		return Provider{}, fmt.Errorf("provider %q cli: %w", selected, err)
 	}
-	compose, err := parseStringArray(raw["compose"])
+	compose, err := parseTOMLStringArray(raw["compose"])
 	if err != nil {
 		return Provider{}, fmt.Errorf("provider %q compose: %w", selected, err)
 	}
-	capabilities, err := parseStringArray(raw["capabilities"])
+	capabilities, err := parseTOMLStringArray(raw["capabilities"])
 	if err != nil {
 		if raw["capabilities"] != "" {
 			return Provider{}, fmt.Errorf("provider %q capabilities: %w", selected, err)
@@ -236,76 +235,76 @@ func load(path string) (map[string]map[string]string, error) {
 	if path == "" {
 		return result, nil
 	}
-	file, err := os.Open(filepath.Clean(path))
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return result, nil
 		}
 		return nil, err
 	}
-	defer file.Close()
-	section := ""
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(stripComment(scanner.Text()))
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.TrimSpace(line[1 : len(line)-1])
-			if result[section] == nil {
-				result[section] = map[string]string{}
-			}
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if !ok || section == "" {
-			continue
-		}
-		result[section][strings.TrimSpace(key)] = strings.TrimSpace(value)
-	}
-	if err := scanner.Err(); err != nil {
+	var document map[string]any
+	if err := toml.Unmarshal(data, &document); err != nil {
 		return nil, err
 	}
+	flattenTOML(document, "", result)
 	return result, nil
 }
 
-func stripComment(line string) string {
-	quoted := false
-	for index, character := range line {
-		if character == '\'' || character == '"' {
-			quoted = !quoted
+func flattenTOML(value map[string]any, prefix string, result map[string]map[string]string) {
+	for key, item := range value {
+		section := key
+		if prefix != "" {
+			section = prefix + "." + key
 		}
-		if character == '#' && !quoted {
-			return line[:index]
+		if nested, ok := item.(map[string]any); ok {
+			flattenTOML(nested, section, result)
+			continue
 		}
+		if result[prefix] == nil {
+			result[prefix] = map[string]string{}
+		}
+		result[prefix][key] = tomlValue(item)
 	}
-	return line
 }
 
-func parseStringArray(value string) ([]string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, errors.New("must be a non-empty string array")
+func tomlValue(value any) string {
+	switch typed := value.(type) {
+	case []string:
+		parts := make([]string, len(typed))
+		for index, item := range typed {
+			parts[index] = fmt.Sprintf("%q", item)
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	case []any:
+		parts := make([]string, len(typed))
+		for index, item := range typed {
+			parts[index] = fmt.Sprintf("%q", fmt.Sprint(item))
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	default:
+		return fmt.Sprintf("%v", value)
 	}
-	if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
+}
+
+func parseTOMLStringArray(value string) ([]string, error) {
+	var wrapper struct {
+		Value []string `toml:"value"`
+	}
+	quoted := strings.TrimSpace(value)
+	if !strings.HasPrefix(quoted, "[") {
 		return nil, errors.New("must be a string array")
 	}
-	body := strings.TrimSpace(value[1 : len(value)-1])
-	if body == "" {
+	if err := toml.Unmarshal([]byte("value = "+quoted), &wrapper); err != nil {
+		return nil, err
+	}
+	values := wrapper.Value
+	if len(values) == 0 {
 		return nil, errors.New("must be a non-empty string array")
 	}
-	var result []string
-	for _, item := range strings.Split(body, ",") {
-		item = strings.TrimSpace(item)
-		if len(item) < 2 || (item[0] != '\'' && item[0] != '"') || item[len(item)-1] != item[0] {
-			return nil, errors.New("must contain only quoted strings")
-		}
-		item = strings.TrimSpace(item[1 : len(item)-1])
-		if item == "" {
+	for _, item := range values {
+		if strings.TrimSpace(item) == "" {
 			return nil, errors.New("must contain only non-empty strings")
 		}
-		result = append(result, item)
 	}
-	return result, nil
+	return values, nil
 }

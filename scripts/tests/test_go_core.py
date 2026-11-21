@@ -9,6 +9,7 @@ from _go_core import (
     plan_gates_go,
     plan_lifecycle_go,
     plan_quality_gates_go,
+    plan_run_go,
     resolve_modes_go,
     resolve_provider_go,
     resolve_test_targets_go,
@@ -46,10 +47,21 @@ def test_missing_binary_with_invalid_runtime_fails_closed(tmp_path):
                 raise AssertionError("invalid runtime passed")
 
 
+def test_run_plan_shadow_uses_versioned_protocol():
+    response = {"schema_version": 1, "args": ["docker", "compose", "run"]}
+    result = MagicMock(returncode=0, stdout=json.dumps(response), stderr="")
+    with patch.dict(os.environ, {"LEEDEVKIT_USE_GO_CORE": "1"}, clear=True):
+        with patch("_go_core.shutil.which", return_value="/tmp/leedevkit-core"):
+            with patch("_go_core.subprocess.run", return_value=result) as run:
+                assert plan_run_go({"schema_version": 1, "plan": {}}) == response
+                assert run.call_args.args[0] == ["/tmp/leedevkit-core", "--plan-run"]
+
+
 def test_protocol_disabled_returns_none_for_all_planners():
     with patch.dict(os.environ, {}, clear=True):
         assert plan_quality_gates_go([]) is None
         assert plan_lifecycle_go({}) is None
+        assert plan_run_go({}) is None
         assert resolve_provider_go({}) is None
         assert resolve_test_targets_go({}) is None
         assert resolve_modes_go({}) is None
