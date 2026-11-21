@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/vkaylee/leedevkit/internal/config"
+	"github.com/vkaylee/leedevkit/internal/provider"
 )
 
 func TestRunHelp(t *testing.T) {
@@ -221,6 +222,40 @@ func TestConfiguredGoServiceNameUsesManifestService(t *testing.T) {
 func TestConfiguredGoServiceNameFallsBackToGo(t *testing.T) {
 	if got := configuredServiceName(config.Project{}, "go"); got != "go" {
 		t.Fatalf("service = %q, want go", got)
+	}
+}
+
+func TestBuildDatabaseQueryArgs(t *testing.T) {
+	got, err := buildDatabaseQueryArgs(provider.Provider{CLI: []string{"docker"}}, "leedevkit-dev", "SELECT 1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "exec", "-t", "leedevkit-dev-db", "psql", "-U", "lee", "-d", "leedevkit", "-c", "SELECT 1"}
+	if !sameStrings(got, want) {
+		t.Fatalf("query args = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildDatabaseQueryJSONArgs(t *testing.T) {
+	got, err := buildDatabaseQueryArgs(provider.Provider{CLI: []string{"docker"}}, "leedevkit-dev", "SELECT 1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(got[len(got)-3:], []string{"-A", "-t", "--json"}) {
+		t.Fatalf("query JSON args = %#v", got)
+	}
+}
+
+func TestParseDatabaseQueryArgs(t *testing.T) {
+	sql, asJSON, err := parseDatabaseQueryArgs([]string{"db:query", "SELECT 1", "--json"})
+	if err != nil || sql != "SELECT 1" || !asJSON {
+		t.Fatalf("parsed query = %q, json = %v, err = %v", sql, asJSON, err)
+	}
+}
+
+func TestParseDatabaseQueryRejectsMissingSQL(t *testing.T) {
+	if _, _, err := parseDatabaseQueryArgs([]string{"db:query", "--json"}); err == nil {
+		t.Fatal("missing SQL accepted")
 	}
 }
 

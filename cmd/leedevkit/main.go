@@ -201,6 +201,32 @@ func envProviderName(env map[string]string) string {
 	return "docker"
 }
 
+func parseDatabaseQueryArgs(args []string) (string, bool, error) {
+	if len(args) < 2 || args[0] != "db:query" || args[1] == "" || args[1] == "--json" {
+		return "", false, fmt.Errorf("db:query requires SQL")
+	}
+	asJSON := false
+	for _, arg := range args[2:] {
+		if arg != "--json" {
+			return "", false, fmt.Errorf("unsupported db:query argument %q", arg)
+		}
+		asJSON = true
+	}
+	return args[1], asJSON, nil
+}
+
+func buildDatabaseQueryArgs(config provider.Provider, project, sql string, asJSON bool) ([]string, error) {
+	if len(config.CLI) == 0 || project == "" || sql == "" {
+		return nil, fmt.Errorf("provider, project, and SQL are required")
+	}
+	args := append([]string{}, config.CLI...)
+	args = append(args, "exec", "-t", project+"-db", "psql", "-U", "lee", "-d", "leedevkit", "-c", sql)
+	if asJSON {
+		args = append(args, "-A", "-t", "--json")
+	}
+	return args, nil
+}
+
 func configuredServiceName(project config.Project, language string) string {
 	if service, ok := project.ServiceForLanguage(language); ok && service.Name != "" {
 		return service.Name
@@ -925,6 +951,29 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
 		}
 		return runPythonCommand(args, stdin, stdout, stderr)
+	case "db:query":
+		sql, asJSON, err := parseDatabaseQueryArgs(args)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		env := environMap(os.Environ())
+		project := env["COMPOSE_PROJECT_NAME"]
+		if project == "" {
+			project = "leedevkit-dev"
+		}
+		queryArgs, err := buildDatabaseQueryArgs(providerConfig, project, sql, asJSON)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		result := process.Run(context.Background(), process.Request{Args: queryArgs, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
+		return result.ExitCode
 	case "debug", "init", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
