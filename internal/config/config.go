@@ -2,10 +2,12 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/vkaylee/leedevkit/internal/gates"
 )
 
 type Service struct {
@@ -32,10 +34,11 @@ type Project struct {
 	Targets      map[string][]string
 	Dependencies map[string][]string
 	BuildPolicy  string
+	Gates        []gates.Gate
 }
 
 func Load(path string) (Project, error) {
-	project := Project{Services: map[string]Service{}, Targets: map[string][]string{}, Dependencies: map[string][]string{}, BuildPolicy: "once"}
+	project := Project{Services: map[string]Service{}, Targets: map[string][]string{}, Dependencies: map[string][]string{}, BuildPolicy: "once", Gates: gates.Defaults()}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -56,6 +59,15 @@ func Load(path string) (Project, error) {
 			BuildPolicy  string              `toml:"build_policy"`
 			Dependencies map[string][]string `toml:"dependencies"`
 		} `toml:"test"`
+		Quality struct {
+			Gates map[string]gates.Gate `toml:"gates"`
+			Go    struct {
+				Lint        []string `toml:"lint"`
+				Unit        []string `toml:"unit"`
+				Integration []string `toml:"integration"`
+				Generated   []string `toml:"generated"`
+			} `toml:"go"`
+		} `toml:"quality"`
 	}
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return project, err
@@ -65,6 +77,47 @@ func Load(path string) (Project, error) {
 	}
 	project.Targets = raw.Targets
 	project.Dependencies = raw.Test.Dependencies
+	selected := append([]string{}, raw.Quality.Go.Lint...)
+	selected = append(selected, raw.Quality.Go.Unit...)
+	selected = append(selected, raw.Quality.Go.Integration...)
+	selected = append(selected, raw.Quality.Go.Generated...)
+	if len(selected) > 0 {
+		project.Gates = make([]gates.Gate, 0, len(selected))
+		seen := map[string]bool{}
+		for _, name := range selected {
+			if seen[name] {
+				continue
+			}
+			gate, ok := raw.Quality.Gates[name]
+			if !ok {
+				return project, fmt.Errorf("quality gate %q is not defined", name)
+			}
+			gate.Name = name
+			if gate.Mode == "" {
+				gate.Mode = "run"
+			}
+			if gate.Condition == "" {
+				gate.Condition = "always"
+			}
+			if gate.FailurePolicy == "" {
+				gate.FailurePolicy = "required"
+				if !gate.Required {
+					gate.FailurePolicy = "optional"
+				}
+			}
+			if gate.Environment == nil {
+				gate.Environment = []string{}
+			}
+			if gate.Requires == nil {
+				gate.Requires = []string{}
+			}
+			if err := gates.Validate(gate); err != nil {
+				return project, fmt.Errorf("quality gate %q is invalid: %w", name, err)
+			}
+			seen[name] = true
+			project.Gates = append(project.Gates, gate)
+		}
+	}
 	if raw.Test.BuildPolicy != "" {
 		if raw.Test.BuildPolicy != "once" && raw.Test.BuildPolicy != "phase" {
 			return project, errors.New("test.build_policy must be once or phase")
