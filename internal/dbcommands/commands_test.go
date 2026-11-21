@@ -71,3 +71,27 @@ func TestMigrationArgsRejectUnknownAction(t *testing.T) {
 		t.Fatal("unknown migration action accepted")
 	}
 }
+
+func TestBuildDieselSetupArgsRunsMigrationTest(t *testing.T) {
+	got, err := BuildDiesel(DieselRequest{
+		Compose: []string{"compose"}, Project: "test", ComposeFile: "test.yml",
+		Root: "/repo", WorkingDir: "/repo", Service: "apiserver",
+		Environment: []string{"DATABASE_URL=postgres://user:pass@db/test"},
+		Args:        []string{"test", "--test", "setup_migrations", "--", "run_migrations", "--ignored", "--exact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(got, "DATABASE_URL=postgres://user:pass@db/test") || !contains(got, "setup_migrations") {
+		t.Fatalf("setup args = %#v", got)
+	}
+}
+
+func contains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}

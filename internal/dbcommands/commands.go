@@ -12,6 +12,7 @@ type DieselRequest struct {
 	Root        string
 	WorkingDir  string
 	Service     string
+	Environment []string
 	Args        []string
 }
 
@@ -28,7 +29,14 @@ func BuildDiesel(request DieselRequest) ([]string, error) {
 		workdir += "/" + filepath.ToSlash(relative)
 	}
 	args := append([]string{}, request.Compose...)
-	args = append(args, "-p", request.Project, "-f", request.ComposeFile, "run", "-T", "--rm", "--workdir", workdir, "--entrypoint", "diesel", request.Service)
+	args = append(args, "-p", request.Project, "-f", request.ComposeFile, "run", "-T", "--rm")
+	for _, variable := range request.Environment {
+		if variable == "" || variable[:1] == "-" {
+			return nil, fmt.Errorf("environment entries must be non-empty")
+		}
+		args = append(args, "-e", variable)
+	}
+	args = append(args, "--workdir", workdir, "--entrypoint", "diesel", request.Service)
 	return append(args, request.Args...), nil
 }
 
