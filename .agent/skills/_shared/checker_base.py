@@ -8,7 +8,7 @@ Usage (declarative style):
         def checks(self) -> list[Check]:
             return [
                 Check("scrollview_map", Severity.ISSUE, "Performance CRITICAL",
-                      r"ScrollView.*\.map\(|ScrollView.*\{.*\.map",
+                      r"ScrollView.*\\.map\\(|ScrollView.*\\{.*\\.map",
                       "ScrollView with .map() detected. Use FlatList instead."),
                 Check("missing_memo", Severity.WARNING, "Performance",
                       r"FlatList|FlashList",
