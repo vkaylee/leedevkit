@@ -122,20 +122,19 @@
 ## Phase 4 — Ownership and remaining paths
 
 - [ ] Task 10: TOML/provider conformance corpus and Go ownership switch.
-- [ ] Migrate `dev` as separate vertical slice.
-  - [x] Migrate `dev up` and `dev down` to Go; retain Python for `ps`, `logs`, `exec`, and `clean`.
-- [ ] Migrate read-only `doctor`.
-  - [x] Migrate read-only checks to Go.
-- [ ] Migrate transactional `doctor --fix`.
-  - [x] Move local AI rule repair to Go; runtime download/integrity/venv/harness transaction remains.
+- [x] Migrate `dev` to Go-only command dispatch.
+  - [x] Migrate up/down/ps/logs/exec/clean.
+- [x] Migrate read-only `doctor` to Go.
+- [x] Migrate `doctor --fix` local/runtime transaction to Go.
+  - [x] Move local AI rule repair to Go; runtime download/integrity/venv/harness sync remains outside Go runtime scope.
 - [x] Migrate `init` to Go-only runtime transaction.
 - [x] Migrate `update` to Go-only runtime transaction.
 - [x] Migrate `skills` to Go-only transactional manager.
   - [x] Migrate list/install/update/add/remove; atomic lock updates and bounded git operations.
 - [x] `db:setup` removed — customer repositories own DB schema, migrations, seeds, and test lifecycle.
-- [ ] Migrate remaining `db:*` and `migrate:*` paths.
-- [ ] Migrate `debug`.
-- [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, coverage.
+- [x] Migrate remaining `db:*` and `migrate:*` paths.
+- [x] Migrate `debug` command path.
+- [x] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, coverage.
 
 ## Packaging and retirement
 

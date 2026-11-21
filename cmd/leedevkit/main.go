@@ -965,8 +965,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	case "doctor":
 		if len(args) > 1 && args[1] == "--fix" {
-			if err := repairDoctorRules(projectRootOrCWD()); err != nil {
-				fmt.Fprintf(stderr, "doctor repair failed: %v\n", err)
+			root := projectRootOrCWD()
+			if err := runtimepkg.InitProject(root, os.Getenv("DEVKIT_LOCAL_PATH"), false); err != nil {
+				fmt.Fprintf(stderr, "doctor runtime repair failed: %v\n", err)
+				return 2
+			}
+			if err := repairDoctorRules(root); err != nil {
+				fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
 				return 2
 			}
 		}
