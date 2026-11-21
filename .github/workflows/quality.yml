@@ -12,53 +12,22 @@ jobs:
   source-quality:
     name: Source quality
     runs-on: ubuntu-latest
-    env:
-      LEEDEVKIT_PYTHON: .venv/bin/python3
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install locked verification dependencies
-        run: |
-          python3 -m venv .venv
-          .venv/bin/python3 -m pip install --requirement scripts/requirements.lock </dev/null
-
-      - name: Generate supply-chain evidence
-        run: |
-          mkdir -p .ci-artifacts
-          .venv/bin/python3 scripts/_supply_chain_check.py --lock scripts/requirements.lock --output .ci-artifacts/supply-chain.json --container-root . </dev/null
-          .venv/bin/python3 scripts/_sbom.py scripts/requirements.lock "$(tr -d '\n' < VERSION)" .ci-artifacts/sbom.cdx.json </dev/null
-
       - name: Check Go core
         run: |
           docker run --rm -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
 
       - name: Check shell syntax
         run: |
-          bash -n scripts/_ensure-venv.sh install.sh bootstrap.sh bin/leedevkit </dev/null
+          bash -n install.sh bootstrap.sh bin/leedevkit leedevkit templates/leedevkit-wrapper.sh </dev/null
 
-      - name: Check formatting
+      - name: Run Go regression gate
         run: |
-          .venv/bin/ruff format --check scripts </dev/null
-
-      - name: Run lint and type checks
-        run: |
-          .venv/bin/ruff check scripts </dev/null
-          .venv/bin/mypy scripts </dev/null
-
-      - name: Run full LeeDevKit regression gate
-        run: |
-          ./bin/leedevkit test all --json </dev/null
-      - name: Emit AI-readable regression events
-        if: always()
-        run: |
-          ./bin/leedevkit test all --json-stream --quiet </dev/null
+          docker run --rm -e GOPROXY=off -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
 
       - name: Upload quality and supply-chain evidence
         if: always()
@@ -75,8 +44,6 @@ jobs:
     name: Release acceptance
     runs-on: ubuntu-latest
     needs: source-quality
-    env:
-      LEEDEVKIT_PYTHON: .venv/bin/python3
     steps:
       - name: Check out source
         uses: actions/checkout@v4

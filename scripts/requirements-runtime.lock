@@ -1,4 +1,0 @@
-# LeeDevKit runtime-only dependencies; keep exact pins.
-pip==26.1.2
-PyYAML==6.0.3
-psutil==7.2.2
