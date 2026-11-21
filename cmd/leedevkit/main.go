@@ -824,7 +824,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
 		}
 		return runPythonCommand(args, stdin, stdout, stderr)
-	case "dev", "debug", "init", "doctor", "skills", "update":
+	case "doctor":
+		if len(args) > 1 && args[1] == "--fix" {
+			return runPythonCommand(args, stdin, stdout, stderr)
+		}
+		return runDoctor(projectRootOrCWD(), stdout, stderr)
+	case "dev", "debug", "init", "skills", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])

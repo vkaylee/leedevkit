@@ -66,6 +66,31 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
+func TestRunDoctorUsesGoReadOnlyPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[project]\nname = \"test\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".agent", "rules"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"doctor"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
+		t.Fatalf("doctor exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Project config:") {
+		t.Fatalf("doctor output = %q", stderr.String())
+	}
+}
+
 func TestRunUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"wat"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
