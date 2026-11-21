@@ -230,6 +230,19 @@ func TestInfraUnitPatternUsesPluginFilter(t *testing.T) {
 	}
 }
 
+func TestParseInfraTestArgs(t *testing.T) {
+	pattern, err := parseInfraTestArgs([]string{"test:infra", "--pattern", "auth login"})
+	if err != nil || pattern != "auth login" {
+		t.Fatalf("pattern = %q, err = %v", pattern, err)
+	}
+}
+
+func TestParseInfraTestArgsRejectsUnknownFlag(t *testing.T) {
+	if _, err := parseInfraTestArgs([]string{"test:infra", "--bad"}); err == nil {
+		t.Fatal("unknown test:infra flag accepted")
+	}
+}
+
 func TestInfraUnitPatternRejectsUnsafeRegex(t *testing.T) {
 	if _, err := validateInfraPattern("["); err == nil {
 		t.Fatal("invalid regex accepted")

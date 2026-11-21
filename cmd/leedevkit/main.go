@@ -503,6 +503,26 @@ func resolveBaseRef(root, value string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+func parseInfraTestArgs(args []string) (string, error) {
+	if len(args) < 1 || args[0] != "test:infra" {
+		return "", fmt.Errorf("test:infra command required")
+	}
+	pattern := ""
+	for index := 1; index < len(args); index++ {
+		switch args[index] {
+		case "--pattern":
+			if index+1 >= len(args) {
+				return "", fmt.Errorf("--pattern requires a value")
+			}
+			pattern = args[index+1]
+			index++
+		default:
+			return "", fmt.Errorf("unsupported test:infra argument %q", args[index])
+		}
+	}
+	return pattern, nil
+}
+
 func validateInfraPattern(pattern string) (string, error) {
 	if pattern == "" {
 		return "", nil
@@ -1010,6 +1030,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return result.ExitCode
 		}
 
+		if len(args) >= 1 && args[0] == "test:infra" {
+			project := findProjectRoot()
+			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
+			if runtime == "" {
+				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				return 2
+			}
+			pattern, err := parseInfraTestArgs(args)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			return runInfraVerify(runtime, project, pattern, stdin, stdout, stderr)
+		}
 		if len(args) >= 3 && args[1] == "infra" && args[2] == "--verify" {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
