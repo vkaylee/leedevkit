@@ -95,6 +95,34 @@ func TestLaunchRunsComposeAndCleansOwnedService(t *testing.T) {
 	}
 }
 
+func TestLaunchCleansUpAfterContextCancellation(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest}
+	calls := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	result := Launch(ctx, environment, []string{"compose"}, func(callCtx context.Context, args []string) error {
+		calls++
+		if calls == 1 {
+			cancel()
+			return context.Canceled
+		}
+		if callCtx.Err() != nil {
+			t.Fatalf("cleanup context canceled: %v", callCtx.Err())
+		}
+		if !contains(args, "rm") || contains(args, "down") {
+			t.Fatalf("unsafe cleanup args: %#v", args)
+		}
+		return nil
+	})
+	if result == nil || calls != 2 {
+		t.Fatalf("result = %v, calls = %d", result, calls)
+	}
+}
+
 func TestLaunchWithValidationInspectsEveryResolvedNetwork(t *testing.T) {
 	root := t.TempDir()
 	manifest := filepath.Join(root, "leedevkit.toml")
