@@ -40,7 +40,7 @@ fi
 COMMAND="$1"
 shift
 
-if [ "${LEEDEVKIT_CORE:-python}" = "go" ]; then
+find_go_core() {
     GO_CORE="${LEEDEVKIT_GO_BINARY:-}"
     if [ -z "$GO_CORE" ]; then
         case "$(uname -s):$(uname -m)" in
@@ -64,6 +64,16 @@ if [ "${LEEDEVKIT_CORE:-python}" = "go" ]; then
     if [ -z "$GO_CORE" ] && command -v leedevkit-go >/dev/null 2>&1; then
         GO_CORE="$(command -v leedevkit-go)"
     fi
+}
+
+CORE_MODE="${LEEDEVKIT_CORE:-}"
+if [ -z "$CORE_MODE" ]; then
+    find_go_core
+    [ -n "$GO_CORE" ] && CORE_MODE="go" || CORE_MODE="python"
+fi
+
+if [ "$CORE_MODE" = "go" ]; then
+    find_go_core
     if [ -z "$GO_CORE" ] || [ ! -x "$GO_CORE" ]; then
         echo "Go core enabled but leedevkit-go binary missing" >&2
         exit 2

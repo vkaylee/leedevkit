@@ -123,11 +123,14 @@
 
 - [ ] Task 10: TOML/provider conformance corpus and Go ownership switch.
 - [ ] Migrate `dev` as separate vertical slice.
+  - [x] Migrate `dev up` and `dev down` to Go; retain Python for `ps`, `logs`, `exec`, and `clean`.
 - [ ] Migrate read-only `doctor`.
+  - [x] Migrate read-only checks to Go; retain Python for `doctor --fix`.
 - [ ] Migrate transactional `doctor --fix`.
 - [ ] Migrate `init`.
 - [ ] Migrate `update`.
 - [ ] Migrate `skills`.
+  - [x] Migrate read-only `skills list`; retain Python for transactional skill changes.
 - [ ] Migrate `db:*` and `migrate:*`.
 - [ ] Migrate `debug`.
 - [ ] Migrate `sync:api`, `fmt:infra`, `verify:infra`, generated, coverage.
