@@ -122,6 +122,14 @@ func TestInfraLintCommandsUseRuntimeScripts(t *testing.T) {
 	}
 }
 
+func TestInfraFormatCommandUsesRuntimeScripts(t *testing.T) {
+	runtime := filepath.Join("/runtime")
+	want := []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", filepath.Join(runtime, "scripts")}
+	if got := infraFormatCommand(runtime); !sameStrings(got, want) {
+		t.Fatalf("format command = %#v, want %#v", got, want)
+	}
+}
+
 func TestInfraFormatCheckUsesRuntimeScripts(t *testing.T) {
 	runtime := filepath.Join("/runtime")
 	commands := infraFormatCheckCommand(runtime)

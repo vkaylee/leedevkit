@@ -404,6 +404,10 @@ func infraLintCommands(runtime, project string) [][]string {
 	return commands
 }
 
+func infraFormatCommand(runtime string) []string {
+	return []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", filepath.Join(runtime, "scripts")}
+}
+
 func infraFormatCheckCommand(runtime string) []string {
 	return []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", "--check", filepath.Join(runtime, "scripts")}
 }
@@ -1050,6 +1054,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
 		}
 		return runPythonCommand(args, stdin, stdout, stderr)
+	case "fmt:infra":
+		project := findProjectRoot()
+		runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
+		if runtime == "" {
+			fmt.Fprintln(stderr, "Python compatibility runtime missing")
+			return 2
+		}
+		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
 	case "migrate:run", "migrate:revert", "migrate:status":
 		action, err := parseMigrationCommand(args)
 		if err != nil {
