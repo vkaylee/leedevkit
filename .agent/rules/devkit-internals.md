@@ -10,9 +10,9 @@ Changes here ship to downstream projects through release artifacts installed int
 
 | Component | Language | Tooling |
 |-----------|----------|---------|
-| Orchestrator | Python 3.11+ | `scripts/_orchestrator.py` |
+| Control plane | Go 1.24+ | `cmd/leedevkit/main.go` |
 | CLI launcher | Bash | `leedevkit`, `bin/leedevkit` |
-| Lint/format | Python | `ruff` + `mypy` (strict) |
+| Release/CI helpers | Transitional Python | `scripts/_release_*.py`, `scripts/_go_core_*.py` |
 | Shell lint | Bash | `shellcheck` |
 | Container engine | | podman-compose preferred, docker fallback |
 
@@ -39,9 +39,8 @@ Focused flags, `--pattern`, `--skip-e2e`, and `--skip-build` produce partial/unv
 
 Trigger this gate after changes to any of:
 - `bootstrap.sh`, `install.sh`, `bin/leedevkit`
-- `scripts/_release_build.py`, `scripts/_release_acceptance.py`
-- `scripts/_download.py`, `scripts/_update_handler.py`, `scripts/_init_handler.py`
-- `scripts/_devkit_integrity.py`, `VERSION`, release layout/manifest behavior
+- `scripts/_release_build.py`, `scripts/_release_acceptance.py` (transitional build tooling)
+- `VERSION`, Go release layout, manifest, and artifact behavior
 
 ```bash
 .venv/bin/python3 scripts/_release_build.py --repo-root . --output /tmp/dist
@@ -61,15 +60,12 @@ Notes:
 - `./leedevkit test infra` uses `ruff format --check` and must not rewrite source.
 - Keep packaging acceptance independent of Docker/PyPI/GitHub.
 
-## Python Conventions
+## Go Conventions
 
-1. **`_` prefix on all modules** — internal implementation, NOT public API.
-2. **Type hints mandatory** — mypy strict mode.
-3. **No shell=True** — subprocess calls use argument lists.
-4. **All CLI output to stderr** — structured JSON to stdout.
-5. **Process execution** — use `_safe_run.py` for managed build/test subprocesses where applicable; preserve exit codes, timeout, and signal behavior.
-6. **Ruff for formatting** — `ruff format scripts/`, not black.
-7. **Argument sanitization** — AI-provided args go through `_arg_sanitizer.sanitize()`.
+1. Use argv-only process execution through `internal/process`.
+2. Preserve stable exit codes, bounded timeouts, process-group cleanup, and stderr diagnostics.
+3. Keep machine-readable JSON/JSONL on stdout.
+4. Validate untrusted input before runtime mutation.
 
 ## Bash Conventions
 

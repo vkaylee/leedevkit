@@ -147,4 +147,4 @@
 
 ## Existing separate fix
 
-- [ ] Preserve broken `.agent/rules` symlink repair in `scripts/_init_handler.py` and its regression test.
+- [x] Broken `.agent/rules` symlink repair covered by Go `doctor --fix` path.
