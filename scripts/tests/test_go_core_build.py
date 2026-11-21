@@ -7,7 +7,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from _go_core_build import build_command, build_go_core, target_binary_name  # noqa: E402
+from _go_core_build import (  # noqa: E402
+    build_command,
+    build_debug_mcp,
+    debug_binary_name,
+    debug_build_command,
+    build_go_core,
+    target_binary_name,
+)
 from _go_core_matrix import build_matrix  # noqa: E402
 
 
@@ -47,9 +54,35 @@ def test_build_command_uses_compose_and_safe_build_argv(tmp_path: Path) -> None:
     ]
 
 
+def test_debug_binary_contract_uses_debug_target() -> None:
+    assert debug_binary_name("linux", "amd64") == "leedevkit-debug-linux-amd64"
+    command = debug_build_command(
+        compose_cmd=("docker", "compose"),
+        compose_file=Path("compose.yml"),
+        output=Path("debug"),
+        version="1.0.0",
+        goos="linux",
+        goarch="amd64",
+    )
+    assert "leedevkit-debug-build" in command
+    assert command[-1] == "./cmd/debug-mcp"
+
+
 def test_target_binary_name_adds_windows_suffix() -> None:
     assert target_binary_name("windows", "amd64") == "leedevkit-go-windows-amd64.exe"
     assert target_binary_name("linux", "arm64") == "leedevkit-go-linux-arm64"
+
+
+def test_build_debug_mcp_rejects_missing_source(tmp_path: Path) -> None:
+    compose_file = tmp_path / "container" / "go" / "docker-compose.core.yml"
+    compose_file.parent.mkdir(parents=True)
+    compose_file.write_text("services: {}\n")
+    try:
+        build_debug_mcp(tmp_path, tmp_path / "out", "1.0.0")
+    except FileNotFoundError as exc:
+        assert "Debug MCP source files missing" in str(exc)
+    else:
+        raise AssertionError("missing Debug MCP source accepted")
 
 
 def test_build_go_core_rejects_missing_compose_file(tmp_path: Path) -> None:

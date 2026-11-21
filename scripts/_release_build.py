@@ -47,7 +47,22 @@ REQUIRED_FILES = [
     "container/go/docker-compose.core.yml",
 ]
 GO_CORE_BINARY_DIR = "bin/go"
+DEBUG_MCP_BINARY_DIR = "bin/debug-mcp"
 GO_CORE_TARGETS = DEFAULT_TARGETS
+
+
+def _copy_debug_binaries(source_dir: Path, stage_root: Path) -> None:
+    destination = stage_root / DEBUG_MCP_BINARY_DIR
+    destination.mkdir(parents=True, exist_ok=True)
+    from _go_core_build import debug_binary_name
+
+    for goos, goarch in GO_CORE_TARGETS:
+        name = debug_binary_name(goos, goarch)
+        source = source_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(f"Debug MCP binary missing: {source}")
+        shutil.copy2(source, destination / name)
+        (destination / name).chmod((destination / name).stat().st_mode | 0o111)
 
 
 def _copy_go_core_binaries(source_dir: Path, stage_root: Path) -> None:
@@ -94,7 +109,10 @@ def _copy_release_payload(repo_root: Path, stage_root: Path) -> None:
 
 
 def build_release(
-    repo_root: Path, output_dir: Path, go_core_dir: Path | None = None
+    repo_root: Path,
+    output_dir: Path,
+    go_core_dir: Path | None = None,
+    debug_mcp_dir: Path | None = None,
 ) -> Path:
     """Stage, validate, and archive the release payload."""
     version_file = repo_root / "VERSION"
@@ -119,6 +137,10 @@ def build_release(
             _copy_go_core_binaries(go_core_dir, stage_root)
         elif (stage_root / GO_CORE_BINARY_DIR).exists():
             shutil.rmtree(stage_root / GO_CORE_BINARY_DIR)
+        if debug_mcp_dir is not None:
+            _copy_debug_binaries(debug_mcp_dir, stage_root)
+        elif (stage_root / DEBUG_MCP_BINARY_DIR).exists():
+            shutil.rmtree(stage_root / DEBUG_MCP_BINARY_DIR)
         write_sbom(
             repo_root / "scripts" / "requirements.lock",
             version,
@@ -159,6 +181,15 @@ def main() -> None:
         action="store_true",
         help="Build platform Go core binaries through Compose before packaging",
     )
+    parser.add_argument(
+        "--debug-mcp-dir",
+        help="Directory containing prebuilt platform Debug MCP binaries",
+    )
+    parser.add_argument(
+        "--build-debug-mcp",
+        action="store_true",
+        help="Build platform Debug MCP binaries through Compose before packaging",
+    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -172,19 +203,22 @@ def main() -> None:
         sys.exit(1)
 
     go_core_dir = Path(args.go_core_dir).resolve() if args.go_core_dir else None
+    debug_mcp_dir = Path(args.debug_mcp_dir).resolve() if args.debug_mcp_dir else None
     if args.build_go_core and go_core_dir is not None:
         raise ValueError("use either --go-core-dir or --build-go-core")
-    if args.build_go_core:
-        from _go_core_matrix import build_matrix
+    if args.build_debug_mcp and debug_mcp_dir is not None:
+        raise ValueError("use either --debug-mcp-dir or --build-debug-mcp")
+    version = (repo_root / "VERSION").read_text().strip()
+    if args.build_go_core or args.build_debug_mcp:
+        from _go_core_matrix import build_debug_matrix, build_matrix
 
-        go_core_dir = output_dir / ".go-core"
-        build_matrix(
-            repo_root, go_core_dir, (repo_root / "VERSION").read_text().strip()
-        )
-    if go_core_dir is not None:
-        build_release(repo_root, output_dir, go_core_dir)
-    else:
-        build_release(repo_root, output_dir)
+        if args.build_go_core:
+            go_core_dir = output_dir / ".go-core"
+            build_matrix(repo_root, go_core_dir, version)
+        if args.build_debug_mcp:
+            debug_mcp_dir = output_dir / ".debug-mcp"
+            build_debug_matrix(repo_root, debug_mcp_dir, version)
+    build_release(repo_root, output_dir, go_core_dir, debug_mcp_dir)
 
 
 if __name__ == "__main__":

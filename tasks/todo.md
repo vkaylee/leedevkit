@@ -140,6 +140,7 @@
 - [ ] Make release/install/bootstrap Go-first.
 - [ ] Keep explicit Python fallback through two compatibility releases.
 - [ ] Run release build, acceptance, checksums, SBOM, and public release verification.
+  - [x] Add standalone Go Debug MCP platform binary build and release payload validation.
 - [ ] Human approval before deleting bridge, handlers, fallback env, or wrapper.
 - [ ] Remove dead compatibility code in separate reviewed cleanup.
 

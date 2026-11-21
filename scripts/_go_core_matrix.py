@@ -5,7 +5,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from _go_core_build import DEFAULT_TARGETS, build_go_core, target_binary_name
+from _go_core_build import (
+    DEFAULT_TARGETS,
+    build_debug_mcp,
+    build_go_core,
+    debug_binary_name,
+    target_binary_name,
+)
 
 
 def build_matrix(
@@ -29,6 +35,27 @@ def build_matrix(
             )
         )
     return results
+
+
+def build_debug_matrix(
+    repo_root: Path,
+    output_dir: Path,
+    version: str,
+    *,
+    compose_cmd: tuple[str, ...] = ("docker", "compose"),
+) -> list[Path]:
+    """Build standalone Debug MCP binaries for release targets."""
+    return [
+        build_debug_mcp(
+            repo_root,
+            output_dir / debug_binary_name(goos, goarch),
+            version,
+            compose_cmd=compose_cmd,
+            goos=goos,
+            goarch=goarch,
+        )
+        for goos, goarch in DEFAULT_TARGETS
+    ]
 
 
 def main() -> None:

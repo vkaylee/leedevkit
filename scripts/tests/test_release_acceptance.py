@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _platform import platform_key  # noqa: E402
+from _go_core_matrix import build_debug_matrix  # noqa: E402
 from _release_build import build_release  # noqa: E402
 
 
@@ -131,7 +132,11 @@ def test_install_success_activates_downloaded_release(tmp_path):
     build_matrix(
         repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
     )
-    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
+    debug_dir = tmp_path / "debug-mcp"
+    build_debug_matrix(
+        repo_root, debug_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir, debug_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)
@@ -209,7 +214,11 @@ def test_global_binary_doctor_uses_project_root(tmp_path):
     build_matrix(
         repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
     )
-    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
+    debug_dir = tmp_path / "debug-mcp"
+    build_debug_matrix(
+        repo_root, debug_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir, debug_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)
@@ -263,7 +272,11 @@ def test_project_wrapper_bootstraps_stale_runtime_without_unbound_lock(tmp_path)
     build_matrix(
         repo_root, go_core_dir, version, compose_cmd=("/usr/bin/docker", "compose")
     )
-    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir)
+    debug_dir = tmp_path / "debug-mcp"
+    build_debug_matrix(
+        repo_root, debug_dir, version, compose_cmd=("/usr/bin/docker", "compose")
+    )
+    artifact = build_release(repo_root, tmp_path / "dist", go_core_dir, debug_dir)
     mirror_release = tmp_path / "mirror" / "download" / f"v{version}"
     mirror_release.mkdir(parents=True)
     shutil.copy2(artifact, mirror_release / artifact.name)

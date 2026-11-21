@@ -30,6 +30,26 @@ services:
     entrypoint: ["go"]
     command: ["version"]
 
+  leedevkit-debug-build:
+    profiles: ["go-core"]
+    build:
+      context: ${LEEDEVKIT_PROJECT_ROOT:-../../..}
+      dockerfile: ${LEEDEVKIT_GO_DOCKERFILE:-.leedevkit/container/go/Dockerfile}
+      args:
+        GO_VERSION: ${GO_VERSION:-1.26}
+    volumes:
+      - ${LEEDEVKIT_PROJECT_ROOT:-../../..}:/workspace
+      - go-module-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /workspace
+    network_mode: "none"
+    environment:
+      GOTMPDIR: /go-tmp
+    tmpfs:
+      - /go-tmp:rw,nosuid,nodev,exec,size=1g
+    entrypoint: ["go"]
+    command: ["version"]
+
 volumes:
   go-module-cache:
     name: leedevkit_go-module-cache

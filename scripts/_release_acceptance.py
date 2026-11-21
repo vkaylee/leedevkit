@@ -35,6 +35,7 @@ REQUIRED_PATHS = {
     "go.mod",
     "cmd/leedevkit/main.go",
     "container/go/docker-compose.core.yml",
+    "bin/debug-mcp/leedevkit-debug-linux-amd64",
 }
 FORBIDDEN_PARTS = {".git", "__pycache__", ".venv", "skills.d"}
 
@@ -119,6 +120,15 @@ def _assert_go_core_source_contract(extracted: Path, version: str) -> None:
         raise RuntimeError("Go core source missing from release")
     if version not in source.read_text() and "var version" not in source.read_text():
         raise RuntimeError("Go core version contract missing from source")
+    debug_dir = extracted / "bin" / "debug-mcp"
+    if not debug_dir.exists():
+        raise RuntimeError("release missing platform Debug MCP binaries")
+    for goos, goarch in DEFAULT_TARGETS:
+        from _go_core_build import debug_binary_name
+
+        binary = debug_dir / debug_binary_name(goos, goarch)
+        if not binary.is_file() or not binary.stat().st_size:
+            raise RuntimeError(f"Debug MCP binary missing or empty: {binary.name}")
     binary_dir = extracted / "bin" / "go"
     if not binary_dir.exists():
         raise RuntimeError("release missing platform Go binaries")
@@ -352,10 +362,21 @@ def run_acceptance(repo_root: Path, artifact: Path | None = None) -> Path:
         )
         workspace = Path(owned_workspace.name)
         binaries = workspace / "go-core"
+        debug_binaries = workspace / "debug-mcp"
         build_matrix(
             repo_root, binaries, version, compose_cmd=("/usr/bin/docker", "compose")
         )
-        artifact = build_release(repo_root, workspace / "dist", binaries)
+        from _go_core_matrix import build_debug_matrix
+
+        build_debug_matrix(
+            repo_root,
+            debug_binaries,
+            version,
+            compose_cmd=("/usr/bin/docker", "compose"),
+        )
+        artifact = build_release(
+            repo_root, workspace / "dist", binaries, debug_binaries
+        )
     artifact = artifact.resolve()
 
     try:
