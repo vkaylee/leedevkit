@@ -1332,8 +1332,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
-		server := debug.NewServer(manifest)
-		if err := server.Serve(stdin, stdout); err != nil {
+		if len(os.Getenv("LEEDEVKIT_DEBUG_DIRECT")) > 0 {
+			server := debug.NewServer(manifest)
+			if err := server.Serve(stdin, stdout); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			return 0
+		}
+		compose := splitCommand(os.Getenv("DOCKER_COMPOSE_TOOL"))
+		if len(compose) == 0 {
+			compose = []string{"docker", "compose"}
+		}
+		engine := []string{compose[0]}
+		if len(compose) > 1 && compose[1] == "compose" {
+			engine = []string{compose[0]}
+		}
+		if err := debug.LaunchWithValidation(context.Background(), manifest, compose, engine, debug.ProcessComposeRunner(stdout, stderr), debug.ProcessComposeOutputRunner()); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}

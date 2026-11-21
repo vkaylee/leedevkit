@@ -1,16 +1,47 @@
 package debug
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/vkaylee/leedevkit/internal/process"
 )
 
 type ComposeRunner func(context.Context, []string) error
 
 type ComposeOutputRunner func(context.Context, []string) ([]byte, error)
+
+func ProcessComposeRunner(stdout, stderr io.Writer) ComposeRunner {
+	return func(ctx context.Context, args []string) error {
+		result := process.Run(ctx, process.Request{Args: args, Stdout: stdout, Stderr: stderr})
+		if result.ExitCode != 0 {
+			if result.Err != nil {
+				return result.Err
+			}
+			return fmt.Errorf("Compose exited with code %d", result.ExitCode)
+		}
+		return nil
+	}
+}
+
+func ProcessComposeOutputRunner() ComposeOutputRunner {
+	return func(ctx context.Context, args []string) ([]byte, error) {
+		var stdout, stderr bytes.Buffer
+		result := process.Run(ctx, process.Request{Args: args, Stdout: &stdout, Stderr: &stderr})
+		if result.ExitCode != 0 {
+			if result.Err != nil {
+				return nil, result.Err
+			}
+			return nil, fmt.Errorf("Compose exited with code %d: %s", result.ExitCode, stderr.String())
+		}
+		return stdout.Bytes(), nil
+	}
+}
 
 func ComposeBaseArgs(compose []string, environment Environment) ([]string, error) {
 	if len(compose) == 0 || environment.ComposeProject == "" {
