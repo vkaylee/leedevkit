@@ -1,8 +1,11 @@
 package debug
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 )
 
 const (
@@ -16,6 +19,36 @@ type Server struct{ Runtime Runtime }
 func NewServer(environment Environment) Server { return Server{Runtime: NewRuntime(environment)} }
 
 func EncodeRequest(value map[string]any) ([]byte, error) { return json.Marshal(value) }
+
+func (s Server) Serve(input io.Reader, output io.Writer) error {
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 64*1024), MaxRequestBytes)
+	writer := bufio.NewWriter(output)
+	defer writer.Flush()
+	for scanner.Scan() {
+		request, err := DecodeRequest(scanner.Bytes())
+		if err != nil {
+			if writeErr := json.NewEncoder(writer).Encode(errorResponse(nil, -32700, err.Error())); writeErr != nil {
+				return writeErr
+			}
+			continue
+		}
+		response := s.Handle(request)
+		if response == nil {
+			continue
+		}
+		if err := json.NewEncoder(writer).Encode(response); err != nil {
+			return err
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if strings.Contains(err.Error(), "token too long") {
+			return json.NewEncoder(writer).Encode(errorResponse(nil, -32600, "request exceeds size limit"))
+		}
+		return err
+	}
+	return nil
+}
 
 func DecodeRequest(data []byte) (map[string]any, error) {
 	if len(data) > MaxRequestBytes {

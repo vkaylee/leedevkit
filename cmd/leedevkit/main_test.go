@@ -94,6 +94,19 @@ func TestRunDoctorUsesGoReadOnlyPath(t *testing.T) {
 	}
 }
 
+func TestParseDebugMCPArgs(t *testing.T) {
+	options, err := parseDebugMCPArgs([]string{"debug", "mcp", "--environment", "fixture", "--manifest", "manifest.toml"})
+	if err != nil || options.Environment != "fixture" || options.Manifest != "manifest.toml" {
+		t.Fatalf("options = %#v, err = %v", options, err)
+	}
+}
+
+func TestParseDebugMCPArgsRequiresManifestAndEnvironment(t *testing.T) {
+	if _, err := parseDebugMCPArgs([]string{"debug", "mcp"}); err == nil {
+		t.Fatal("missing debug arguments accepted")
+	}
+}
+
 func TestRunUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"wat"}, strings.NewReader(""), &stdout, &stderr); code != 1 {

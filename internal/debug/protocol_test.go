@@ -73,6 +73,31 @@ func TestProtocolResourcesAndPrompt(t *testing.T) {
 	}
 }
 
+func TestProtocolServeProcessesJSONL(t *testing.T) {
+	server := protocolFixture(t)
+	input := strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+	var output strings.Builder
+	if err := server.Serve(input, &output); err != nil {
+		t.Fatal(err)
+	}
+	var response map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output.String())), &response); err != nil || response["result"] == nil {
+		t.Fatalf("output = %q, err = %v", output.String(), err)
+	}
+}
+
+func TestProtocolServeRejectsOversizedLine(t *testing.T) {
+	server := protocolFixture(t)
+	input := strings.NewReader(strings.Repeat("x", MaxRequestBytes+1) + "\n")
+	var output strings.Builder
+	if err := server.Serve(input, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "request exceeds size limit") {
+		t.Fatalf("output = %q", output.String())
+	}
+}
+
 func TestProtocolJSONRoundTrip(t *testing.T) {
 	data, err := EncodeRequest(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "ping"})
 	if err != nil {

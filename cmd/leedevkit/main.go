@@ -15,6 +15,7 @@ import (
 
 	"github.com/vkaylee/leedevkit/internal/config"
 	"github.com/vkaylee/leedevkit/internal/dbcommands"
+	"github.com/vkaylee/leedevkit/internal/debug"
 	"github.com/vkaylee/leedevkit/internal/gates"
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/modes"
@@ -193,6 +194,42 @@ func environMap(values []string) map[string]string {
 func resolveProviderForProject(root string, env map[string]string) (provider.Provider, error) {
 	repository := filepath.Join(root, "leedevkit.toml")
 	return provider.Resolve(provider.Options{Repository: repository, Environment: env, CLI: env["LEEDEVKIT_CONTAINER_PROVIDER"]})
+}
+
+type debugMCPOptions struct {
+	Environment string
+	Manifest    string
+	ProjectRoot string
+	Compose     string
+}
+
+func parseDebugMCPArgs(args []string) (debugMCPOptions, error) {
+	if len(args) < 2 || args[0] != "debug" || args[1] != "mcp" {
+		return debugMCPOptions{}, fmt.Errorf("usage: debug mcp --environment NAME --manifest PATH")
+	}
+	options := debugMCPOptions{}
+	for index := 2; index < len(args); index++ {
+		if index+1 >= len(args) {
+			return debugMCPOptions{}, fmt.Errorf("%s requires a value", args[index])
+		}
+		switch args[index] {
+		case "--environment":
+			options.Environment = args[index+1]
+		case "--manifest":
+			options.Manifest = args[index+1]
+		case "--project-root":
+			options.ProjectRoot = args[index+1]
+		case "--compose-project":
+			options.Compose = args[index+1]
+		default:
+			return debugMCPOptions{}, fmt.Errorf("unsupported debug argument %q", args[index])
+		}
+		index++
+	}
+	if options.Environment == "" || options.Manifest == "" {
+		return debugMCPOptions{}, fmt.Errorf("debug mcp requires --environment and --manifest")
+	}
+	return options, nil
 }
 
 func envProviderName(env map[string]string) string {
@@ -1281,7 +1318,23 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		result := process.Run(context.Background(), process.Request{Args: queryArgs, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
 		return result.ExitCode
-	case "debug", "init", "update":
+	case "debug":
+		options, err := parseDebugMCPArgs(args)
+		if err != nil {
+			return runPythonCommand(args, stdin, stdout, stderr)
+		}
+		manifest, err := debug.Load(options.Manifest, options.Environment, debug.Options{ProjectRoot: options.ProjectRoot})
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		server := debug.NewServer(manifest)
+		if err := server.Serve(stdin, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return 0
+	case "init", "update":
 		return runPythonCommand(args, stdin, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])
