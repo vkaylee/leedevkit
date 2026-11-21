@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 
-
 def extract_structs(content: str) -> list[dict[str, Any]]:
     structs = []
     # Find all occurrences of 'struct <name>'

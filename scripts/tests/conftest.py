@@ -78,6 +78,4 @@ def protect_checkout_and_reset_runtime_cache() -> Iterator[None]:
         yield
     finally:
         after = _snapshot(PROTECTED_PATHS)
-        try:
-            assert after == before, "test modified protected checkout files"
-        finally:
+        assert after == before, "test modified protected checkout files"

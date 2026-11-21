@@ -5,7 +5,6 @@ import sys
 from typing import Any
 
 
-
 def extract_methods(file_content: str) -> list[dict[str, Any]]:
     methods = []
     text = file_content
