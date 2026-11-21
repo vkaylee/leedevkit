@@ -1,8 +1,11 @@
 package gates
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/process"
@@ -37,6 +40,9 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 			if !e.Done[required] {
 				return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "required gate did not pass: " + required, Gate: gate.Name}
 			}
+		}
+		if err := checkVersion(ctx, run, gate); err != nil {
+			return PhaseResult{Status: "failed", ExitCode: err.ExitCode, Diagnostic: err.Diagnostic, Gate: gate.Name}
 		}
 		if err := runCommand(ctx, run, gate, gate.SetupCommand); err != nil {
 			_ = runCommand(ctx, run, gate, gate.TeardownCommand)
@@ -75,6 +81,48 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 type commandResult struct {
 	ExitCode   int
 	Diagnostic string
+}
+
+func checkVersion(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate) *commandResult {
+	if gate.ExpectedVersion == nil && len(gate.VersionCommand) == 0 {
+		return nil
+	}
+	if gate.ExpectedVersion == nil || len(gate.VersionCommand) == 0 {
+		return &commandResult{ExitCode: 1, Diagnostic: "version_command and expected_version are required together"}
+	}
+	commandCtx := ctx
+	cancel := func() {}
+	if gate.Timeout != nil && *gate.Timeout > 0 {
+		commandCtx, cancel = context.WithTimeout(ctx, timeoutDuration(gate.Timeout))
+	}
+	defer cancel()
+	var stdout bytes.Buffer
+	version := run(commandCtx, process.Request{Args: gate.VersionCommand, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Stdout: &stdout, Stderr: &stdout, Timeout: timeoutDuration(gate.Timeout)})
+	if version.ExitCode != 0 {
+		return &commandResult{ExitCode: version.ExitCode, Diagnostic: errorText(version.Err)}
+	}
+	output := version.Stdout
+	if len(output) == 0 {
+		output = stdout.Bytes()
+	}
+	actual := strings.Fields(string(output))
+	expected := strings.Fields(*gate.ExpectedVersion)
+	if len(expected) == 0 || len(actual) < len(expected) || !slicesEqual(actual[:len(expected)], expected) {
+		return &commandResult{ExitCode: 1, Diagnostic: fmt.Sprintf("expected %q, got %q", *gate.ExpectedVersion, strings.TrimSpace(string(output)))}
+	}
+	return nil
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func runCommand(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string) *commandResult {

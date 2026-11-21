@@ -36,6 +36,23 @@ func hasArg(values []string, wanted string) bool {
 	return false
 }
 
+func TestComposeRunnerCapturesVersionOutput(t *testing.T) {
+	runner := ComposeRunner{
+		Compose: []string{"compose"}, Project: "test", Service: "go",
+		Execute: func(_ context.Context, request process.Request) process.Result {
+			if request.Stdout == nil {
+				t.Fatal("stdout writer missing")
+			}
+			_, _ = request.Stdout.Write([]byte("tool 1.2.3\\n"))
+			return process.Result{ExitCode: 0}
+		},
+	}
+	result := runner.Run(context.Background(), []string{"tool", "--version"}, nil)
+	if string(result.Stdout) != "tool 1.2.3\\n" {
+		t.Fatalf("stdout = %q", result.Stdout)
+	}
+}
+
 func TestComposeRunnerAddsEnvironment(t *testing.T) {
 	var got []string
 	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Execute: func(_ context.Context, request process.Request) process.Result {

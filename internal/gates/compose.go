@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/vkaylee/leedevkit/internal/process"
@@ -39,5 +40,13 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 	if run == nil {
 		run = process.Run
 	}
-	return run(ctx, process.Request{Args: args})
+	var stdout, stderr bytes.Buffer
+	result := run(ctx, process.Request{Args: args, Stdout: &stdout, Stderr: &stderr})
+	if len(result.Stdout) == 0 {
+		result.Stdout = append([]byte(nil), stdout.Bytes()...)
+	}
+	if len(result.Stderr) == 0 {
+		result.Stderr = append([]byte(nil), stderr.Bytes()...)
+	}
+	return result
 }

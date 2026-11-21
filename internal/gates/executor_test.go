@@ -102,3 +102,49 @@ func TestExecutorRunsFixCommandWhenRequested(t *testing.T) {
 		t.Fatalf("result = %#v, command = %#v", result, command)
 	}
 }
+
+func TestExecutorChecksGateVersionBeforeRunningGate(t *testing.T) {
+	var commands [][]string
+	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {
+		commands = append(commands, request.Args)
+		if request.Args[0] == "tool" {
+			return process.Result{ExitCode: 0, Stdout: []byte("tool 1.2.3\n")}
+		}
+		return process.Result{ExitCode: 0}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", []Gate{{
+		Name: "tool", Phase: "lint", Command: []string{"check"},
+		VersionCommand: []string{"tool", "--version"}, ExpectedVersion: stringPtr("tool 1.2.3"),
+	}})
+	if result.Status != "passed" || len(commands) != 2 || commands[0][1] != "--version" {
+		t.Fatalf("result = %#v, commands = %#v", result, commands)
+	}
+}
+
+func TestExecutorBlocksGateWhenVersionMismatches(t *testing.T) {
+	gateCalls := 0
+	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {
+		if request.Args[0] == "check" {
+			gateCalls++
+		}
+		return process.Result{ExitCode: 0, Stdout: []byte("tool 9.0.0\n")}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", []Gate{{
+		Name: "tool", Phase: "lint", Command: []string{"check"},
+		VersionCommand: []string{"tool", "--version"}, ExpectedVersion: stringPtr("tool 1.2"),
+	}})
+	if result.Status != "failed" || gateCalls != 0 || result.Diagnostic == "" {
+		t.Fatalf("result = %#v, gate calls = %d", result, gateCalls)
+	}
+}
+
+func TestValidateRejectsIncompleteVersionConfiguration(t *testing.T) {
+	if err := Validate(Gate{Name: "tool", Phase: "lint", Command: []string{"check"}, ExpectedVersion: stringPtr("1")}); err == nil {
+		t.Fatal("expected missing version command error")
+	}
+	if err := Validate(Gate{Name: "tool", Phase: "lint", Command: []string{"check"}, VersionCommand: []string{"tool", "--version"}}); err == nil {
+		t.Fatal("expected missing expected version error")
+	}
+}
+
+func stringPtr(value string) *string { return &value }

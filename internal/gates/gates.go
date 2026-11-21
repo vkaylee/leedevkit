@@ -132,6 +132,9 @@ func Validate(gate Gate) error {
 	if gate.FailurePolicy == "optional" && gate.Required {
 		return fmt.Errorf("required must be false for optional failure_policy")
 	}
+	if (gate.ExpectedVersion == nil) != (len(gate.VersionCommand) == 0) {
+		return fmt.Errorf("version_command and expected_version are required together")
+	}
 	if strings.TrimSpace(gate.Condition) == "" {
 		return fmt.Errorf("condition must be non-empty")
 	}
