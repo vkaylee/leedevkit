@@ -10,7 +10,6 @@ import re
 import shutil
 from pathlib import Path
 
-from _runtime import enforce_project_venv
 
 _REQUIREMENT = re.compile(r"^(?P<name>[A-Za-z0-9_.-]+)==(?P<version>[^;#]+)")
 
@@ -115,5 +114,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    enforce_project_venv()
     raise SystemExit(main())

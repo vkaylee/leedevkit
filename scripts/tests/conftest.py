@@ -81,9 +81,3 @@ def protect_checkout_and_reset_runtime_cache() -> Iterator[None]:
         try:
             assert after == before, "test modified protected checkout files"
         finally:
-            try:
-                from _devkit_config import reset_devkit_root_cache
-
-                reset_devkit_root_cache()
-            except ImportError:
-                pass

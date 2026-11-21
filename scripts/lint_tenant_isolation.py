@@ -4,7 +4,6 @@ import re
 import sys
 from typing import Any
 
-from _runtime import enforce_project_venv
 
 
 def extract_methods(file_content: str) -> list[dict[str, Any]]:
@@ -148,5 +147,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    enforce_project_venv()
     main()

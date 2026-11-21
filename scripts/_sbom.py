@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from _runtime import enforce_project_venv
 
 _LOCK_MARKER = "# Optional browser harness"
 
@@ -74,7 +73,6 @@ def write_sbom(lock_file: Path, version: str, output: Path) -> Path:
 
 
 if __name__ == "__main__":  # pragma: no cover
-    enforce_project_venv()
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate LeeDevKit CycloneDX SBOM")

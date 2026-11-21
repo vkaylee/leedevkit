@@ -22,7 +22,6 @@ import subprocess
 from pathlib import Path
 
 from _go_core_build import DEFAULT_TARGETS, target_binary_name
-from _runtime import enforce_project_venv
 from _sbom import write_sbom
 
 
@@ -266,5 +265,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    enforce_project_venv()
     main()

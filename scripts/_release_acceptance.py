@@ -17,7 +17,6 @@ from pathlib import Path, PurePosixPath
 from _go_core_build import DEFAULT_TARGETS, target_binary_name
 from _go_core_matrix import build_matrix
 from _release_build import build_release
-from _runtime import enforce_project_venv
 from _platform import platform_key
 
 REQUIRED_PATHS = {
@@ -488,7 +487,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    enforce_project_venv()
     try:
         main()
     except (OSError, RuntimeError, tarfile.TarError) as error:
