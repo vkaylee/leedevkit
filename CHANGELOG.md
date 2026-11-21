@@ -4,6 +4,19 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-11-21
+
+### Added
+- Restore Python utilities shipped with AI-agent skills while keeping LeeDevKit control plane Go-only.
+- Add skill utility path, compile, and fixture smoke checks.
+
+### Changed
+- Remove duplicate project wrapper template.
+- Document Go launcher ownership separately from skill utility execution.
+
+### Verification
+- Go package tests, shell syntax checks, release smoke, and skill utility smoke checks pass.
+
 ## [0.11.4] - 2026-11-21
 
 ### Added
