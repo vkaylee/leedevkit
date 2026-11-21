@@ -338,6 +338,27 @@ func TestBuildAPISyncCommandUsesTwoComposeExecs(t *testing.T) {
 	}
 }
 
+func TestBuildGeneratedGateCommandUsesComposeExec(t *testing.T) {
+	got, err := buildGeneratedGateCommand([]string{"compose"}, "go", "go", []string{"go", "generate", "./..."}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"compose", "exec", "-T", "go", "-w", "/workspace", "go", "generate", "./..."}
+	if !sameStrings(got, want) {
+		t.Fatalf("generated args = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildGeneratedGateCommandUsesConfiguredWorkdir(t *testing.T) {
+	got, err := buildGeneratedGateCommand([]string{"compose"}, "backend", "backend", []string{"make", "generate"}, "services/backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(got, "/workspace/services/backend") {
+		t.Fatalf("generated workdir missing: %#v", got)
+	}
+}
+
 func TestBuildAPISyncCommandRejectsMissingServices(t *testing.T) {
 	if _, err := buildAPISyncCommands([]string{"compose"}, "", "web"); err == nil {
 		t.Fatal("missing API service accepted")

@@ -218,6 +218,23 @@ func parseMigrationCommand(args []string) (string, error) {
 	}
 }
 
+func buildGeneratedGateCommand(compose []string, service, defaultService string, command []string, workdir string) ([]string, error) {
+	if len(compose) == 0 || (service == "" && defaultService == "") || len(command) == 0 {
+		return nil, fmt.Errorf("compose, service, and generated command are required")
+	}
+	if service == "" {
+		service = defaultService
+	}
+	if workdir == "" {
+		workdir = "/workspace"
+	} else if !strings.HasPrefix(workdir, "/") {
+		workdir = "/workspace/" + filepath.ToSlash(workdir)
+	}
+	args := append([]string{}, compose...)
+	args = append(args, "exec", "-T", service, "-w", workdir)
+	return append(args, command...), nil
+}
+
 func buildAPISyncCommands(compose []string, rustService, webService string) ([][]string, error) {
 	if len(compose) == 0 || rustService == "" || webService == "" {
 		return nil, fmt.Errorf("compose and API services are required")
@@ -1073,6 +1090,36 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
+	case "generated":
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		projectConfig, err := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid project config: %v\n", err)
+			return 2
+		}
+		service := configuredServiceName(projectConfig, "go")
+		for _, gate := range projectConfig.Gates {
+			if gate.Phase != "generated" {
+				continue
+			}
+			command := gate.Command
+			if len(args) > 1 && args[1] == "--fix" && len(gate.FixCommand) > 0 {
+				command = gate.FixCommand
+			}
+			argv, err := buildGeneratedGateCommand(providerConfig.Compose, gate.Service, service, command, gate.WorkingDir)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			if code := runCommand(projectRootOrCWD(), projectRootOrCWD(), argv, stdin, stdout, stderr); code != 0 {
+				return code
+			}
+		}
+		return 0
 	case "sync:api":
 		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
 		if err != nil {
