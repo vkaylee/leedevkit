@@ -138,6 +138,31 @@ func TestLaunchCleansUpAfterContextCancellation(t *testing.T) {
 	}
 }
 
+func TestLaunchWithValidationRejectsResidualDebugContainer(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest, Networks: []string{"backend"}, Services: map[string]Service{"api": {ID: "api", Host: "api"}}}
+	output := func(_ context.Context, args []string) ([]byte, error) {
+		switch {
+		case contains(args, "config"):
+			return []byte(`{"services":{"api":{}},"networks":{"backend":{}}}`), nil
+		case contains(args, "inspect"):
+			return []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`), nil
+		case contains(args, "ps"):
+			return []byte("residual-container\n"), nil
+		default:
+			return nil, nil
+		}
+	}
+	err := LaunchWithValidation(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(context.Context, []string) error { return nil }, output)
+	if err == nil || !strings.Contains(err.Error(), "residual") {
+		t.Fatalf("err = %v, want residual container error", err)
+	}
+}
+
 func TestLaunchWithValidationInspectsEveryResolvedNetwork(t *testing.T) {
 	root := t.TempDir()
 	manifest := filepath.Join(root, "leedevkit.toml")
@@ -149,6 +174,9 @@ func TestLaunchWithValidationInspectsEveryResolvedNetwork(t *testing.T) {
 	output := func(_ context.Context, args []string) ([]byte, error) {
 		if contains(args, "config") {
 			return []byte(`{"services":{"api":{}},"networks":{"backend":{},"frontend":{"name":"shared_frontend"}}}`), nil
+		}
+		if contains(args, "ps") {
+			return nil, nil
 		}
 		inspected = append(inspected, args[len(args)-1])
 		return []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`), nil

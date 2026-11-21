@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/process"
@@ -28,6 +29,13 @@ func ProcessComposeRunner(stdout, stderr io.Writer) ComposeRunner {
 		}
 		return nil
 	}
+}
+
+func validateDebugCleanupOutput(data []byte) error {
+	if strings.TrimSpace(string(data)) != "" {
+		return fmt.Errorf("residual debug container after cleanup: %s", strings.TrimSpace(string(data)))
+	}
+	return nil
 }
 
 func ProcessComposeOutputRunner() ComposeOutputRunner {
@@ -209,7 +217,11 @@ func LaunchWithValidation(ctx context.Context, environment Environment, compose,
 			return err
 		}
 	}
-	return launchWithNetworks(ctx, environment, compose, run, networks)
+	err = launchWithNetworks(ctx, environment, compose, run, networks, output)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func LaunchValidated(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, configOutput, networkOutput []byte) error {
@@ -245,7 +257,7 @@ func Launch(ctx context.Context, environment Environment, compose []string, run 
 	return launchWithNetworks(ctx, environment, compose, run, networks)
 }
 
-func launchWithNetworks(ctx context.Context, environment Environment, compose []string, run ComposeRunner, networks []string) error {
+func launchWithNetworks(ctx context.Context, environment Environment, compose []string, run ComposeRunner, networks []string, output ...ComposeOutputRunner) (result error) {
 	directory, err := os.MkdirTemp("", "leedevkit-debug-")
 	if err != nil {
 		return err
@@ -275,7 +287,17 @@ func launchWithNetworks(ctx context.Context, environment Environment, compose []
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 		_ = run(cleanupCtx, cleanupArgs)
-		_ = run(cleanupCtx, psArgs)
+		if len(output) > 0 && output[0] != nil {
+			if data, err := output[0](cleanupCtx, psArgs); err == nil {
+				if cleanupErr := validateDebugCleanupOutput(data); cleanupErr != nil && result == nil {
+					result = cleanupErr
+				}
+			} else if result == nil {
+				result = err
+			}
+		} else {
+			_ = run(cleanupCtx, psArgs)
+		}
 	}()
 	return run(ctx, runArgs)
 }
