@@ -14,6 +14,7 @@ type Request struct {
 	Args    []string
 	Dir     string
 	Env     []string
+	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Timeout time.Duration
@@ -43,7 +44,7 @@ func Run(ctx context.Context, request Request) Result {
 	command := exec.Command(request.Args[0], request.Args[1:]...)
 	command.Dir = request.Dir
 	command.Env = append([]string(nil), request.Env...)
-	command.Stdin = nil
+	command.Stdin = request.Stdin
 	command.Stdout = request.Stdout
 	command.Stderr = request.Stderr
 	command.SysProcAttr = processGroupAttributes()

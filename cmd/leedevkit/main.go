@@ -1323,7 +1323,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err != nil {
 			return runPythonCommand(args, stdin, stdout, stderr)
 		}
-		manifest, err := debug.Load(options.Manifest, options.Environment, debug.Options{ProjectRoot: options.ProjectRoot})
+		root := options.ProjectRoot
+		if root == "" {
+			root = projectRootOrCWD()
+		}
+		manifest, err := debug.Load(options.Manifest, options.Environment, debug.Options{ProjectRoot: root})
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
