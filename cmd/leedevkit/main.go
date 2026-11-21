@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/config"
+	"github.com/vkaylee/leedevkit/internal/dbcommands"
 	"github.com/vkaylee/leedevkit/internal/gates"
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/modes"
@@ -199,6 +200,33 @@ func envProviderName(env map[string]string) string {
 		return value
 	}
 	return "docker"
+}
+
+func parseMigrationCommand(args []string) (string, error) {
+	if len(args) != 1 {
+		return "", fmt.Errorf("migration command accepts no arguments")
+	}
+	switch args[0] {
+	case "migrate:run":
+		return "run", nil
+	case "migrate:revert":
+		return "revert", nil
+	case "migrate:status":
+		return "status", nil
+	default:
+		return "", fmt.Errorf("unsupported migration command %q", args[0])
+	}
+}
+
+func buildMigrationCommand(root string, config provider.Provider, project, service, action string) ([]string, error) {
+	migrationArgs, err := dbcommands.MigrationArgs(action)
+	if err != nil {
+		return nil, err
+	}
+	return dbcommands.BuildDiesel(dbcommands.DieselRequest{
+		Compose: config.Compose, Project: project, ComposeFile: filepath.Join(root, ".compose", "docker-compose.test.yml"),
+		Root: root, WorkingDir: root, Service: service, Args: migrationArgs,
+	})
 }
 
 func parseDatabaseQueryArgs(args []string) (string, bool, error) {
@@ -951,6 +979,33 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
 		}
 		return runPythonCommand(args, stdin, stdout, stderr)
+	case "migrate:run", "migrate:revert", "migrate:status":
+		action, err := parseMigrationCommand(args)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+			return 2
+		}
+		env := environMap(os.Environ())
+		project := env["COMPOSE_PROJECT_NAME"]
+		if project == "" {
+			project = "leedevkit-test"
+		}
+		service := "apiserver"
+		if projectConfig, loadErr := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml")); loadErr == nil {
+			service = configuredServiceName(projectConfig, "rust")
+		}
+		migrationArgs, err := buildMigrationCommand(projectRootOrCWD(), providerConfig, project, service, action)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		result := process.Run(context.Background(), process.Request{Args: migrationArgs, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
+		return result.ExitCode
 	case "db:query":
 		sql, asJSON, err := parseDatabaseQueryArgs(args)
 		if err != nil {

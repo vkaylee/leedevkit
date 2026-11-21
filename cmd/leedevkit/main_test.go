@@ -259,6 +259,48 @@ func TestParseDatabaseQueryRejectsMissingSQL(t *testing.T) {
 	}
 }
 
+func TestParseMigrationCommand(t *testing.T) {
+	for _, test := range []struct {
+		args   []string
+		action string
+	}{
+		{[]string{"migrate:run"}, "run"},
+		{[]string{"migrate:revert"}, "revert"},
+		{[]string{"migrate:status"}, "status"},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			if got, err := parseMigrationCommand(test.args); err != nil || got != test.action {
+				t.Fatalf("action = %q, err = %v", got, err)
+			}
+		})
+	}
+}
+
+func TestParseMigrationCommandRejectsArguments(t *testing.T) {
+	if _, err := parseMigrationCommand([]string{"migrate:run", "extra"}); err == nil {
+		t.Fatal("migration arguments accepted")
+	}
+}
+
+func TestBuildMigrationCommandUsesConfiguredRustService(t *testing.T) {
+	got, err := buildMigrationCommand(
+		"/repo",
+		provider.Provider{Compose: []string{"docker", "compose"}},
+		"leedevkit-test",
+		"api",
+		"run",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(got, []string{
+		"docker", "compose", "-p", "leedevkit-test", "-f", "/repo/.compose/docker-compose.test.yml",
+		"run", "-T", "--rm", "--workdir", "/workspace", "--entrypoint", "diesel", "api", "migration", "run",
+	}) {
+		t.Fatalf("migration args = %#v", got)
+	}
+}
+
 func contains(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {
