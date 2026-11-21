@@ -131,13 +131,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func goToolsRoot(project string) string {
-	runtime := filepath.Join(project, ".leedevkit")
-	if fileExists(filepath.Join(runtime, ".venv", "bin", "ruff")) {
-		return runtime
-	}
-	return project
-}
+func goToolsRoot(project string) string { return project }
 
 func environMap(values []string) map[string]string {
 	result := make(map[string]string, len(values))
@@ -378,34 +372,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func infraLintCommands(runtime, project string) [][]string {
-	commands := [][]string{
-		{filepath.Join(runtime, ".venv", "bin", "ruff"), "check", filepath.Join(runtime, "scripts")},
-		{filepath.Join(runtime, ".venv", "bin", "mypy"), filepath.Join(runtime, "scripts")},
-	}
-	if _, err := exec.LookPath("shellcheck"); err == nil {
-		shellFiles := []string{}
-		if matches, globErr := filepath.Glob(filepath.Join(project, "*.sh")); globErr == nil {
-			shellFiles = append(shellFiles, matches...)
-		}
-		if matches, globErr := filepath.Glob(filepath.Join(runtime, "scripts", "*.sh")); globErr == nil {
-			shellFiles = append(shellFiles, matches...)
-		}
-		if len(shellFiles) > 0 {
-			commands = append(commands, append([]string{"shellcheck"}, shellFiles...))
-		}
-	}
-	return commands
-}
-
-func infraFormatCommand(runtime string) []string {
-	return []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", filepath.Join(runtime, "scripts")}
-}
-
-func infraFormatCheckCommand(runtime string) []string {
-	return []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", "--check", filepath.Join(runtime, "scripts")}
-}
-
 func runCommand(runtime, project string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	command := exec.Command(args[0], args[1:]...)
 	command.Dir = project
@@ -418,40 +384,6 @@ func runCommand(runtime, project string, args []string, stdin io.Reader, stdout,
 			return exitErr.ExitCode()
 		}
 		return 2
-	}
-	return 0
-}
-
-func runInfraFormatCheck(runtime, project string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return runCommand(runtime, project, infraFormatCheckCommand(runtime), stdin, stdout, stderr)
-}
-
-func runInfraVerify(runtime, project, pattern string, stdin io.Reader, stdout, stderr io.Writer) int {
-	for _, args := range [][]string{infraFormatCheckCommand(runtime)} {
-		if code := runCommand(runtime, project, args, stdin, stdout, stderr); code != 0 {
-			return code
-		}
-	}
-	if code := runInfraLint(runtime, project, stdin, stdout, stderr); code != 0 {
-		return code
-	}
-	return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
-}
-
-func runInfraLint(runtime, project string, stdin io.Reader, stdout, stderr io.Writer) int {
-	for _, args := range infraLintCommands(runtime, project) {
-		command := exec.Command(args[0], args[1:]...)
-		command.Dir = project
-		command.Stdin = stdin
-		command.Stdout = stdout
-		command.Stderr = stderr
-		if err := command.Run(); err != nil {
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				return exitErr.ExitCode()
-			}
-			return 2
-		}
 	}
 	return 0
 }
@@ -502,46 +434,6 @@ func validateInfraPattern(pattern string) (string, error) {
 		return "", fmt.Errorf("invalid pattern regex: %w", err)
 	}
 	return pattern, nil
-}
-
-func infraUnitCommand(runtime, pattern string) []string {
-	command := []string{
-		filepath.Join(runtime, ".venv", "bin", "pytest"),
-		"--cov=scripts",
-		"--cov-config",
-		filepath.Join(runtime, "scripts", ".coveragerc"),
-		"--cov-report=term-missing",
-		"--cov-report=html:.test_logs/coverage-production",
-	}
-	if pattern == "" {
-		command = append(command, "--cov-fail-under=80")
-	} else {
-		command = append(command, "-p", "_pytest_pattern", "--leedevkit-pattern", pattern)
-	}
-	files, _ := filepath.Glob(filepath.Join(runtime, "scripts", "tests", "test_*.py"))
-	return append(command, files...)
-}
-
-func runInfraUnit(runtime, project, pattern string, stdin io.Reader, stdout, stderr io.Writer) int {
-	validated, err := validateInfraPattern(pattern)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	args := infraUnitCommand(runtime, validated)
-	command := exec.Command(args[0], args[1:]...)
-	command.Dir = project
-	command.Stdin = stdin
-	command.Stdout = stdout
-	command.Stderr = stderr
-	if err := command.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode()
-		}
-		return 2
-	}
-	return 0
 }
 
 func isInfraLint(args []string) bool {
@@ -918,49 +810,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return result.ExitCode
 		}
 
-		if len(args) >= 1 && args[0] == "test:infra" {
-			project := findProjectRoot()
-			runtime := goToolsRoot(project)
-			if runtime == "" {
-				fmt.Fprintln(stderr, "Go test tools runtime missing")
-				return 2
-			}
-			pattern, err := parseInfraTestArgs(args)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 2
-			}
-			return runInfraVerify(runtime, project, pattern, stdin, stdout, stderr)
-		}
-		if len(args) >= 3 && args[1] == "infra" && args[2] == "--verify" {
-			project := findProjectRoot()
-			runtime := goToolsRoot(project)
-			if runtime == "" {
-				fmt.Fprintln(stderr, "Go test tools runtime missing")
-				return 2
-			}
-			pattern := ""
-			if len(args) >= 5 && args[3] == "--pattern" {
-				pattern = args[4]
-			}
-			return runInfraVerify(runtime, project, pattern, stdin, stdout, stderr)
-		}
-		if isInfraLint(args) || isInfraUnit(args) {
-			project := findProjectRoot()
-			runtime := goToolsRoot(project)
-			if runtime == "" {
-				fmt.Fprintln(stderr, "Go test tools runtime missing")
-				return 2
-			}
-			if isInfraLint(args) {
-				return runInfraLint(runtime, project, stdin, stdout, stderr)
-			}
-			pattern := ""
-			if len(args) >= 5 && args[3] == "--pattern" {
-				pattern = args[4]
-			}
-			return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
-		}
 		fmt.Fprintf(stderr, "unsupported Go test command: %s\n", strings.Join(args, " "))
 		return 2
 	case "doctor":
@@ -1020,13 +869,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case "fmt:infra":
-		project := findProjectRoot()
-		runtime := goToolsRoot(project)
-		if runtime == "" {
-			fmt.Fprintln(stderr, "Go test tools runtime missing")
-			return 2
-		}
-		return runCommand(runtime, project, infraFormatCommand(runtime), stdin, stdout, stderr)
+		fmt.Fprintln(stderr, "fmt:infra is not supported in Go-only runtime")
+		return 2
 	case "coverage":
 		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
 		if err != nil {
