@@ -85,7 +85,7 @@
 - [x] Select Compose service/workdir from configured Go service instead of hardcoded values.
 - [x] Make config-derived service/target mapping deterministic.
 - [x] Complete deep-merge/host override parity and switch all config ownership.
-- [ ] Task 8: Port quality-gate execution and failure policy.
+- [x] Task 8: Port quality-gate execution and failure policy.
   - [x] Add argv-only Go gate executor for normalized phase gates.
   - [x] Preserve required failure stop and optional gate handling.
   - [x] Adapt gate executor into test scheduler phases.
