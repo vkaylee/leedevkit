@@ -8,17 +8,18 @@
 set -euo pipefail
 
 REPO="vkaylee/leedevkit"
+read_config_version() {
+    local config="$1" value
+    [ -f "$config" ] || { printf '%s\n' latest; return; }
+    value="$(awk '
+        /^\[/{ section=($0 == "[devkit]") }
+        section && $1 == "version" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/["'"'"'[:space:]]/, ""); print; exit }
+    ' "$config")"
+    printf '%s\n' "${value:-latest}"
+}
+
 if [ "$#" -eq 0 ] && [ -f leedevkit.toml ]; then
-    VERSION="$(python3 - leedevkit.toml <<'PY'
-import sys
-try:
-    import tomllib
-except ImportError:
-    raise SystemExit("Python 3.11+ required to read leedevkit.toml")
-with open(sys.argv[1], "rb") as stream:
-    print(tomllib.load(stream).get("devkit", {}).get("version", "latest"))
-PY
-)"
+    VERSION="$(read_config_version leedevkit.toml)"
 else
     VERSION="${1:-latest}"
 fi
@@ -73,16 +74,7 @@ with urllib.request.urlopen(request, timeout=timeout) as response, open(destinat
 PY
 fi
 if [ "$VERSION" = "latest" ] && [ -f leedevkit.toml ]; then
-    VERSION="$(python3 - leedevkit.toml <<'PY'
-import sys
-try:
-    import tomllib
-except ImportError:
-    raise SystemExit("Python 3.11+ required to read leedevkit.toml")
-with open(sys.argv[1], "rb") as stream:
-    print(tomllib.load(stream).get("devkit", {}).get("version", "latest"))
-PY
-)"
+    VERSION="$(read_config_version leedevkit.toml)"
 fi
 if [ "$VERSION" = "latest" ]; then
     VERSION_TAG="$(LEEDEVKIT_BOOTSTRAP=1 python3 "$DOWNLOAD_HELPER" latest \

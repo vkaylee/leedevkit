@@ -22,8 +22,19 @@ from pathlib import Path
 
 from _go_core_build import DEFAULT_TARGETS, target_binary_name
 from _devkit_integrity import verify_devkit, write_manifest
-from _logging import log_error, log_info, log_success
 from _runtime import enforce_project_venv
+
+
+def log_info(message: str) -> None:
+    print(f"ℹ️ {message}")
+
+
+def log_success(message: str) -> None:
+    print(f"✅ {message}")
+
+
+def log_error(message: str) -> None:
+    print(f"❌ {message}", file=sys.stderr)
 from _sbom import write_sbom
 
 
