@@ -692,6 +692,28 @@ func TestRunPythonCommandMissingRuntime(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnsupportedTestWithoutPythonFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[project]\nname=\"test\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"test", "mixed"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("unsupported test exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "Python compatibility") {
+		t.Fatalf("test unexpectedly used Python fallback: %q", stderr.String())
+	}
+}
+
 func TestRuntimeRootPrefersExplicitRuntime(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "project")

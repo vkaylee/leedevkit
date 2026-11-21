@@ -1131,7 +1131,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
 		}
-		return runPythonCommand(args, stdin, stdout, stderr)
+		fmt.Fprintf(stderr, "unsupported Go test command: %s\n", strings.Join(args, " "))
+		return 2
 	case "doctor":
 		if len(args) > 1 && args[1] == "--fix" {
 			if err := repairDoctorRules(projectRootOrCWD()); err != nil {
