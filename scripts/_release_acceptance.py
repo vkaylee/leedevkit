@@ -27,7 +27,6 @@ REQUIRED_PATHS = {
     "devkit.manifest.json",
     "sbom.cdx.json",
     "bin/leedevkit",
-    "scripts/_orchestrator.py",
     "scripts/requirements-runtime.lock",
     "scripts/_go_core_build.py",
     "scripts/_go_core_matrix.py",

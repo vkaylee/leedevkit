@@ -129,14 +129,12 @@ print(f"{system}-{arch}")
 PY
 )"
 native_binary="bin/go/leedevkit-go-${platform_key}"
-for REQUIRED in bin/leedevkit "$native_binary" scripts/_orchestrator.py scripts/_devkit_integrity.py; do
+for REQUIRED in bin/leedevkit "$native_binary"; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
         exit 1
     fi
 done
-LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
-
 # Prepare the PATH change before activation so a shell startup-file failure
 # can still restore the previous install and symlink. Only edit an existing
 # regular, writable rc file; the installer cannot change its parent shell.

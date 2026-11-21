@@ -35,8 +35,6 @@ REQUIRED_FILES = [
     "container/debug/Dockerfile",
     "VERSION",
     "bin/leedevkit",
-    "scripts/_orchestrator.py",
-    "scripts/_devkit_integrity.py",
     "scripts/requirements.lock",
     "scripts/requirements-runtime.lock",
     "scripts/_go_core_build.py",
@@ -195,10 +193,10 @@ def main() -> None:
     repo_root = Path(args.repo_root).resolve()
     output_dir = Path(args.output).resolve()
 
-    if not (repo_root / "scripts" / "_orchestrator.py").exists():
+    if not (repo_root / "cmd" / "leedevkit" / "main.go").exists():
         log_error(
-            f"{repo_root} does not look like a leedevkit repo "
-            f"(scripts/_orchestrator.py missing)"
+            f"{repo_root} does not look like a Go leedevkit repo "
+            f"(cmd/leedevkit/main.go missing)"
         )
         sys.exit(1)
 

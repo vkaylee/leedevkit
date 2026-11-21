@@ -171,14 +171,12 @@ if system not in {"linux", "darwin", "windows"} or arch is None:
 print(f"{system}-{arch}")
 PY
 )"
-for REQUIRED in bin/leedevkit scripts/_orchestrator.py scripts/_devkit_integrity.py "bin/go/leedevkit-go-${platform_key}"; do
+for REQUIRED in bin/leedevkit "bin/go/leedevkit-go-${platform_key}"; do
     if [ ! -f "$EXTRACTED/$REQUIRED" ]; then
         echo "❌ Release missing required file: $REQUIRED"
         exit 1
     fi
 done
-LEEDEVKIT_BOOTSTRAP=1 DEVKIT_HOME="$EXTRACTED" python3 "$EXTRACTED/scripts/_devkit_integrity.py" verify
-
 # Prepare project configuration before activation. Existing configuration is
 # copied and updated in staging, so malformed config fails harmlessly.
 
