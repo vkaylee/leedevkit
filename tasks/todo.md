@@ -125,8 +125,9 @@
 - [ ] Migrate `dev` as separate vertical slice.
   - [x] Migrate `dev up` and `dev down` to Go; retain Python for `ps`, `logs`, `exec`, and `clean`.
 - [ ] Migrate read-only `doctor`.
-  - [x] Migrate read-only checks to Go; retain Python for `doctor --fix`.
+  - [x] Migrate read-only checks to Go.
 - [ ] Migrate transactional `doctor --fix`.
+  - [x] Move local AI rule repair to Go; runtime download/integrity/venv/harness transaction remains.
 - [ ] Migrate `init`.
 - [ ] Migrate `update`.
 - [ ] Migrate `skills`.

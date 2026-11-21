@@ -1130,7 +1130,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runPythonCommand(args, stdin, stdout, stderr)
 	case "doctor":
 		if len(args) > 1 && args[1] == "--fix" {
-			return runPythonCommand(args, stdin, stdout, stderr)
+			if err := repairDoctorRules(projectRootOrCWD()); err != nil {
+				fmt.Fprintf(stderr, "doctor repair failed: %v\n", err)
+				return 2
+			}
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
 	case "dev":

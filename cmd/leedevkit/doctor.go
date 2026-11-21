@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,47 @@ import (
 
 	"github.com/vkaylee/leedevkit/internal/process"
 )
+
+func repairDoctorRules(root string) error {
+	runtimeRules := filepath.Join(root, ".leedevkit", ".agent", "rules")
+	projectRules := filepath.Join(root, ".agent", "rules")
+	if info, err := os.Lstat(projectRules); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to modify symlinked rules directory: %s", projectRules)
+	}
+	if info, err := os.Stat(runtimeRules); err != nil || !info.IsDir() {
+		if err != nil {
+			return fmt.Errorf("runtime rules unavailable: %w", err)
+		}
+		return fmt.Errorf("runtime rules path is not a directory: %s", runtimeRules)
+	}
+	if err := os.MkdirAll(projectRules, 0o755); err != nil {
+		return fmt.Errorf("create project rules directory: %w", err)
+	}
+	entries, err := os.ReadDir(runtimeRules)
+	if err != nil {
+		return fmt.Errorf("read runtime rules directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		source := filepath.Join(runtimeRules, entry.Name())
+		target := filepath.Join(projectRules, entry.Name())
+		if _, err := os.Lstat(target); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect project rule %s: %w", entry.Name(), err)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return fmt.Errorf("read runtime rule %s: %w", entry.Name(), err)
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
+			return fmt.Errorf("write project rule %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
 
 func runDoctor(root string, stdout, stderr io.Writer) int {
 	failed := false
