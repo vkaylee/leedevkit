@@ -14,6 +14,7 @@ type Flags struct {
 	SkipBuild   bool
 	Fix         bool
 	Pattern     string
+	BaseRef     string
 	DryRun      bool
 	JSONStream  bool
 }

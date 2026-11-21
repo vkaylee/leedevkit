@@ -194,6 +194,19 @@ func TestInfraUnitPatternRejectsUnsafeRegex(t *testing.T) {
 	}
 }
 
+func TestResolveBaseRefValidatesWithoutShell(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveBaseRef(root, "HEAD"); err != nil || len(got) != 40 {
+		t.Fatalf("resolved base ref = %q, err = %v", got, err)
+	}
+	if _, err := resolveBaseRef(root, "not-a-real-ref"); err == nil {
+		t.Fatal("invalid base ref accepted")
+	}
+}
+
 func contains(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {

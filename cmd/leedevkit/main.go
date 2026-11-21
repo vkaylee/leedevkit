@@ -361,6 +361,19 @@ func runInfraLint(runtime, project string, stdin io.Reader, stdout, stderr io.Wr
 	return 0
 }
 
+func resolveBaseRef(root, value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	command := exec.Command("git", "rev-parse", "--verify", value+"^{commit}")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("base ref %q could not be resolved", value)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func validateInfraPattern(pattern string) (string, error) {
 	if pattern == "" {
 		return "", nil
@@ -739,12 +752,27 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		flags.BuildPolicy = projectConfig.BuildPolicy
+		for index, flag := range args[2:] {
+			if flag == "--base-ref" {
+				if index+3 >= len(args) {
+					fmt.Fprintln(stderr, "--base-ref requires a value")
+					return 2
+				}
+				resolved, err := resolveBaseRef(projectRootOrCWD(), args[index+3])
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					return 2
+				}
+				flags.BaseRef = resolved
+			}
+		}
 		configuredPlan := testplan.RequestFromConfig(args[1], projectConfig)
 		if len(configuredPlan.Services) == 0 && args[1] != "all" {
 			fmt.Fprintf(stderr, "test target %q has no configured services\n", args[1])
 			return 2
 		}
-		for _, flag := range args[2:] {
+		for index := 0; index < len(args[2:]); index++ {
+			flag := args[index+2]
 			switch flag {
 			case "--lint-only":
 				flags.LintOnly = true
@@ -760,6 +788,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				flags.SkipE2E = true
 			case "--fix":
 				flags.Fix = true
+			case "--base-ref":
+				if index+1 >= len(args[2:]) {
+					fmt.Fprintln(stderr, "--base-ref requires a value")
+					return 2
+				}
+				index++
+			case "--pattern":
+				if index+1 >= len(args[2:]) {
+					fmt.Fprintln(stderr, "--pattern requires a value")
+					return 2
+				}
+				flags.Pattern = args[index+3]
+				index++
 			case "--json-stream":
 				flags.JSONStream = true
 			}
@@ -826,7 +867,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				},
 				Lifecycle: lifecycleExecutor,
 				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
-					return testplan.GatePhaseExecutor{Definitions: projectConfig.Gates, ComposeRun: compose.Run, Fix: flags.Fix}.ExecuteContext(ctx, phase)
+					return testplan.GatePhaseExecutor{Definitions: projectConfig.Gates, ComposeRun: compose.Run, Fix: flags.Fix, BaseRef: flags.BaseRef}.ExecuteContext(ctx, phase)
 				},
 			}, stdout)
 			if flags.JSONStream {

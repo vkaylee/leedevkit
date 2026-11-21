@@ -138,6 +138,36 @@ func TestExecutorBlocksGateWhenVersionMismatches(t *testing.T) {
 	}
 }
 
+func TestExecutorAppendsNewFindingsArgsForBaseRef(t *testing.T) {
+	var command []string
+	executor := Executor{BaseRef: "abc123", Run: func(_ context.Context, request process.Request) process.Result {
+		command = request.Args
+		return process.Result{ExitCode: 0}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", []Gate{{
+		Name: "lint", Phase: "lint", Command: []string{"check"},
+		NewFindingsFlag: []string{"--new-from-rev"},
+	}})
+	if result.Status != "passed" || !sameStrings(command, []string{"check", "--new-from-rev", "abc123"}) {
+		t.Fatalf("result = %#v, command = %#v", result, command)
+	}
+}
+
+func TestExecutorDoesNotAppendNewFindingsArgsWithoutBaseRef(t *testing.T) {
+	var command []string
+	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {
+		command = request.Args
+		return process.Result{ExitCode: 0}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", []Gate{{
+		Name: "lint", Phase: "lint", Command: []string{"check"},
+		NewFindingsFlag: []string{"--new-from-rev"},
+	}})
+	if result.Status != "passed" || !sameStrings(command, []string{"check"}) {
+		t.Fatalf("result = %#v, command = %#v", result, command)
+	}
+}
+
 func TestValidateRejectsIncompleteVersionConfiguration(t *testing.T) {
 	if err := Validate(Gate{Name: "tool", Phase: "lint", Command: []string{"check"}, ExpectedVersion: stringPtr("1")}); err == nil {
 		t.Fatal("expected missing version command error")
@@ -145,6 +175,18 @@ func TestValidateRejectsIncompleteVersionConfiguration(t *testing.T) {
 	if err := Validate(Gate{Name: "tool", Phase: "lint", Command: []string{"check"}, VersionCommand: []string{"tool", "--version"}}); err == nil {
 		t.Fatal("expected missing expected version error")
 	}
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func stringPtr(value string) *string { return &value }

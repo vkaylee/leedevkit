@@ -33,6 +33,7 @@ type GatePhaseExecutor struct {
 	ComposeRun  func(context.Context, []string, []string) process.Result
 	Fix         bool
 	Done        map[string]bool
+	BaseRef     string
 }
 
 func (e GatePhaseExecutor) Execute(phase Phase) PhaseResult {
@@ -46,7 +47,7 @@ func (e GatePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) Phas
 			return e.ComposeRun(ctx, request.Args, request.Env)
 		}
 	}
-	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
+	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
 	return PhaseResult{Status: result.Status, ExitCode: result.ExitCode, Diagnostic: result.Diagnostic}
 }
 

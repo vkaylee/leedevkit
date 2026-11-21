@@ -12,9 +12,10 @@ import (
 )
 
 type Executor struct {
-	Run  func(context.Context, process.Request) process.Result
-	Fix  bool
-	Done map[string]bool
+	Run     func(context.Context, process.Request) process.Result
+	Fix     bool
+	Done    map[string]bool
+	BaseRef string
 }
 
 type PhaseResult struct {
@@ -54,11 +55,15 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 					result = PhaseResult{Status: "failed", ExitCode: teardown.ExitCode, Diagnostic: teardown.Diagnostic, Gate: gate.Name}
 				}
 			}()
-			command := gate.Command
+			command := append([]string(nil), gate.Command...)
 			if e.Fix && len(gate.FixCommand) > 0 {
-				command = gate.FixCommand
+				command = append([]string(nil), gate.FixCommand...)
 			} else if gate.Mode == "check" && gate.Name == "gofmt" {
 				command = []string{"gofmt", "-l", "."}
+			}
+			if e.BaseRef != "" && len(gate.NewFindingsFlag) > 0 {
+				command = append(command, gate.NewFindingsFlag...)
+				command = append(command, e.BaseRef)
 			}
 			if commandResult := runCommandWith(ctx, run, gate, command); commandResult != nil {
 				result = PhaseResult{Status: "failed", ExitCode: commandResult.ExitCode, Diagnostic: commandResult.Diagnostic, Gate: gate.Name}
