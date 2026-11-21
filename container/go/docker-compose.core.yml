@@ -19,7 +19,7 @@ services:
         GO_VERSION: ${GO_VERSION:-1.26}
     volumes:
       - ${LEEDEVKIT_PROJECT_ROOT:-../../..}:/workspace
-      - go-module-cache:/go/pkg/mod
+      - ${LEEDEVKIT_GO_MODULE_CACHE:-go-module-cache}:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     working_dir: /workspace
     network_mode: "none"
@@ -39,7 +39,7 @@ services:
         GO_VERSION: ${GO_VERSION:-1.26}
     volumes:
       - ${LEEDEVKIT_PROJECT_ROOT:-../../..}:/workspace
-      - go-module-cache:/go/pkg/mod
+      - ${LEEDEVKIT_GO_MODULE_CACHE:-go-module-cache}:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     working_dir: /workspace
     network_mode: "none"

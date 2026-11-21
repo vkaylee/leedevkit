@@ -111,6 +111,21 @@ def debug_build_command(
     return command
 
 
+def build_environment(repo_root: Path) -> dict[str, str]:
+    """Prepare Compose build environment, reusing local module cache when present."""
+    environment = {
+        **os.environ,
+        "GO_VERSION": "1.26",
+        "LEEDEVKIT_PROJECT_ROOT": str(repo_root),
+        "LEEDEVKIT_GO_DOCKERFILE": str(repo_root / "container" / "go" / "Dockerfile"),
+    }
+    module_cache = os.environ.get("GOMODCACHE") or os.path.expanduser("~/go/pkg/mod")
+    if os.path.isdir(module_cache):
+        environment["LEEDEVKIT_GO_MODULE_CACHE"] = module_cache
+        environment["GOPROXY"] = "off"
+    return environment
+
+
 def build_go_core(
     repo_root: Path,
     output: Path,
@@ -147,14 +162,7 @@ def build_go_core(
             goos=goos,
             goarch=goarch,
         )
-        environment = {
-            **os.environ,
-            "GO_VERSION": "1.26",
-            "LEEDEVKIT_PROJECT_ROOT": str(repo_root),
-            "LEEDEVKIT_GO_DOCKERFILE": str(
-                repo_root / "container" / "go" / "Dockerfile"
-            ),
-        }
+        environment = build_environment(repo_root)
         result = subprocess.run(
             command,
             cwd=repo_root,
@@ -218,14 +226,7 @@ def build_debug_mcp(
             goos=goos,
             goarch=goarch,
         )
-        environment = {
-            **os.environ,
-            "GO_VERSION": "1.26",
-            "LEEDEVKIT_PROJECT_ROOT": str(repo_root),
-            "LEEDEVKIT_GO_DOCKERFILE": str(
-                repo_root / "container" / "go" / "Dockerfile"
-            ),
-        }
+        environment = build_environment(repo_root)
         result = subprocess.run(
             command,
             cwd=repo_root,
