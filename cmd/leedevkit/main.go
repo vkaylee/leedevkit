@@ -404,6 +404,42 @@ func infraLintCommands(runtime, project string) [][]string {
 	return commands
 }
 
+func infraFormatCheckCommand(runtime string) []string {
+	return []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", "--check", filepath.Join(runtime, "scripts")}
+}
+
+func runCommand(runtime, project string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	command := exec.Command(args[0], args[1:]...)
+	command.Dir = project
+	command.Stdin = stdin
+	command.Stdout = stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
+		return 2
+	}
+	return 0
+}
+
+func runInfraFormatCheck(runtime, project string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runCommand(runtime, project, infraFormatCheckCommand(runtime), stdin, stdout, stderr)
+}
+
+func runInfraVerify(runtime, project, pattern string, stdin io.Reader, stdout, stderr io.Writer) int {
+	for _, args := range [][]string{infraFormatCheckCommand(runtime)} {
+		if code := runCommand(runtime, project, args, stdin, stdout, stderr); code != 0 {
+			return code
+		}
+	}
+	if code := runInfraLint(runtime, project, stdin, stdout, stderr); code != 0 {
+		return code
+	}
+	return runInfraUnit(runtime, project, pattern, stdin, stdout, stderr)
+}
+
 func runInfraLint(runtime, project string, stdin io.Reader, stdout, stderr io.Writer) int {
 	for _, args := range infraLintCommands(runtime, project) {
 		command := exec.Command(args[0], args[1:]...)
@@ -942,6 +978,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return result.ExitCode
 		}
 
+		if len(args) >= 3 && args[1] == "infra" && args[2] == "--verify" {
+			project := findProjectRoot()
+			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))
+			if runtime == "" {
+				fmt.Fprintln(stderr, "Python compatibility runtime missing")
+				return 2
+			}
+			pattern := ""
+			if len(args) >= 5 && args[3] == "--pattern" {
+				pattern = args[4]
+			}
+			return runInfraVerify(runtime, project, pattern, stdin, stdout, stderr)
+		}
 		if isInfraLint(args) || isInfraUnit(args) {
 			project := findProjectRoot()
 			runtime := runtimeRootFor(mustExecutable(), project, environMap(os.Environ()))

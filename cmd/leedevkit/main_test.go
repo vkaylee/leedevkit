@@ -122,6 +122,40 @@ func TestInfraLintCommandsUseRuntimeScripts(t *testing.T) {
 	}
 }
 
+func TestInfraFormatCheckUsesRuntimeScripts(t *testing.T) {
+	runtime := filepath.Join("/runtime")
+	commands := infraFormatCheckCommand(runtime)
+	want := []string{filepath.Join(runtime, ".venv", "bin", "ruff"), "format", "--check", filepath.Join(runtime, "scripts")}
+	if !sameStrings(commands, want) {
+		t.Fatalf("format command = %#v, want %#v", commands, want)
+	}
+}
+
+func TestInfraVerifyRunsFormatLintAndUnit(t *testing.T) {
+	runtime := t.TempDir()
+	venvBin := filepath.Join(runtime, ".venv", "bin")
+	if err := os.MkdirAll(venvBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"ruff", "mypy", "pytest"} {
+		path := filepath.Join(venvBin, tool)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(runtime, "scripts", "tests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime, "scripts", "tests", "test_dummy.py"), []byte("def test_ok(): pass\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runInfraVerify(runtime, project, "", strings.NewReader(""), &stdout, &stderr); code != 0 {
+		t.Fatalf("verify exit code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
 func TestInfraLintStopsOnFailure(t *testing.T) {
 	runtime := t.TempDir()
 	venvBin := filepath.Join(runtime, ".venv", "bin")
