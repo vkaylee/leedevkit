@@ -27,7 +27,12 @@ jobs:
 
       - name: Run Go regression gate
         run: |
-          docker run --rm -e GOPROXY=off -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
+          docker run --rm -e GOPROXY=off -v "$PWD":/workspace -v "$HOME/go/pkg/mod":/go/pkg/mod -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
+
+      - name: Smoke test agent skill utilities
+        run: |
+          bash -n scripts/test-skill-utilities.sh
+          scripts/test-skill-utilities.sh
 
       - name: Upload quality and supply-chain evidence
         if: always()

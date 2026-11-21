@@ -14,11 +14,17 @@ allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| Project browser test command | Basic browser test | Run the project-configured browser test command |
-| | With screenshot | Use the project command's screenshot option |
-| | Accessibility check | Use the project command's accessibility option |
+| `.agent/skills/webapp-testing/scripts/playwright_runner.py` | Basic browser test | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py https://example.com` |
+| | With screenshot | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --screenshot` |
+| | Accessibility check | `./.venv/bin/python3 .agent/skills/webapp-testing/scripts/playwright_runner.py <url> --a11y` |
 
-**Runtime setup:** The project must provide its configured browser-test runner and browser dependencies. Follow project setup instructions when the browser runtime is missing.
+**Runtime setup:** The project-local virtual environment should provide Python `playwright`. On the first standalone browser-test run, the runner downloads Chromium automatically only if it is missing. If that download fails, run:
+
+```bash
+./.venv/bin/python3 -m playwright install chromium
+```
+
+Use the project's `./.venv/bin/python3` executable; initialize that environment with the project's setup procedure if it is missing.
 
 ## 1. Deep Audit Approach
 

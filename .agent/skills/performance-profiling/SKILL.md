@@ -14,7 +14,7 @@ allowed-tools: Read, Glob, Grep, Bash
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| Lighthouse CLI | Lighthouse performance audit | Run the project-configured Lighthouse command |
+| `.agent/skills/performance-profiling/scripts/lighthouse_audit.py` | Lighthouse performance audit | `./.venv/bin/python3 .agent/skills/performance-profiling/scripts/lighthouse_audit.py https://example.com` |
 
 ---
 

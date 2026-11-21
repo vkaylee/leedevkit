@@ -10,7 +10,7 @@
 | e-commerce, product, cart, payment | E-commerce | nextjs-saas |
 | dashboard, panel, management | Admin Dashboard | nextjs-fullstack |
 | api, backend, service, rest | API Service | express-api |
-| go, chi, gin, echo | Go API | Go HTTP service |
+| python, fastapi, django | Python API | python-fastapi |
 | mobile, android, ios, react native | Mobile App (RN) | react-native-app |
 | flutter, dart | Mobile App (Flutter) | flutter-app |
 | portfolio, personal, cv | Portfolio | nextjs-static |

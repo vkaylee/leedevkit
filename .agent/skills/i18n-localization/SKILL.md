@@ -57,9 +57,13 @@ export default function Page() {
 }
 ```
 
-### Go (message catalog)
+### Python (gettext)
 
-Use project-configured message catalogs and translation packages. Keep user-visible strings in locale resources, not inline fallback logic.
+```python
+from gettext import gettext as _
+
+print(_("Welcome to our app"))
+```
 
 ---
 
@@ -147,4 +151,4 @@ Before shipping:
 
 | Script | Purpose | Command |
 |--------|---------|---------|
-| Project localization checks | Detect hardcoded strings & missing translations | Run project-configured localization checks through the documented test command |
+| `.agent/skills/i18n-localization/scripts/i18n_checker.py` | Detect hardcoded strings & missing translations | `./.venv/bin/python3 .agent/skills/i18n-localization/scripts/i18n_checker.py <project_path>` |

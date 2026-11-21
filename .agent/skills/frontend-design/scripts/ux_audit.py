@@ -120,8 +120,12 @@ class UXAuditor:
     def _init_checkers(cls) -> None:
         if cls._CHECKERS:
             return  # already initialised
-        # Use absolute imports so the script works both when run directly
-        # (python ux_audit.py) and when imported as a module.
+        # Direct execution needs checker package directory on sys.path.
+        import sys
+        from pathlib import Path
+        scripts_dir = str(Path(__file__).resolve().parent)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
         from checkers.psychology import PsychologyChecker
         from checkers.emotional_design import EmotionalDesignChecker
         from checkers.trust import TrustChecker
