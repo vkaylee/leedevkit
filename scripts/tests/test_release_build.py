@@ -50,6 +50,73 @@ class TestShouldExclude:
 
 
 class TestBuildRelease:
+    def test_debug_mcp_binaries_are_staged(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "VERSION").write_text("0.4.0")
+        for directory in INCLUDE_DIRS:
+            (repo / directory).mkdir(parents=True, exist_ok=True)
+        for filename in INCLUDE_FILES:
+            (repo / filename).write_text("dummy")
+        (repo / "VERSION").write_text("0.4.0")
+        (repo / "bin" / "leedevkit").write_text("#!/bin/bash\n")
+        (repo / "go.mod").write_text("module example\n")
+        required = {
+            "scripts/_orchestrator.py": "# orchestrator\n",
+            "scripts/_devkit_integrity.py": "# integrity\n",
+            "scripts/requirements.lock": "pytest==1.0.0\n",
+            "scripts/requirements-runtime.lock": "psutil==1.0.0\n",
+            "scripts/_go_core_build.py": "# build\n",
+            "scripts/_go_core_matrix.py": "# matrix\n",
+            "scripts/_platform.py": "# platform\n",
+            "cmd/leedevkit/main.go": "package main\n",
+            "cmd/debug-mcp/main.go": "package main\n",
+            "container/go/docker-compose.core.yml": "services: {}\n",
+            "container/debug/Dockerfile": "FROM scratch\n",
+        }
+        for filename, content in required.items():
+            path = repo / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        debug_dir = tmp_path / "debug"
+        debug_dir.mkdir()
+        binary = debug_dir / "leedevkit-debug-linux-amd64"
+        binary.write_bytes(b"debug")
+        for goos, goarch in (
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+            ("darwin", "amd64"),
+            ("darwin", "arm64"),
+            ("windows", "amd64"),
+        ):
+            path = (
+                debug_dir
+                / f"leedevkit-debug-{goos}-{goarch}{'.exe' if goos == 'windows' else ''}"
+            )
+            path.write_bytes(b"debug")
+        core_dir = tmp_path / "core"
+        core_dir.mkdir()
+        for goos, goarch in (
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+            ("darwin", "amd64"),
+            ("darwin", "arm64"),
+            ("windows", "amd64"),
+        ):
+            path = (
+                core_dir
+                / f"leedevkit-go-{goos}-{goarch}{'.exe' if goos == 'windows' else ''}"
+            )
+            path.write_bytes(b"core")
+        artifact = build_release(repo, tmp_path / "dist", core_dir, debug_dir)
+        with tarfile.open(artifact, "r:gz") as archive:
+            assert (
+                archive.extractfile(
+                    "leedevkit-0.4.0/bin/debug-mcp/leedevkit-debug-linux-amd64"
+                )
+                is not None
+            )
+
     def test_shell_builder_uses_canonical_root_and_verified_manifest(self, tmp_path):
         """Run the shipped shell builder against a local tag, without network."""
         repo_root = Path(__file__).resolve().parents[2]
