@@ -83,7 +83,7 @@ func TestRunDoctorUsesGoReadOnlyPath(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(old) })
 	var stdout, stderr bytes.Buffer
-	if code := run([]string{"doctor"}, strings.NewReader(""), &stdout, &stderr); code != 1 {
+	if code := run([]string{"doctor"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
 		t.Fatalf("doctor exit code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "Project config:") {

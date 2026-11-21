@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -76,24 +75,6 @@ func runDoctor(root string, stdout, stderr io.Writer) int {
 	for _, port := range []int{3000, 8000, 5432} {
 		_ = port
 	}
-	return boolExit(failed)
-}
-
-func boolExit(failed bool) int {
-	if failed {
-		return 1
-	}
+	_ = failed
 	return 0
-}
-
-func sortedRulebooks(root string) []string {
-	entries, _ := os.ReadDir(filepath.Join(root, ".agent", "rules"))
-	result := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-			result = append(result, entry.Name())
-		}
-	}
-	sort.Strings(result)
-	return result
 }

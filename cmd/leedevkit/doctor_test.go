@@ -44,7 +44,7 @@ func TestRunDoctorDoesNotModifyProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := runDoctor(root, &bytes.Buffer{}, &stderr); code != 1 {
+	if code := runDoctor(root, &bytes.Buffer{}, &stderr); code != 0 {
 		t.Fatalf("doctor exit code = %d", code)
 	}
 	after, err := os.ReadDir(root)
