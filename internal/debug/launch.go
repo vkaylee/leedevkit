@@ -200,7 +200,7 @@ func LaunchWithValidation(ctx context.Context, environment Environment, compose,
 			return err
 		}
 	}
-	return Launch(ctx, environment, compose, run)
+	return launchWithNetworks(ctx, environment, compose, run, networks)
 }
 
 func LaunchValidated(ctx context.Context, environment Environment, compose, engine []string, run ComposeRunner, configOutput, networkOutput []byte) error {
@@ -225,20 +225,24 @@ func LaunchValidated(ctx context.Context, environment Environment, compose, engi
 			return err
 		}
 	}
-	return Launch(ctx, environment, compose, run)
+	return launchWithNetworks(ctx, environment, compose, run, networks)
 }
 
 func Launch(ctx context.Context, environment Environment, compose []string, run ComposeRunner) error {
+	networks := append([]string(nil), environment.Networks...)
+	if len(networks) == 0 {
+		networks = []string{"debug"}
+	}
+	return launchWithNetworks(ctx, environment, compose, run, networks)
+}
+
+func launchWithNetworks(ctx context.Context, environment Environment, compose []string, run ComposeRunner, networks []string) error {
 	directory, err := os.MkdirTemp("", "leedevkit-debug-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(directory)
 	image := "leedevkit-debug:go"
-	networks := environment.Networks
-	if len(networks) == 0 {
-		networks = []string{"debug"}
-	}
 	override, err := WriteOverride(environment, networks, directory, image)
 	if err != nil {
 		return err

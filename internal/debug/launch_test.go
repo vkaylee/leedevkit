@@ -2,7 +2,10 @@ package debug
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -89,5 +92,59 @@ func TestLaunchRunsComposeAndCleansOwnedService(t *testing.T) {
 	})
 	if result != nil || len(calls) != 2 || !contains(calls[0], "leedevkit-debug") || !contains(calls[1], "leedevkit-debug") {
 		t.Fatalf("result = %v, calls = %#v", result, calls)
+	}
+}
+
+func TestLaunchWithValidationInspectsEveryResolvedNetwork(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest, Networks: []string{"backend", "frontend"}, Services: map[string]Service{"api": {ID: "api", Host: "api"}}}
+	var inspected []string
+	output := func(_ context.Context, args []string) ([]byte, error) {
+		if contains(args, "config") {
+			return []byte(`{"services":{"api":{}},"networks":{"backend":{},"frontend":{"name":"shared_frontend"}}}`), nil
+		}
+		inspected = append(inspected, args[len(args)-1])
+		return []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`), nil
+	}
+	if err := LaunchWithValidation(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(context.Context, []string) error { return nil }, output); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(inspected, []string{"fixture-project_backend", "shared_frontend"}) {
+		t.Fatalf("inspected = %#v", inspected)
+	}
+}
+
+func TestLaunchValidatedUsesResolvedNetworkNamesInOverride(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest, Networks: []string{"backend"}}
+	calls := [][]string{}
+	var overrideData []byte
+	if err := LaunchValidated(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(_ context.Context, args []string) error {
+		calls = append(calls, args)
+		if len(calls) == 1 {
+			for _, arg := range args {
+				if strings.HasSuffix(arg, "debug-compose.override.json") {
+					var err error
+					overrideData, err = os.ReadFile(arg)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		}
+		return nil
+	}, []byte(`{"services":{"api":{}},"networks":{"backend":{"name":"shared_backend"}}}`), []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || !strings.Contains(string(overrideData), "shared_backend") {
+		t.Fatalf("calls = %#v, override = %s", calls, overrideData)
 	}
 }
