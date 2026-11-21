@@ -40,6 +40,7 @@ func WriteOverride(environment Environment, networks []string, directory, image 
 	document := map[string]any{
 		"services": map[string]any{"leedevkit-debug": map[string]any{
 			"image":        image,
+			"build":        map[string]any{"context": environment.ProjectRoot, "dockerfile": "container/debug/Dockerfile"},
 			"read_only":    true,
 			"user":         "65532:65532",
 			"cap_drop":     []string{"ALL"},

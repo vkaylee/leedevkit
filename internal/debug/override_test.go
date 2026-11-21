@@ -31,6 +31,10 @@ func TestWriteOverrideHardensDebugContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := document["services"].(map[string]any)["leedevkit-debug"].(map[string]any)
+	build := service["build"].(map[string]any)
+	if build["context"] != root || build["dockerfile"] != "container/debug/Dockerfile" {
+		t.Fatalf("build = %#v", build)
+	}
 	if service["read_only"] != true || service["user"] != "65532:65532" {
 		t.Fatalf("service hardening = %#v", service)
 	}
