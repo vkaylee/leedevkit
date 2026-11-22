@@ -114,7 +114,15 @@ func TestUpdateProjectUsesLocalSourceAndPreservesState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "VERSION"), []byte("0.13.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(source, "bin"), 0o755); err != nil {
+	binaryName, err := nativeBinaryName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binaryPath := filepath.Join(source, "bin", "go", binaryName)
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("new native runtime\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, ".leedevkit")
@@ -135,6 +143,9 @@ func TestUpdateProjectUsesLocalSourceAndPreservesState(t *testing.T) {
 	}
 	if got, err := os.ReadFile(filepath.Join(target, "skills.d", "custom", "SKILL.md")); err != nil || string(got) != "keep\n" {
 		t.Fatalf("skills state lost: %q, err = %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "leedevkit")); err != nil || string(got) != "new native runtime\n" {
+		t.Fatalf("launcher not updated: %q, err = %v", got, err)
 	}
 	config, err := os.ReadFile(filepath.Join(root, "leedevkit.toml"))
 	if err != nil {

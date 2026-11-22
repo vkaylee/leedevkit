@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
 
 const (
 	defaultReleaseBase = "https://github.com/vkaylee/leedevkit/releases"
+	defaultReleaseAPI  = "https://api.github.com/repos/vkaylee/leedevkit/releases"
 	maxReleaseBytes    = 512 << 20
 )
 
@@ -75,10 +77,33 @@ func UpdateProject(root, target, localSource string) error {
 	if current == version && configured == version {
 		return nil
 	}
+	binaryName, err := nativeBinaryName()
+	if err != nil {
+		return err
+	}
+	binarySource := filepath.Join(release.Root, "bin", "go", binaryName)
+	binaryInfo, err := os.Stat(binarySource)
+	if err != nil {
+		return fmt.Errorf("release missing native executable: %w", err)
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	updatedConfig := updateConfigVersionData(configData, version)
+	if updatedConfig == nil {
+		return fmt.Errorf("project config has no [devkit].version")
+	}
 	if err := replaceRuntime(filepath.Join(root, ".leedevkit"), release.Root, []string{"skills.d", ".venv"}); err != nil {
 		return err
 	}
-	return updateConfigVersion(configPath, version)
+	if err := updateProjectLauncher(root, binarySource, binaryInfo.Mode()); err != nil {
+		return err
+	}
+	if err := writeAtomic(configPath, updatedConfig, 0o644); err != nil {
+		return err
+	}
+	return nil
 }
 
 func acquireRelease(root, localSource, version string) (Release, error) {
@@ -150,7 +175,12 @@ func Download(version string) (Release, error) {
 		cleanup()
 		return Release{}, errors.New("release archive exceeds maximum size")
 	}
-	root, err := extractArchive(archivePath, stage)
+	extractRoot := filepath.Join(stage, "extracted")
+	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
+		cleanup()
+		return Release{}, err
+	}
+	root, err := extractArchive(archivePath, extractRoot)
 	if err != nil {
 		cleanup()
 		return Release{}, err
@@ -163,12 +193,22 @@ func Download(version string) (Release, error) {
 	return Release{Root: root, cleanup: cleanup}, nil
 }
 
-func latestVersion() (string, error) {
-	base := strings.TrimRight(os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"), "/")
-	if base == "" {
-		base = defaultReleaseBase
+func latestReleaseAPI(base string) string {
+	if strings.HasPrefix(base, "http://127.0.0.1") || strings.HasPrefix(base, "http://localhost") {
+		return strings.TrimRight(base, "/") + "/latest"
 	}
-	api := strings.Replace(base, "/releases", "", 1) + "/releases/latest"
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, "/releases") {
+		base = strings.TrimSuffix(base, "/releases")
+	}
+	if strings.Contains(base, "api.github.com/repos/") {
+		return base + "/releases/latest"
+	}
+	return defaultReleaseAPI + "/latest"
+}
+
+func latestVersion() (string, error) {
+	api := latestReleaseAPI(os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"))
 	request, err := http.NewRequest(http.MethodGet, api, nil)
 	if err != nil {
 		return "", err
@@ -183,11 +223,18 @@ func latestVersion() (string, error) {
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("resolve latest release: HTTP %s", response.Status)
 	}
+	mediaType := strings.ToLower(response.Header.Get("Content-Type"))
+	if !strings.Contains(mediaType, "application/json") {
+		return "", fmt.Errorf("resolve latest release: unexpected content type %q", mediaType)
+	}
 	var payload struct {
 		Tag string `json:"tag_name"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
 		return "", fmt.Errorf("decode latest release: %w", err)
+	}
+	if payload.Tag == "" {
+		return "", errors.New("resolve latest release: tag_name is missing")
 	}
 	return strings.TrimPrefix(payload.Tag, "v"), nil
 }
@@ -269,6 +316,73 @@ func extractArchive(archivePath, stage string) (string, error) {
 	return stage, nil
 }
 
+func nativeBinaryName() (string, error) {
+	var osName, architecture string
+	switch runtime.GOOS {
+	case "linux":
+		osName = "linux"
+	case "darwin":
+		osName = "darwin"
+	case "windows":
+		osName = "windows"
+	default:
+		return "", fmt.Errorf("unsupported platform %q", runtime.GOOS)
+	}
+	switch runtime.GOARCH {
+	case "amd64":
+		architecture = "amd64"
+	case "arm64":
+		architecture = "arm64"
+	default:
+		return "", fmt.Errorf("unsupported architecture %q", runtime.GOARCH)
+	}
+	suffix := ""
+	if osName == "windows" {
+		suffix = ".exe"
+	}
+	return fmt.Sprintf("leedevkit-go-%s-%s%s", osName, architecture, suffix), nil
+}
+
+func updateProjectLauncher(root, binary string, mode os.FileMode) error {
+	launcher := filepath.Join(root, "leedevkit")
+	stage, err := os.CreateTemp(root, ".leedevkit-launcher-*")
+	if err != nil {
+		return err
+	}
+	stagePath := stage.Name()
+	defer os.Remove(stagePath)
+	input, err := os.Open(binary)
+	if err != nil {
+		_ = stage.Close()
+		return err
+	}
+	_, copyErr := io.Copy(stage, input)
+	closeInputErr := input.Close()
+	closeStageErr := stage.Close()
+	if err := firstError(copyErr, closeInputErr, closeStageErr); err != nil {
+		return err
+	}
+	permissions := mode.Perm() | 0o111
+	if err := os.Chmod(stagePath, permissions); err != nil {
+		return err
+	}
+	backup := launcher + ".update-backup"
+	if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(launcher, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(stagePath, launcher); err != nil {
+		_ = os.Rename(backup, launcher)
+		return err
+	}
+	if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func replaceRuntime(target, source string, preserve []string) error {
 	parent := filepath.Dir(target)
 	stage, err := os.MkdirTemp(parent, ".leedevkit-update-")
@@ -311,6 +425,14 @@ func updateConfigVersion(path, version string) error {
 	if err != nil {
 		return err
 	}
+	updated := updateConfigVersionData(data, version)
+	if updated == nil {
+		return fmt.Errorf("project config has no [devkit].version")
+	}
+	return writeAtomic(path, updated, 0o644)
+}
+
+func updateConfigVersionData(data []byte, version string) []byte {
 	lines := strings.Split(string(data), "\n")
 	inDevkit := false
 	for index, line := range lines {
@@ -323,11 +445,42 @@ func updateConfigVersion(path, version string) error {
 			prefix, _, found := strings.Cut(line, "=")
 			if found {
 				lines[index] = prefix + "= \"" + version + "\""
-				return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+				return []byte(strings.Join(lines, "\n"))
 			}
 		}
 	}
-	return fmt.Errorf("project config has no [devkit].version")
+	return nil
+}
+
+func writeAtomic(path string, contents []byte, mode os.FileMode) (result error) {
+	directory := filepath.Dir(path)
+	file, err := os.CreateTemp(directory, ".leedevkit-update-*")
+	if err != nil {
+		return err
+	}
+	staged := file.Name()
+	defer func() {
+		_ = os.Remove(staged)
+	}()
+	if err := file.Chmod(mode); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.Write(contents); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, path); err != nil {
+		return err
+	}
+	return nil
 }
 
 func releaseTimeout() time.Duration {

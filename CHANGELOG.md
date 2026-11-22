@@ -4,6 +4,18 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.8] - 2026-11-22
+
+### Fixed
+- Resolve latest release through GitHub Releases JSON API rather than HTML route.
+- Extract release tarballs into isolated staging so `VERSION` validation works with top-level release directory.
+- Update pinned project `leedevkit` launcher with matching native Go binary together with runtime.
+- Validate release binary before mutation and keep launcher, runtime and config unchanged on validation failure.
+
+### Verification
+- Full Go suite passes.
+- LeeAttend update endpoint, artifact extraction, and lifecycle regressions covered by tests.
+
 ## [0.11.7] - 2026-11-22
 
 ### Fixed
