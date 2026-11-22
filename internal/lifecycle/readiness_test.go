@@ -10,8 +10,11 @@ import (
 
 func TestReadinessWaitsForHealthyServices(t *testing.T) {
 	calls := 0
-	checker := Readiness{Run: func(_ context.Context, request process.Request) process.Result {
+	checker := Readiness{Dir: "/project", Env: []string{"PROJECT_ROOT=/project"}, Run: func(_ context.Context, request process.Request) process.Result {
 		calls++
+		if request.Dir != "/project" || len(request.Env) != 1 {
+			t.Fatalf("request = %#v", request)
+		}
 		if calls < 2 {
 			return process.Result{ExitCode: 1}
 		}

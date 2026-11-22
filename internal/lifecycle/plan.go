@@ -49,7 +49,7 @@ func (p Plan) Up() ([]string, error) {
 		args = append(args, "--no-deps")
 	}
 	services := append([]string{}, p.Services...)
-	if p.NativeWait && !p.NoDeps {
+	if !p.NoDeps {
 		services = append(services, p.Dependencies...)
 	}
 	return append(args, unique(services)...), nil

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,30 @@ func TestRunForwardsSeparateStreamsAndExitCode(t *testing.T) {
 	}
 	if stdout.String() != "stdout\n" || stderr.String() != "stderr\n" {
 		t.Fatalf("streams = %q / %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestDiagnosticRedactsSecretsCredentialsAndEmail(t *testing.T) {
+	text := "password=secret https://user:pass@example.test admin@example.test token: abc123"
+	got := RedactDiagnostic(text)
+	for _, forbidden := range []string{"secret", "user:pass", "admin@example.test", "abc123"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("diagnostic leaked %q: %q", forbidden, got)
+		}
+	}
+}
+
+func TestRedactArgsRedactsCredentialsAndHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := RedactArgs([]string{"docker", "--password=secret", "https://user:pass@example.test", filepath.Join(home, "project")})
+	joined := strings.Join(got, " ")
+	for _, forbidden := range []string{"secret", "user:pass", home} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("argv leaked %q: %q", forbidden, joined)
+		}
 	}
 }
 

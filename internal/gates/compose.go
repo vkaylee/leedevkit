@@ -12,6 +12,8 @@ type ComposeRunner struct {
 	Project string
 	Service string
 	Workdir string
+	Dir     string
+	Env     []string
 	Execute func(context.Context, process.Request) process.Result
 }
 
@@ -41,7 +43,7 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 		run = process.Run
 	}
 	var stdout, stderr bytes.Buffer
-	result := run(ctx, process.Request{Args: args, Stdout: &stdout, Stderr: &stderr})
+	result := run(ctx, process.Request{Args: args, Dir: r.Dir, Env: append([]string(nil), r.Env...), Stdout: &stdout, Stderr: &stderr})
 	if len(result.Stdout) == 0 {
 		result.Stdout = append([]byte(nil), stdout.Bytes()...)
 	}

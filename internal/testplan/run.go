@@ -15,6 +15,7 @@ type PhaseResult struct {
 	Status     string
 	ExitCode   int
 	Diagnostic string
+	Command    string
 }
 
 type Executor interface {
@@ -134,6 +135,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 					outcome = executor.Execute(phase)
 				}
 				record.Status = outcome.Status
+				record.Command = outcome.Command
 				record.Diagnostic = outcome.Diagnostic
 				code := outcome.ExitCode
 				record.ExitCode = &code

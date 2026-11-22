@@ -4,6 +4,17 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+## [0.11.7] - 2026-11-22
+
+### Fixed
+- Use project test Compose files, profiles, services, dependencies, working directories, and environment when running Go lifecycle tests.
+- Preserve lifecycle readiness and teardown while reporting redacted phase, argv, exit code, stdout, and stderr diagnostics.
+- Select duplicate Go services deterministically.
+
+### Verification
+- Full Go suite passes.
+- LeeAttend `test api --skip-build --json-stream --quiet` passes all Unit, Integration, and Linting phases.
+
 ## [0.11.6] - 2026-11-22
 
 ### Fixed

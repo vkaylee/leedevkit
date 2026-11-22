@@ -296,6 +296,47 @@ func configuredServiceName(project config.Project, language string) string {
 	return language
 }
 
+func testComposeFiles(root string) []string {
+	for _, relative := range []string{
+		filepath.Join(".compose", "docker-compose.test.yml"),
+		filepath.Join(".leedevkit", "container", "go", "docker-compose.test.yml"),
+		filepath.Join("container", "go", "docker-compose.test.yml"),
+	} {
+		path := filepath.Join(root, relative)
+		if fileExists(path) {
+			return []string{path}
+		}
+	}
+	return nil
+}
+
+func testDependencies(project config.Project, target string) []string {
+	for _, key := range []string{"int-" + target, "int-go"} {
+		if dependencies := project.Dependencies[key]; len(dependencies) > 0 {
+			return append([]string(nil), dependencies...)
+		}
+	}
+	return nil
+}
+
+func buildTestLifecyclePlan(root, project, target string, providerConfig provider.Provider, projectConfig config.Project, skipBuild bool) (lifecycle.Plan, string, error) {
+	service := configuredServiceName(projectConfig, "go")
+	files := testComposeFiles(root)
+	if len(files) == 0 {
+		return lifecycle.Plan{}, "", fmt.Errorf("test Compose file not found")
+	}
+	return lifecycle.Plan{
+		Provider:     providerConfig,
+		Project:      project,
+		Files:        files,
+		Profiles:     []string{"--profile", "go"},
+		Services:     []string{service},
+		Dependencies: testDependencies(projectConfig, target),
+		SkipBuild:    skipBuild,
+		OwnsProject:  true,
+	}, service, nil
+}
+
 func shouldUseGoTest(project config.Project, target string) bool {
 	if target == "infra" {
 		return true
@@ -709,8 +750,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 			composeTool = providerConfig.Compose
-			goService := configuredServiceName(projectConfig, "go")
-			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Execute: process.Run}
+			lifecyclePlan, goService, lifecyclePlanErr := buildTestLifecyclePlan(projectRootOrCWD(), project, flags.Target, providerConfig, projectConfig, flags.SkipBuild)
+			if lifecyclePlanErr != nil {
+				fmt.Fprintf(stderr, "invalid lifecycle plan: %v\n", lifecyclePlanErr)
+				return 2
+			}
+			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: projectRootOrCWD(), Env: os.Environ(), Execute: process.Run}
 			if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 				workdir := "/workspace"
 				if service.Workdir != "" {
@@ -718,9 +763,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 				compose = compose.WithService(service.Name, workdir)
 			}
-			dependencies := projectConfig.Dependencies["int-go"]
 			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
-			lifecyclePlan := lifecycle.Plan{Provider: providerConfig, Project: project, Profiles: []string{"--profile", "go"}, Services: []string{goService}, Dependencies: dependencies, SkipBuild: flags.SkipBuild, OwnsProject: true}
 			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, stderr))
 			if buildErr != nil {
 				fmt.Fprintf(stderr, "invalid build plan: %v\n", buildErr)
@@ -735,13 +778,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v\n", upErr, downErr)
 				return 2
 			}
-			readiness := lifecycle.Readiness{Run: process.Run}
+			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: os.Environ()}
 			readinessArgs := append(append([]string(nil), composeTool...), "-p", project, "ps", "--status", "running")
 			lifecycleExecutor := lifecycle.Executor{
 				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
-					return lifecycle.ComposeExecutor{Run: process.Run}.Execute(ctx, args)
+					return lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: os.Environ(), Stdout: stdout, Stderr: stderr}.Execute(ctx, args)
 				}, Readiness: func(ctx context.Context) error {
 					return readiness.Wait(ctx, readinessArgs, []string{compose.Service}, 120*time.Second)
+				}, ReadinessArgs: readinessArgs, Report: func(phase string, args []string, err error) {
+					if err != nil {
+						fmt.Fprintf(stderr, "lifecycle %s failed: argv=%q error=%s\n", phase, process.RedactArgs(args), process.RedactDiagnostic(err.Error()))
+					}
 				},
 			}
 			result := testplan.Run(flags, testplan.ComposePhaseExecutor{

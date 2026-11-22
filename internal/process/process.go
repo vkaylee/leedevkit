@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -25,6 +28,61 @@ type Result struct {
 	Err      error
 	Stdout   []byte
 	Stderr   []byte
+}
+
+var diagnosticSecret = regexp.MustCompile(`(?i)(password|passwd|token|secret|credential|api[-_]?key|private[-_]?key)`)
+var diagnosticKeyValue = regexp.MustCompile(`(?i)(password|passwd|token|secret|credential|api[-_]?key|private[-_]?key)(\s*[=:]\s*)[^\s,;]+`)
+var diagnosticURLCredential = regexp.MustCompile(`(?i)(https?://)[^/@\s]+:[^/@\s]+@`)
+var diagnosticPath = regexp.MustCompile(`(?m)(^|[[:space:]"'])/(?:home|tmp|workspace|root)/[^[:space:]"']+`)
+
+func (r Result) Diagnostic() string {
+	text := ""
+	if len(r.Stderr) > 0 {
+		text = string(r.Stderr)
+	} else if len(r.Stdout) > 0 {
+		text = string(r.Stdout)
+	} else if r.Err != nil {
+		text = r.Err.Error()
+	} else {
+		text = fmt.Sprintf("process exited with code %d", r.ExitCode)
+	}
+	return RedactDiagnostic(text)
+}
+
+var diagnosticEmail = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
+
+func RedactArgs(args []string) []string {
+	result := make([]string, len(args))
+	home, _ := os.UserHomeDir()
+	for index, arg := range args {
+		value := arg
+		if home != "" {
+			value = strings.ReplaceAll(value, home, "$HOME")
+		}
+		if parsed, err := url.Parse(value); err == nil && parsed.User != nil {
+			parsed.User = nil
+			value = parsed.String()
+		}
+		if diagnosticSecret.MatchString(value) {
+			parts := strings.SplitN(value, "=", 2)
+			if len(parts) == 2 && diagnosticSecret.MatchString(parts[0]) {
+				value = parts[0] + "=<redacted>"
+			}
+		}
+		result[index] = RedactDiagnostic(value)
+	}
+	return result
+}
+
+func RedactDiagnostic(text string) string {
+	if parsed, err := url.Parse(text); err == nil && parsed.User != nil {
+		parsed.User = nil
+		text = parsed.String()
+	}
+	text = diagnosticURLCredential.ReplaceAllString(text, `${1}<redacted>@`)
+	text = diagnosticKeyValue.ReplaceAllString(text, "$1$2<redacted>")
+	text = diagnosticPath.ReplaceAllString(text, `${1}<path>`)
+	return diagnosticEmail.ReplaceAllString(text, "<redacted-email>")
 }
 
 // Run executes argv without a shell and maps managed failures to stable CLI codes.

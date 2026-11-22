@@ -11,6 +11,8 @@ import (
 
 type Readiness struct {
 	Run func(context.Context, process.Request) process.Result
+	Dir string
+	Env []string
 }
 
 func (r Readiness) Wait(ctx context.Context, base []string, services []string, timeout time.Duration) error {
@@ -29,7 +31,7 @@ func (r Readiness) Wait(ctx context.Context, base []string, services []string, t
 		run = process.Run
 	}
 	for {
-		result := run(ctx, process.Request{Args: append(append([]string(nil), base...), services...)})
+		result := run(ctx, process.Request{Args: append(append([]string(nil), base...), services...), Dir: r.Dir, Env: append([]string(nil), r.Env...)})
 		if result.ExitCode == 0 {
 			return nil
 		}

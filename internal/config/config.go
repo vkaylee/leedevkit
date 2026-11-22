@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/vkaylee/leedevkit/internal/gates"
@@ -20,13 +21,27 @@ type Service struct {
 }
 
 func (p Project) ServiceForLanguage(language string) (Service, bool) {
+	names := make([]string, 0, len(p.Services))
 	for name, service := range p.Services {
 		if service.Language == language {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return Service{}, false
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name == language {
+			service := p.Services[name]
 			service.Name = name
 			return service, true
 		}
 	}
-	return Service{}, false
+	name := names[0]
+	service := p.Services[name]
+	service.Name = name
+	return service, true
 }
 
 type Project struct {

@@ -150,6 +150,59 @@ func TestConfiguredGoServiceNameFallsBackToGo(t *testing.T) {
 	}
 }
 
+func TestConfiguredGoServiceNamePrefersCanonicalGoServiceDeterministically(t *testing.T) {
+	project := config.Project{Services: map[string]config.Service{
+		"apiserver": {Language: "go", Name: "apiserver"},
+		"api":       {Language: "go", Name: "api"},
+		"go":        {Language: "go", Name: "go"},
+	}}
+	if got := configuredServiceName(project, "go"); got != "go" {
+		t.Fatalf("service = %q, want go", got)
+	}
+}
+
+func TestBuildTestLifecyclePlanMatchesProjectComposeContract(t *testing.T) {
+	root := t.TempDir()
+	composeFile := filepath.Join(root, ".compose", "docker-compose.test.yml")
+	if err := os.MkdirAll(filepath.Dir(composeFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(composeFile, []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projectConfig := config.Project{
+		Services: map[string]config.Service{
+			"apiserver": {Language: "go", Name: "apiserver"},
+			"go":       {Language: "go", Name: "go"},
+			"api":      {Language: "go", Name: "api"},
+		},
+		Dependencies: map[string][]string{"int-api": {"apiserver"}},
+	}
+	plan, service, err := buildTestLifecyclePlan(root, "leedevkit-test", "api", testProviderForMain(), projectConfig, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service != "go" {
+		t.Fatalf("service = %q, want go", service)
+	}
+	want := []string{"docker", "compose", "-p", "leedevkit-test", "-f", composeFile, "--profile", "go", "up", "-d", "--no-build", "go", "apiserver"}
+	got, err := plan.Up()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(got, want) {
+		t.Fatalf("lifecycle args = %#v, want %#v", got, want)
+	}
+}
+
+func testProviderForMain() provider.Provider {
+	return provider.Provider{
+		Name:         "docker",
+		Compose:      []string{"docker", "compose"},
+		Capabilities: []string{"compose", "config", "down", "ps", "up"},
+	}
+}
+
 func TestBuildDatabaseQueryArgs(t *testing.T) {
 	got, err := buildDatabaseQueryArgs(provider.Provider{CLI: []string{"docker"}}, "leedevkit-dev", "SELECT 1", false)
 	if err != nil {
