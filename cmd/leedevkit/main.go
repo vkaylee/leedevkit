@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -711,6 +712,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		flags := testplan.Flags{Target: args[1]}
+		quiet := false
 		projectConfig, configErr := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
 		if configErr != nil {
 			fmt.Fprintf(stderr, "invalid project config: %v\n", configErr)
@@ -765,9 +767,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					return 2
 				}
 				flags.Pattern = args[index+3]
+				if flags.Pattern == "" {
+					fmt.Fprintln(stderr, "--pattern requires a non-empty value")
+					return 2
+				}
 				index++
 			case "--json-stream":
 				flags.JSONStream = true
+			case "--json", "--quiet":
+				quiet = true
+			default:
+				fmt.Fprintf(stderr, "unsupported test flag: %s\n", flag)
+				return 2
 			}
 		}
 		if isInfraTarget(projectConfig, flags.Target) {
@@ -779,12 +790,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, err)
 				return 2
 			}
-			result := runInfra(projectRootOrCWD(), flags, process.Run, stdout)
+			result := runInfra(projectRootOrCWD(), flags, process.Run, stdout, quiet)
 			if !flags.JSONStream {
 				summary := result.Summary(args[1], "go-cli")
-				if result.Status == "partial" {
-					summary.NextAction = "Restore missing regression behavior and verify parity with the removed suite."
-				}
 				if err := json.NewEncoder(stdout).Encode(summary); err != nil {
 					fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
 					return 2
@@ -792,10 +800,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			return result.ExitCode
 		}
-		// ponytail: filtering custom gates is unsupported; implement verified pattern execution before accepting it.
+		goGates := projectConfig.Gates
 		if flags.Pattern != "" {
-			fmt.Fprintln(stderr, "--pattern is not supported by the Go test runner")
-			return 2
+			if flags.LintOnly || flags.E2EOnly || flags.Coverage || flags.Fix || flags.BaseRef != "" {
+				fmt.Fprintln(stderr, "--pattern cannot be combined with lint-only, e2e-only, coverage, fix or base-ref")
+				return 2
+			}
+			var err error
+			goGates, err = patternGoGate(goGates, flags.Pattern)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			flags.UnitOnly = true
 		}
 		if !shouldUseGoTest(projectConfig, flags.Target) {
 			fmt.Fprintf(stderr, "Go test path does not support target %q\n", flags.Target)
@@ -830,8 +847,24 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 				compose = compose.WithService(service.Name, workdir)
 			}
+			logDir, logErr := createInfraLogDir(projectRootOrCWD())
+			if logErr != nil {
+				fmt.Fprintf(stderr, "test logging unavailable: %s\n", process.RedactDiagnostic(logErr.Error()))
+				return 2
+			}
+			buildLog, logErr := os.OpenFile(filepath.Join(logDir, "build.log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if logErr != nil {
+				fmt.Fprintf(stderr, "build logging unavailable: %s\n", process.RedactDiagnostic(logErr.Error()))
+				return 2
+			}
+			defer buildLog.Close()
+			var buildLive io.Writer = io.Discard
+			if !quiet && !flags.JSONStream {
+				buildLive = &infraPrefixWriter{writer: stderr, prefix: "[build] "}
+			}
+			buildOutput := &infraOutputWriter{log: buildLog, live: buildLive}
 			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
-			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, stderr))
+			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, buildOutput))
 			if buildErr != nil {
 				fmt.Fprintf(stderr, "invalid build plan: %v\n", buildErr)
 				return 2
@@ -849,7 +882,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			readinessArgs := append(append([]string(nil), composeTool...), "-p", project, "ps", "--status", "running")
 			lifecycleExecutor := lifecycle.Executor{
 				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
-					return lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Stdout: stdout, Stderr: stderr}.Execute(ctx, args)
+					file, err := os.OpenFile(filepath.Join(logDir, "lifecycle.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+					if err != nil {
+						return err
+					}
+					var live io.Writer = io.Discard
+					if !quiet && !flags.JSONStream {
+						live = &infraPrefixWriter{writer: stdout, prefix: "[lifecycle] "}
+					}
+					output := &infraOutputWriter{log: file, live: live}
+					err = (lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Stdout: output, Stderr: output}).Execute(ctx, args)
+					if closeErr := output.Close(); closeErr != nil {
+						return closeErr
+					}
+					return err
 				}, Readiness: func(ctx context.Context) error {
 					return readiness.Wait(ctx, readinessArgs, []string{compose.Service}, 120*time.Second)
 				}, ReadinessArgs: readinessArgs, Report: func(phase string, args []string, err error) {
@@ -858,16 +904,55 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 					}
 				},
 			}
+			gateIndex := 0
 			result := testplan.Run(flags, testplan.ComposePhaseExecutor{
 				Build: func(ctx context.Context, _ testplan.Phase) error {
 					if buildCallback == nil {
 						return nil
 					}
-					return buildCallback(ctx)
+					err := buildCallback(ctx)
+					if buildOutput.err != nil {
+						return buildOutput.err
+					}
+					return err
 				},
 				Lifecycle: lifecycleExecutor,
 				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
-					return testplan.GatePhaseExecutor{Definitions: projectConfig.Gates, ComposeRun: compose.Run, Fix: flags.Fix, BaseRef: flags.BaseRef}.ExecuteContext(ctx, phase)
+					gateIndex++
+					logName := fmt.Sprintf("gate-%02d.log", gateIndex)
+					logPath := filepath.Join(logDir, logName)
+					relativeLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+					file, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+					if err != nil {
+						return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable: " + process.RedactDiagnostic(err.Error())}
+					}
+					var live io.Writer = io.Discard
+					if !quiet && !flags.JSONStream {
+						live = &infraPrefixWriter{writer: stdout, prefix: fmt.Sprintf("[gate-%02d] ", gateIndex)}
+					}
+					output := &infraOutputWriter{log: file, live: live}
+					runner := compose
+					runner.Output = output
+					runGate := func(ctx context.Context, args []string, environment []string) process.Result {
+						result := runner.Run(ctx, args, environment)
+						if flags.Pattern != "" && result.ExitCode == 0 {
+							matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
+							if err != nil {
+								result.ExitCode, result.Err = 1, err
+							} else if !matched {
+								result.ExitCode, result.Err = 1, fmt.Errorf("no tests matched --pattern")
+							}
+						}
+						return result
+					}
+					outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef}).ExecuteContext(ctx, phase)
+					if err := output.Close(); err != nil {
+						return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
+					}
+					if outcome.Status != "passed" {
+						outcome.Log = relativeLog
+					}
+					return outcome
 				},
 			}, stdout)
 			if flags.JSONStream {

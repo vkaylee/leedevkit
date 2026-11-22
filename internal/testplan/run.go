@@ -16,6 +16,7 @@ type PhaseResult struct {
 	ExitCode   int
 	Diagnostic string
 	Command    string
+	Log        string
 }
 
 type Executor interface {
@@ -120,6 +121,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 		_ = stream.Emit("run_started", map[string]any{"target": flags.Target})
 	}
 	result := RunResult{}
+	fullRegression := !flags.Coverage && !flags.LintOnly && !flags.UnitOnly && !flags.E2EOnly && !flags.SkipLint && !flags.SkipE2E && !flags.SkipBuild && flags.Pattern == "" && flags.BaseRef == ""
 	for _, phase := range phases {
 		phaseStarted := time.Now().UTC()
 		record := report.Phase{Phase: phase.Name, Target: flags.Target, Status: phase.Status, Required: phase.Status == "selected", StartTime: phaseStarted.Format(time.RFC3339Nano)}
@@ -136,6 +138,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 				}
 				record.Status = outcome.Status
 				record.Command = outcome.Command
+				record.Log = outcome.Log
 				record.Diagnostic = outcome.Diagnostic
 				code := outcome.ExitCode
 				record.ExitCode = &code
@@ -171,7 +174,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 	case result.Counts.Blocked > 0:
 		result.Status = "blocked"
 		result.ExitCode = firstExit(result.Blocked)
-	case result.Counts.Skipped > 0:
+	case result.Counts.Skipped > 0 || !fullRegression:
 		result.Status = "partial"
 	default:
 		result.Status = "passed"

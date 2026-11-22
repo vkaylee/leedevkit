@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"bytes"
 	"context"
 	"reflect"
 	"testing"
@@ -41,6 +42,19 @@ func TestComposeRunnerCapturesVersionOutput(t *testing.T) {
 	result := runner.Run(context.Background(), []string{"tool", "--version"}, nil)
 	if string(result.Stdout) != "tool 1.2.3\\n" {
 		t.Fatalf("stdout = %q", result.Stdout)
+	}
+}
+
+func TestComposeRunnerBoundsCaptureButKeepsLog(t *testing.T) {
+	var log bytes.Buffer
+	data := bytes.Repeat([]byte("x"), 2<<20)
+	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Output: &log, Execute: func(_ context.Context, request process.Request) process.Result {
+		_, _ = request.Stdout.Write(data)
+		return process.Result{}
+	}}
+	result := runner.Run(context.Background(), []string{"test"}, nil)
+	if result.ExitCode == 0 || len(result.Stdout) > 1<<20 || log.Len() != len(data) {
+		t.Fatalf("exit=%d captured=%d log=%d", result.ExitCode, len(result.Stdout), log.Len())
 	}
 }
 

@@ -6,6 +6,8 @@ Status: Approved — implementation in progress
 
 Đưa migration global-only tới trạng thái đủ bằng chứng release; không commit, push, gắn tag hoặc phát hành trong kế hoạch này. Giữ thay đổi sẵn có trong `leedevkit.toml`, dữ liệu project, `leedevkit.lock` và các release cũ. Checksum không xác thực nhà phát hành; không mô tả nó như chữ ký.
 
+Quyết định mới: bỏ điều kiện parity với Python cũ. Mục 2 bên dưới ghi lịch sử; gate hiện báo thành công khi mọi check infra được cấu hình thành công. Các blocker release khác vẫn áp dụng.
+
 ## Công việc
 
 1. [ ] **Installer an toàn:** Viết test tái hiện trước, rồi giới hạn streaming download archive, checksum và phản hồi latest; giới hạn byte giải nén, số entry, đường dẫn và loại entry trước khi ghi. Kiểm tra response chunked không có `Content-Length`, archive nén lớn, nhiều entry, hỏng và đường dẫn độc hại; từ chối an toàn và giữ `current`. Không dùng giới hạn chỉ dựa vào header hoặc pipeline nuốt lỗi. Đánh giá dùng chung logic Go chỉ khi bootstrap và trust boundary vẫn an toàn; nếu không chứng minh được, giữ blocker. Đã thêm giới hạn streaming checksum 1024 byte, archive và luồng tar giải nén 512 MiB, metadata latest 1 MiB và listing 100000 dòng; Test checksum HTTP chunked vượt ngưỡng và gzip bị cắt đạt; test chunked archive/latest và portability vẫn chưa hoàn tất. Đã thêm job macOS installer vào CI và gate publish release; job macOS của workflow 45009569543 đạt cho fixture installer trên macOS. Chưa kiểm tra artifact release thật trên macOS. Giới hạn listing chưa chứng minh đếm chính xác mọi định dạng tar; chưa đóng blocker.

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/testplan"
@@ -22,15 +24,15 @@ func validateInfraProject(root string) error {
 
 func validateInfraFlags(args []string) error {
 	for _, flag := range args {
-		if flag != "--json" && flag != "--quiet" {
+		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" {
 			return fmt.Errorf("unsupported flag for infrastructure checks: %s", flag)
 		}
 	}
 	return nil
 }
 
-// ponytail: infra remains partial until legacy regression behavior has Go coverage; add parity tests before declaring full regression.
-func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer) testplan.RunResult {
+func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer, quietMode ...bool) testplan.RunResult {
+	quiet := flags.JSONStream || (len(quietMode) > 0 && quietMode[0])
 	checks := [][]string{
 		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "test", "./..."},
 		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
@@ -50,29 +52,161 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		if phase.Name != "Infrastructure" {
 			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "focused infrastructure checks are not supported"}
 		}
+		logDir, err := createInfraLogDir(root)
+		if err != nil {
+			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "infrastructure task logging unavailable: " + process.RedactDiagnostic(err.Error())}
+		}
 		status, code := "passed", 0
-		var errors []string
-		for _, command := range checks {
-			var output strings.Builder
-			result := run(context.Background(), process.Request{Args: command, Dir: root, Env: os.Environ(), Stdout: &output, Stderr: &output})
-			if result.ExitCode != 0 && output.Len() > 0 {
-				result.Stderr = []byte(output.String())
+		var failures []string
+		var firstLog string
+		for index, command := range checks {
+			logName := infraLogName(index + 1)
+			logPath := filepath.Join(logDir, logName)
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if err != nil {
+				return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: fmt.Sprintf("infrastructure logging failed before task %02d (log: %s): %s", index+1, filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
 			}
-			if result.ExitCode != 0 {
+			var live io.Writer = io.Discard
+			if !quiet && stream != nil {
+				live = &infraPrefixWriter{writer: stream, prefix: fmt.Sprintf("[infra-%02d] ", index+1)}
+			}
+			output := &infraOutputWriter{log: logFile, live: live}
+			child := run(context.Background(), process.Request{Args: command, Dir: root, Env: os.Environ(), Stdout: output, Stderr: output, Timeout: infraChildTimeout})
+			if err := output.Close(); err != nil {
+				return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
+			}
+			if child.ExitCode != 0 {
 				if code == 0 {
-					code = result.ExitCode
+					code = child.ExitCode
+					firstLog = filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
 				}
 				status = "failed"
-				errors = append(errors, fmt.Sprintf("%s: %s", strings.Join(command, " "), result.Diagnostic()))
+				failures = append(failures, fmt.Sprintf("%s: %s (log: %s)", process.RedactDiagnostic(strings.Join(command, " ")), child.Diagnostic(), filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))))
 			}
 		}
-		return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(errors, "; "), Command: "source-quality checks"}
+		return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(failures, "; "), Command: "source-quality checks", Log: firstLog}
 	}), stream)
-	// Go checks do not yet establish parity with the removed Python regression suite.
-	if result.Status == "passed" {
-		result.Status = "partial"
-		result.FullRegression = false
-		result.ExitCode = 2
-	}
 	return result
+}
+
+const infraChildTimeout = 30 * time.Minute
+
+func infraLogName(index int) string { return fmt.Sprintf("infra-%02d.log", index) }
+
+func createInfraLogDir(root string) (string, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve project root: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("project root is not a safe directory")
+	}
+	logsRoot := filepath.Join(root, ".test_logs")
+	if err := os.Mkdir(logsRoot, 0o700); err != nil && !os.IsExist(err) {
+		return "", fmt.Errorf("create log root: %w", err)
+	}
+	info, err = os.Lstat(logsRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("log root is not a safe directory")
+	}
+	path, err := os.MkdirTemp(logsRoot, "infra-")
+	if err != nil {
+		return "", fmt.Errorf("create run log directory: %w", err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		return "", fmt.Errorf("secure run log directory: %w", err)
+	}
+	return path, nil
+}
+
+type infraPrefixWriter struct {
+	writer io.Writer
+	prefix string
+	start  bool
+}
+
+func (w *infraPrefixWriter) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	if w.writer == nil {
+		return len(data), nil
+	}
+	written := 0
+	for len(data) > 0 {
+		if !w.start {
+			if _, err := io.WriteString(w.writer, w.prefix); err != nil {
+				return written, err
+			}
+			w.start = true
+		}
+		index := -1
+		for i, b := range data {
+			if b == '\n' {
+				index = i
+				break
+			}
+		}
+		chunk := len(data)
+		if index >= 0 {
+			chunk = index + 1
+		}
+		n, err := w.writer.Write(data[:chunk])
+		written += n
+		data = data[n:]
+		if err != nil {
+			return written, err
+		}
+		if n != chunk {
+			return written, io.ErrShortWrite
+		}
+		if index >= 0 {
+			w.start = false
+		}
+	}
+	return written, nil
+}
+
+type infraOutputWriter struct {
+	log  *os.File
+	live io.Writer
+	mu   sync.Mutex
+	err  error
+}
+
+func (w *infraOutputWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.log.Write(data)
+	if err != nil {
+		w.err = err
+		return n, err
+	}
+	if n != len(data) {
+		w.err = io.ErrShortWrite
+		return n, w.err
+	}
+	if w.live != nil {
+		liveN, liveErr := w.live.Write(data)
+		if liveErr != nil {
+			w.err = liveErr
+			return liveN, liveErr
+		}
+		if liveN != len(data) {
+			w.err = io.ErrShortWrite
+			return liveN, w.err
+		}
+	}
+	return len(data), nil
+}
+
+func (w *infraOutputWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	err := w.log.Close()
+	if w.err != nil {
+		return w.err
+	}
+	return err
 }

@@ -33,7 +33,7 @@ func TestInfraRunRequiresEveryCheckAndPropagatesFailure(t *testing.T) {
 		}
 		return process.Result{}
 	}
-	result := runInfra("/fixture", testplan.Flags{Target: "infra"}, runner, nil)
+	result := runInfra(t.TempDir(), testplan.Flags{Target: "infra"}, runner, nil)
 	if result.Status != "failed" || result.ExitCode != 7 || result.FullRegression {
 		t.Fatalf("result = %#v", result)
 	}
@@ -44,7 +44,7 @@ func TestInfraRunRequiresEveryCheckAndPropagatesFailure(t *testing.T) {
 
 func TestInfraIncludesGoQualityGates(t *testing.T) {
 	var commands []string
-	runInfra("/fixture", testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+	runInfra(t.TempDir(), testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
 		commands = append(commands, strings.Join(request.Args, " "))
 		return process.Result{}
 	}, nil)
@@ -57,12 +57,12 @@ func TestInfraIncludesGoQualityGates(t *testing.T) {
 }
 
 func TestInfraRejectsUnrecognizedFlags(t *testing.T) {
-	for _, flag := range []string{"--typo", "--dry-run", "--json-stream", "--unit-only", "--skip-build"} {
+	for _, flag := range []string{"--typo", "--dry-run", "--unit-only", "--skip-build"} {
 		if err := validateInfraFlags([]string{flag}); err == nil {
 			t.Errorf("accepted %s", flag)
 		}
 	}
-	for _, flag := range []string{"--json", "--quiet"} {
+	for _, flag := range []string{"--json", "--quiet", "--json-stream"} {
 		if err := validateInfraFlags([]string{flag}); err != nil {
 			t.Errorf("rejected %s: %v", flag, err)
 		}
@@ -70,11 +70,12 @@ func TestInfraRejectsUnrecognizedFlags(t *testing.T) {
 }
 
 func TestInfraUsesReadOnlyDockerSourceMount(t *testing.T) {
-	runInfra("/fixture", testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+	root := t.TempDir()
+	runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
 		if len(request.Args) > 0 && request.Args[0] == "docker" {
 			found := false
 			for _, arg := range request.Args {
-				found = found || arg == "/fixture:/workspace:ro"
+				found = found || arg == root+":/workspace:ro"
 			}
 			if !found {
 				t.Errorf("docker source mount is not read-only: %v", request.Args)
@@ -90,25 +91,43 @@ func TestInfraRejectsOtherProjects(t *testing.T) {
 	}
 }
 
-func TestInfraRunDoesNotClaimFullRegressionForCIChecks(t *testing.T) {
-	result := runInfra("/fixture", testplan.Flags{Target: "infra"}, func(context.Context, process.Request) process.Result {
+func TestInfraRunPassesWhenConfiguredChecksPass(t *testing.T) {
+	result := runInfra(t.TempDir(), testplan.Flags{Target: "infra"}, func(context.Context, process.Request) process.Result {
 		return process.Result{}
 	}, nil)
-	if result.Status != "partial" || result.FullRegression || result.ExitCode == 0 {
-		t.Fatalf("result = %#v; missing legacy gates must not be reported as full regression", result)
+	if result.Status != "passed" || !result.FullRegression || result.ExitCode != 0 {
+		t.Fatalf("result = %#v; configured checks passed", result)
 	}
 }
 
-func TestGoTestRejectsUnsupportedPatternBeforeRunningAnything(t *testing.T) {
+func TestGoTestRejectsInvalidPatternBeforeRunningAnything(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(root)
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"test", "all", "--pattern", "TestMissing"}, strings.NewReader(""), &stdout, &stderr)
+	code := run([]string{"test", "all", "--pattern", "["}, strings.NewReader(""), &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "--pattern") {
 		t.Fatalf("exit = %d, stderr = %q; want unsupported pattern error", code, stderr.String())
+	}
+}
+
+func TestGoTestRejectsEmptyPatternAndUnknownFlags(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{{[]string{"test", "all", "--pattern", ""}, "--pattern"}, {[]string{"test", "all", "--typo"}, "--typo"}} {
+		var stdout, stderr bytes.Buffer
+		code := run(tc.args, strings.NewReader(""), &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), tc.want) {
+			t.Errorf("args = %q, exit = %d, stderr = %q; want explicit rejection", tc.args, code, stderr.String())
+		}
 	}
 }
 
