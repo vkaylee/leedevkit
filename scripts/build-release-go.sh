@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/dist-go}"
 VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+PREFETCH_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGE" "$PREFETCH_DIR"' EXIT
 CANONICAL="$STAGE/leedevkit-$VERSION"
 mkdir -p "$CANONICAL"
 for item in templates bin .agent container cmd internal VERSION go.mod; do
@@ -15,6 +16,15 @@ mkdir -p "$OUT" "$OUT/.go-core" "$OUT/.debug-mcp"
 export LEEDEVKIT_PROJECT_ROOT="$ROOT"
 export LEEDEVKIT_GO_DOCKERFILE="$ROOT/container/go/Dockerfile"
 export LEEDEVKIT_GO_MODULE_CACHE="${LEEDEVKIT_GO_MODULE_CACHE:-$HOME/go/pkg/mod}"
+mkdir -p "$LEEDEVKIT_GO_MODULE_CACHE"
+docker run --rm \
+    -e "GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}" \
+    -e GOMODCACHE=/go/pkg/mod \
+    -v "$ROOT:/source:ro" \
+    -v "$PREFETCH_DIR:/workspace" \
+    -v "$LEEDEVKIT_GO_MODULE_CACHE:/go/pkg/mod" \
+    -w /workspace \
+    golang:1.26.11-bookworm sh -c 'cp /source/go.mod /workspace/go.mod && cp /source/go.sum /workspace/go.sum && go mod download'
 COMPOSE=(docker compose -f "$ROOT/container/go/docker-compose.core.yml" --profile go-core)
 TARGETS=("linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64")
 for target in "${TARGETS[@]}"; do
@@ -32,7 +42,7 @@ for target in "${TARGETS[@]}"; do
 done
 cp -a "$OUT/.go-core/." "$CANONICAL/bin/go/"
 cp -a "$OUT/.debug-mcp/." "$CANONICAL/bin/debug-mcp/"
-docker run --rm -e GOPROXY=off -v "$ROOT":/source:ro -v "$CANONICAL":/workspace -v "$HOME/go/pkg/mod":/go/pkg/mod -w /source golang:1.26.11-bookworm go run ./cmd/release-manifest --root /workspace
+docker run --rm -e GOPROXY=off -v "$ROOT":/source:ro -v "$CANONICAL":/workspace -v "$LEEDEVKIT_GO_MODULE_CACHE:/go/pkg/mod" -w /source golang:1.26.11-bookworm go run ./cmd/release-manifest --root /workspace
 cat > "$CANONICAL/sbom.cdx.json" <<EOF
 {"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"github.com/pelletier/go-toml/v2","version":"v2.2.2","purl":"pkg:golang/github.com/pelletier/go-toml/v2@v2.2.2"}]}
 EOF
