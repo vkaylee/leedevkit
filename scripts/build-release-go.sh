@@ -7,7 +7,14 @@ VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
 STAGE="$(mktemp -d)"
 PREFETCH_DIR="$(mktemp -d)"
 BUILD_CACHE="$(mktemp -d)"
-trap 'rm -rf "$STAGE" "$PREFETCH_DIR" "$BUILD_CACHE"' EXIT
+cleanup() {
+    docker run --rm \
+        -v "$PREFETCH_DIR:/workspace" \
+        -v "$BUILD_CACHE:/build" \
+        golang:1.26.11-bookworm sh -c 'rm -rf /workspace/* /build/*' >/dev/null 2>&1 || true
+    rm -rf "$STAGE" "$PREFETCH_DIR" "$BUILD_CACHE"
+}
+trap cleanup EXIT
 CANONICAL="$STAGE/leedevkit-$VERSION"
 mkdir -p "$CANONICAL"
 for item in templates bin .agent container cmd internal VERSION go.mod; do
