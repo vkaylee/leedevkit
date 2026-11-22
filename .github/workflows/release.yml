@@ -15,6 +15,16 @@ permissions:
   contents: read
 
 jobs:
+  macos-installer:
+    name: macOS installer
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - name: Test global installer on macOS
+        run: bash tests/install-test.sh
+
   build-and-accept:
     name: Build and accept release
     runs-on: ubuntu-latest
@@ -73,7 +83,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: build-and-accept
+    needs: [build-and-accept, macos-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write

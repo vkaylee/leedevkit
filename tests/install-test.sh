@@ -7,6 +7,14 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64) platform=linux-amd64; activation_flag=-Tf ;;
+    Linux:aarch64|Linux:arm64) platform=linux-arm64; activation_flag=-Tf ;;
+    Darwin:x86_64) platform=darwin-amd64; activation_flag=-fh ;;
+    Darwin:arm64) platform=darwin-arm64; activation_flag=-fh ;;
+    *) fail 'unsupported test platform' ;;
+esac
+checksum() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi; }
 
 make_release() {
     local version="$1" layout="${2:-valid}"
@@ -20,14 +28,19 @@ make_release() {
         printf '#!/bin/sh\nexit 0\n' > "$root/bin/leedevkit"
     fi
     if [[ "$layout" == invalid-launcher ]]; then
-        printf '#!/bin/sh\nexit 1\n' > "$root/bin/go/leedevkit-go-linux-amd64"
+        printf '#!/bin/sh\nexit 1\n' > "$root/bin/go/leedevkit-go-$platform"
     else
-        printf '#!/bin/sh\nexit 0\n' > "$root/bin/go/leedevkit-go-linux-amd64"
+        printf '#!/bin/sh\nexit 0\n' > "$root/bin/go/leedevkit-go-$platform"
     fi
     tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
     if [[ "$layout" == traversal ]]; then
-        printf x > "$WORK/escape"
-        tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK" --transform="s|escape|leedevkit-$version/../escape|" escape
+        python3 -I - "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" "$version" <<'PY'
+import io, sys, tarfile
+with tarfile.open(sys.argv[1], 'w:gz') as archive:
+    entry = tarfile.TarInfo('leedevkit-' + sys.argv[2] + '/../escape')
+    entry.size = 1
+    archive.addfile(entry, io.BytesIO(b'x'))
+PY
     elif [[ "$layout" == link ]]; then
         ln -s /etc/passwd "$root/outside"
         tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
@@ -35,7 +48,7 @@ make_release() {
         mkfifo "$root/fifo"
         tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
     fi
-    (cd "$WORK/releases/download/v$version" && sha256sum "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" > "leedevkit-$version.tar.gz.sha256")
+    (cd "$WORK/releases/download/v$version" && checksum "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" > "leedevkit-$version.tar.gz.sha256")
 }
 
 run_install() {
@@ -58,6 +71,7 @@ grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing inst
 mkdir "$WORK/home/.leedevkit/.install.lock"
 printf occupied > "$WORK/home/.leedevkit/.install.lock/owner"
 run_install 1.2.4 && fail 'concurrent lock accepted'
+grep -qx occupied "$WORK/home/.leedevkit/.install.lock/owner" || fail 'contended lock was altered'
 grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed while locked'
 rm -rf "$WORK/home/.leedevkit/.install.lock"
 
@@ -79,16 +93,20 @@ path = pathlib.Path(sys.argv[1])
 data = path.read_bytes()
 path.write_bytes(data[:-8])
 PY
-sha256sum "$archive" > "$archive.sha256"
+checksum "$archive" > "$archive.sha256"
 run_install 1.2.4 && fail 'truncated gzip accepted'
 grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on truncated gzip'
 
 make_release 1.2.4
 archive="$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz"
 gzip -dc "$archive" > "$WORK/large.tar"
-truncate -s $((513 * 1024 * 1024)) "$WORK/large.tar"
+python3 -I - "$WORK/large.tar" <<'PY'
+import sys
+with open(sys.argv[1], 'r+b') as file:
+    file.truncate(513 * 1024 * 1024)
+PY
 gzip -c "$WORK/large.tar" > "$archive"
-sha256sum "$archive" > "$archive.sha256"
+checksum "$archive" > "$archive.sha256"
 run_install 1.2.4 && fail 'oversized expanded archive accepted'
 grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on oversized archive'
 
@@ -101,7 +119,7 @@ with tarfile.open(sys.argv[1], 'w:gz') as archive:
         entry = tarfile.TarInfo('leedevkit-1.2.4/entry-%d' % i)
         archive.addfile(entry, io.BytesIO())
 PY
-sha256sum "$archive" > "$archive.sha256"
+checksum "$archive" > "$archive.sha256"
 run_install 1.2.4 > "$WORK/entry-output" 2>&1 && fail 'archive with too many entries accepted'
 grep -q 'archive exceeds entry limit' "$WORK/entry-output" || fail 'excessive entries were not rejected by entry limit'
 grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on excessive entries'
@@ -164,11 +182,34 @@ grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing inst
 make_release 1.2.4
 mkdir -p "$WORK/fake-bin"
 real_mv="$(command -v mv)"
-printf '#!/bin/bash\nif [[ "$1" == -Tf ]]; then exit 1; fi\nexec %q "$@"\n' "$real_mv" > "$WORK/fake-bin/mv"
+printf '#!/bin/bash\nif [[ "$1" == %q ]]; then exit 1; fi\nexec %q "$@"\n' "$activation_flag" "$real_mv" > "$WORK/fake-bin/mv"
 chmod +x "$WORK/fake-bin/mv"
 PATH="$WORK/fake-bin:$PATH" run_install 1.2.4 && fail 'activation failure accepted'
 grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'activation failure damaged active release'
 [[ ! -e "$WORK/home/.leedevkit/v1.2.4" ]] || fail 'failed activation left new release'
 [[ ! -e "$WORK/home/.leedevkit/.install.lock" ]] || fail 'failed activation left lock'
+
+make_release 1.2.4
+printf '#!/bin/bash\nif [[ "$1" == %q ]]; then %q "$@" || exit; kill -TERM "$PPID"; exit 0; fi\nexec %q "$@"\n' "$activation_flag" "$real_mv" "$real_mv" > "$WORK/fake-bin/mv"
+PATH="$WORK/fake-bin:$PATH" run_install 1.2.4 && fail 'interrupted activation succeeded'
+[[ -x "$WORK/home/.leedevkit/current/bin/leedevkit" ]] || fail 'interrupted activation broke current'
+[[ "$(readlink "$WORK/home/.leedevkit/current")" == "$WORK/home/.leedevkit/v1.2.4" ]] || fail 'completed activation did not preserve new release'
+grep -qx preserve-me "$WORK/home/.leedevkit/v1.2.3/keep" || fail 'interrupted activation damaged old release'
+[[ ! -e "$WORK/home/.leedevkit/.install.lock" ]] || fail 'interrupted activation left lock'
+
+make_release 1.2.5
+printf '#!/bin/bash\n%q "$@" || exit\nif [[ "$1" != %q ]]; then kill -TERM "$PPID"; fi\n' "$real_mv" "$activation_flag" > "$WORK/fake-bin/mv"
+PATH="$WORK/fake-bin:$PATH" run_install 1.2.5 && fail 'interrupted version move succeeded'
+[[ -x "$WORK/home/.leedevkit/current/bin/leedevkit" ]] || fail 'version move interruption broke current'
+[[ ! -e "$WORK/home/.leedevkit/v1.2.5" ]] || fail 'version move interruption left release behind'
+[[ ! -e "$WORK/home/.leedevkit/.install.lock" ]] || fail 'version move interruption left lock'
+
+make_release 1.2.6
+real_mkdir="$(command -v mkdir)"
+printf '#!/bin/bash\n%q "$@" || exit\nif [[ "$1" == */.install.lock ]]; then kill -TERM "$PPID"; fi\n' "$real_mkdir" > "$WORK/fake-bin/mkdir"
+chmod +x "$WORK/fake-bin/mkdir"
+PATH="$WORK/fake-bin:$PATH" run_install 1.2.6 && fail 'interrupted lock acquisition succeeded'
+[[ ! -e "$WORK/home/.leedevkit/.install.lock" ]] || fail 'interrupted lock acquisition left stale lock'
+[[ -x "$WORK/home/.leedevkit/current/bin/leedevkit" ]] || fail 'interrupted lock acquisition broke current'
 
 printf 'install tests passed\n'

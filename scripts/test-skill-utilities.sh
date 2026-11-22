@@ -19,14 +19,14 @@ for relative in "${documented[@]}"; do
 done
 
 while IFS= read -r script; do
-    PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$PY_CACHE" python3 -I -m py_compile "$script"
+    python3 -I -X "pycache_prefix=$PY_CACHE" -m py_compile "$script"
 done < <(find "$ROOT/.agent/skills" -type f -name '*.py' | sort)
 
 run_skill() {
     local relative="$1"; shift
     local errors="$FIXTURE/$(basename "$relative").stderr"
     local code=0
-    PYTHONDONTWRITEBYTECODE=1 python3 -I "$ROOT/$relative" "$@" >/dev/null 2>"$errors" || code=$?
+    python3 -I -B "$ROOT/$relative" "$@" >/dev/null 2>"$errors" || code=$?
     case "$code" in 0|1) ;; *) cat "$errors" >&2; return "$code" ;; esac
     if grep -qE 'Traceback \(|ModuleNotFoundError|ImportError|SyntaxError' "$errors"; then cat "$errors" >&2; return 1; fi
 }

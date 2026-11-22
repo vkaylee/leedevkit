@@ -27,9 +27,12 @@ replace_link() {
 }
 rollback() {
     set +e
-    if (( CURRENT_ACTIVATED )); then
-        if (( HAD_CURRENT )); then ln -sfn -- "$OLD_CURRENT_TARGET" "$CURRENT_LINK" && replace_link "$CURRENT_LINK" "$CURRENT"
-        else remove_path "$CURRENT"; fi
+    # The signal may arrive after mv commits but before the shell records success.
+    # Never remove a release that current already references.
+    if [[ -L "$CURRENT" && "$(readlink "$CURRENT")" == "$VERSION_DIR" ]]; then
+        VERSION_ACTIVATED=0
+    elif [[ ! -e "$EXTRACTED" && ! -L "$EXTRACTED" && -e "$VERSION_DIR" ]]; then
+        VERSION_ACTIVATED=1
     fi
     remove_path "$CURRENT_LINK"
     if (( VERSION_ACTIVATED )); then remove_path "$VERSION_DIR"; fi
@@ -39,7 +42,7 @@ finish() {
     trap - EXIT HUP INT TERM
     if (( status != 0 && TRANSACTION_ACTIVE )); then rollback; fi
     [[ -z "$TMP_DIR" ]] || rm -rf -- "$TMP_DIR"
-    [[ -z "$LOCK_DIR" ]] || rm -rf -- "$LOCK_DIR"
+    if (( LOCK_OWNED )); then rmdir -- "$LOCK_DIR" || printf 'leedevkit installer: could not remove lock: %s\n' "$LOCK_DIR" >&2; fi
     exit "$status"
 }
 
@@ -60,7 +63,7 @@ VERSION_TAG="v$VER"
 mkdir -p "$INSTALL_DIR"
 [[ -d "$INSTALL_DIR" && ! -L "$INSTALL_DIR" ]] || fail "install path must be a real directory: $INSTALL_DIR"
 LOCK_DIR="$INSTALL_DIR/.install.lock"
-mkdir "$LOCK_DIR" 2>/dev/null || fail "another install is running or stale lock exists: $LOCK_DIR"
+LOCK_OWNED=0
 TMP_DIR=""
 STAGE_DIR=""
 BACKUP_DIR=""
@@ -68,14 +71,22 @@ CURRENT_LINK="$INSTALL_DIR/.current.$$.new"
 VERSION_DIR="$INSTALL_DIR/$VERSION_TAG"
 CURRENT="$INSTALL_DIR/current"
 VERSION_ACTIVATED=0
-CURRENT_ACTIVATED=0
-OLD_CURRENT_TARGET=""
-HAD_CURRENT=0
 TRANSACTION_ACTIVE=0
 trap finish EXIT
+# Defer catchable signals until lock ownership is known; never remove another process's lock.
+trap 'SIGNAL_STATUS=129' HUP
+trap 'SIGNAL_STATUS=130' INT
+trap 'SIGNAL_STATUS=143' TERM
+SIGNAL_STATUS=0
+if mkdir "$LOCK_DIR" 2>/dev/null; then
+    LOCK_OWNED=1
+else
+    fail "another install is running or stale lock exists: $LOCK_DIR"
+fi
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if (( SIGNAL_STATUS )); then exit "$SIGNAL_STATUS"; fi
 TMP_DIR="$(mktemp -d "$INSTALL_DIR/.install.XXXXXX")"
 STAGE_DIR="$TMP_DIR/extracted"
 BACKUP_DIR="$TMP_DIR/previous"
@@ -142,15 +153,12 @@ chmod 0755 "$EXTRACTED/bin/leedevkit"
 
 if [[ -e "$CURRENT" || -L "$CURRENT" ]]; then
     [[ -L "$CURRENT" ]] || fail "current path is not a symlink; refusing to replace: $CURRENT"
-    HAD_CURRENT=1
-    OLD_CURRENT_TARGET="$(readlink "$CURRENT")"
 fi
 TRANSACTION_ACTIVE=1
 mv -- "$EXTRACTED" "$VERSION_DIR"
 VERSION_ACTIVATED=1
 ln -s "$VERSION_DIR" "$CURRENT_LINK"
 replace_link "$CURRENT_LINK" "$CURRENT"
-CURRENT_ACTIVATED=1
 TRANSACTION_ACTIVE=0
 printf 'Installed leedevkit %s at %s\n' "$VERSION_TAG" "$CURRENT"
 printf 'Run: %s/leedevkit --help\n' "$CURRENT/bin"

@@ -4,6 +4,16 @@ All notable changes to LeeDevKit are recorded here. This changelog follows the K
 
 ## [Unreleased]
 
+### Changed
+- Migrate to one global LeeDevKit runtime per user; project configuration and skill revision locks remain project-owned.
+- `leedevkit init` creates missing project configuration and rules without installing a project-local runtime. Existing local launchers, skills and custom data are not moved or removed.
+
+### Security
+- Verify release archive checksums and stage updates before atomically activating the global release. Checksums do not authenticate the publisher.
+
+### Migration
+- Install the global CLI, add it to `PATH`, back up existing project data, and review initialization changes. Existing project launchers and CI scripts require migration; see the README for precautions and rollback limitations.
+
 ## [0.11.8] - 2026-11-22
 
 ### Fixed

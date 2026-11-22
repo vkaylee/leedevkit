@@ -12,6 +12,7 @@ Install the global CLI, then initialize a project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+export PATH="${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin:$PATH"
 cd my-project && leedevkit init
 ```
 
@@ -27,6 +28,7 @@ Commit `leedevkit.toml` and `leedevkit.lock` when they belong to the project. `l
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+export PATH="${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin:$PATH"
 cd my-project
 leedevkit init
 leedevkit test all
@@ -44,17 +46,22 @@ Built-in skills come from the global installation. Project community skills live
 
 Commit `leedevkit.toml` and the skills lock file `leedevkit.lock` as appropriate for the project.
 
-Installer updates existing `$HOME/.bashrc` (preferred) or `$HOME/.zshrc` with the actual `${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin` path. It does not create startup files or change the parent shell running the installer. Source the updated file, or export the path in the current shell:
+The installer does not modify shell startup files or the parent shell. Add the following path to your shell configuration and export it in the current shell:
 
 ```bash
 export PATH="${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin:$PATH"
 ```
 
-If installer found no supported startup file, run that export manually or add it to your shell startup file before using `leedevkit`.
-
 ## Migrating existing projects
 
-Existing projects may contain legacy wrappers, generated context, or local runtime files. Keep those files and any local data. Do not delete project files as a migration step. Use the global `leedevkit` command and review initialization changes before accepting them.
+1. Back up uncommitted and untracked project data, including `.leedevkit/skills.d/`, `.venv`, wrappers, custom rules and `leedevkit.lock`. Record the current working tree and executable version.
+2. Install the global CLI, add it to `PATH`, and verify `command -v leedevkit` and `leedevkit version`. Run `leedevkit init` from the project root.
+3. Review the project diff and untracked files. Init creates `leedevkit.toml` only if absent and copies missing rule files; it does not overwrite existing files or move legacy skills. Keep `leedevkit.lock`, which records skill revisions. Do not delete old runtimes or wrappers automatically.
+4. Update project scripts and CI to invoke global `leedevkit` only after validating their behavior. Keep backups until consumers and rollback have been verified.
+
+Project rollback is not automated: restore selected project files from the backup or Git, taking care not to overwrite later changes. Global update retains the previous version directory, but rollback is manual and has only been tested in an isolated Linux fixture. Verify the old binary and compatibility with current project data before switching `current`; do not assume older versions understand newer project state.
+
+If an interrupted install leaves `${DEVKIT_HOME:-$HOME/.leedevkit}/.install.lock`, first verify no install or update is running and inspect the lock. Only then remove an empty stale lock directory with `rmdir`; never remove an active lock. `SIGKILL` or a system crash can leave one behind.
 
 ## Project Structure
 
