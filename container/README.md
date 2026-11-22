@@ -1,8 +1,9 @@
 # LeeDevKit Container Mode
 
-Built-in container infrastructure for Rust and Go projects that need toolchains
-without manual Dockerfile or Compose setup. Provider selection is explicit and
-configured through LeeDevKit; built-in runtime adapters remain provider-specific.
+Container support for Rust and Go projects that need toolchains without manual
+Dockerfile or Compose setup. Use the globally installed `leedevkit` CLI; project
+initialization does not install a project-local runtime. Provider selection is
+explicit and configured through LeeDevKit; built-in adapters remain provider-specific.
 
 ## Provider configuration
 
@@ -40,10 +41,10 @@ commands in examples are placeholders until its official CLI contract is verifie
 Go projects use `go.mod`, `languages = ["go"]`, and `[services.go] lang = "go", go = true`. Built-in Go image includes `gofmt`, `go vet`, `go test`, and `go tool cover`. Set `GO_VERSION` to override image version.
 
 ```bash
-./leedevkit test go --lint-only
-./leedevkit test go --unit-only
-./leedevkit test go --coverage
-./leedevkit run go test ./...
+leedevkit test go --lint-only
+leedevkit test go --unit-only
+leedevkit test go --coverage
+leedevkit run go test ./...
 ```
 
 Go `go test ./...` runs during unit phase. Integration phase skips duplicate package tests. Rust uses analogous `cargo fmt`, `cargo clippy`, `cargo nextest`, and `cargo llvm-cov` commands.
@@ -57,18 +58,15 @@ Both profiles mount project root at `/workspace`, persist dependency/build cache
 ```text
 project/
 ├── go.mod or Cargo.toml
-├── leedevkit.toml
-└── .leedevkit/container/<language>/
-    ├── Dockerfile
-    └── docker-compose.test.yml
+└── leedevkit.toml
 ```
 
 ## Compose resolution
 
 1. `.compose/docker-compose.test.yml` — project override
-2. `.leedevkit/container/<language>/docker-compose.test.yml` — matching single-language default
+2. Matching single-language default, when available
 
-Without override, project manifest or explicit test mode selects matching language container. Mixed projects must provide override.
+Without override, project manifest or explicit test mode selects a matching language container. Mixed projects must provide an override. Default asset locations are implementation details; use project configuration and CLI help for current behavior.
 
 ## Service configuration
 
@@ -97,8 +95,8 @@ Built-in files expose `go` and `rust`. Custom service names require project over
 Environment overrides:
 
 ```bash
-GO_VERSION=1.24 ./leedevkit test go
-RUST_VERSION=1.85 ./leedevkit test all
+GO_VERSION=1.24 leedevkit test go
+RUST_VERSION=1.85 leedevkit test all
 ```
 
 ## Custom container
@@ -128,7 +126,7 @@ Debug MCP runs as a temporary read-only capability selected by explicit environm
 
 | Project type | Compose source | Service name |
 |---|---|---|
-| Rust crate | `.leedevkit/container/rust/` | `rust` |
-| Go module | `.leedevkit/container/go/` | `go` |
-| Existing API/Web | `.compose/` | From config |
-| Mixed Rust + Go/Web | `.compose/` | From config |
+| Rust crate | Built-in language default, when available | `rust` |
+| Go module | Built-in language default, when available | `go` |
+| Existing API/Web | `.compose/` project override | From config |
+| Mixed Rust + Go/Web | `.compose/` project override | From config |

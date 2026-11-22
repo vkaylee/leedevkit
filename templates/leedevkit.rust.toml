@@ -4,19 +4,14 @@
 # For single-crate or workspace-only Rust projects (library, CLI, tool, etc.).
 # Uses a single container with the Rust toolchain — no database, no web frontend.
 #
-# The Dockerfile and docker-compose.test.yml are provided by the devkit
-# at .leedevkit/container/rust/ and require no setup. To customize the container
-# image, create your own Dockerfile at the project root and a compose file
+# The Dockerfile and docker-compose.test.yml are provided by the global devkit.
+# To customize the container image, create your own Dockerfile at the project
+# root and a compose file
 # at .compose/docker-compose.test.yml — the devkit will use those instead.
 #
 # Quick start:
 #   leedevkit init                      # scaffold project
 #   leedevkit test all                  # cargo fmt + clippy + nextest + coverage
-
-[devkit]
-version = "latest"                # pinned devkit version (set by leedevkit init)
-install = "per-project"          # "per-project" (default) | "global" (legacy)
-source = "release"               # "release" | "git" | "local"
 
 [project]
 name = "MyRustProject"            # display name
@@ -25,7 +20,7 @@ languages = ["rust"]              # Rust-only project
 
 # ── Service ─────────────────────────────────────────────────────────────────
 # Single container using the devkit's default Rust image.
-# The Dockerfile is at .leedevkit/container/rust/Dockerfile (auto-provided).
+# The Dockerfile is provided by the global installation.
 # To customize: create your own Dockerfile at the project root and
 #                .compose/docker-compose.test.yml (takes priority).
 

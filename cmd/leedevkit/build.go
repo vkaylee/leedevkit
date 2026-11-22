@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -16,11 +17,24 @@ func buildFlowForService(root, project string, plan lifecycle.Plan, service conf
 	if service.Dockerfile == "" || service.ComposeFile == "" || service.Image == "" {
 		return nil, "", fmt.Errorf("service %q requires image, dockerfile, and compose_file for build", service.Name)
 	}
-	compose, docker, contextData, err := lifecycle.ReadBuildInputs(
-		filepath.Join(root, service.ComposeFile),
-		filepath.Join(root, service.Dockerfile),
-		root,
-	)
+	composePath := service.ComposeFile
+	if !filepath.IsAbs(composePath) {
+		composePath = filepath.Join(root, composePath)
+	}
+	dockerfilePath := filepath.Join(root, service.Dockerfile)
+	contextRoot := root
+	isGlobalAsset := isGlobalComposeAsset(root, composePath) || isGlobalComposeAsset(filepath.Join(root, ".leedevkit"), composePath)
+	if !isGlobalAsset {
+		assetRoot, err := runtimeAssetRoot()
+		if err == nil {
+			isGlobalAsset = isGlobalComposeAsset(assetRoot, composePath)
+		}
+	}
+	if isGlobalAsset {
+		contextRoot = filepath.Dir(composePath)
+		dockerfilePath = filepath.Join(contextRoot, "Dockerfile")
+	}
+	compose, docker, contextData, err := lifecycle.ReadBuildInputs(composePath, dockerfilePath, contextRoot)
 	if err != nil {
 		return nil, "", fmt.Errorf("read build inputs: %w", err)
 	}
@@ -36,6 +50,16 @@ func buildFlowForService(root, project string, plan lifecycle.Plan, service conf
 	}, fingerprint, nil
 }
 
+func isGlobalComposeAsset(root, composePath string) bool {
+	for _, language := range []string{"go", "rust"} {
+		assetPath := filepath.Join(root, "container", language, "docker-compose.test.yml")
+		if filepath.Clean(composePath) == filepath.Clean(assetPath) {
+			return true
+		}
+	}
+	return false
+}
+
 func buildEngine(plan lifecycle.Plan) string {
 	if len(plan.Provider.CLI) > 0 {
 		return plan.Provider.CLI[0]
@@ -47,7 +71,7 @@ func newBuildRunner(root, project string, output io.Writer) lifecycle.BuildRunne
 	return lifecycle.BuildRunner{
 		Lock: lifecycle.NewBuildLock(),
 		Execute: func(ctx context.Context, args []string) error {
-			result := process.Run(ctx, process.Request{Args: args, Dir: root, Stdout: output, Stderr: output})
+			result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
 			if result.ExitCode == 0 {
 				return nil
 			}

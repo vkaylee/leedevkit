@@ -4,14 +4,14 @@ services:
     # Dockerfile and GO_VERSION are the only inputs for this image; project
     # source is mounted at runtime and is not copied during the build.
     x-leedevkit-build-inputs:
-      - .leedevkit/container/go/Dockerfile
+      - Dockerfile
     build:
-      context: ../../..
-      dockerfile: .leedevkit/container/go/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         GO_VERSION: ${GO_VERSION:-1.26}
     volumes:
-      - ../../..:/workspace
+      - ${LEEDEVKIT_PROJECT_ROOT:?LEEDEVKIT_PROJECT_ROOT must be set}:/workspace
       - go-module-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     working_dir: /workspace

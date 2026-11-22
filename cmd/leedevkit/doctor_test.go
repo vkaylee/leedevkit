@@ -8,8 +8,27 @@ import (
 	"testing"
 )
 
-func TestRunDoctorReadOnlyReportsProjectState(t *testing.T) {
-	root := t.TempDir()
+func TestGlobalDoctorAssetRootUsesExecutableDirectory(t *testing.T) {
+	assetRoot, err := globalDoctorAssetRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Dir(filepath.Dir(resolved))
+	if assetRoot != want {
+		t.Fatalf("global asset root = %q, want %q", assetRoot, want)
+	}
+}
+
+func TestRunDoctorReadOnlyReportsProjectAndGlobalState(t *testing.T) {
+	root, assets := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[project]\nname = \"test\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -19,90 +38,106 @@ func TestRunDoctorReadOnlyReportsProjectState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".agent", "rules", "coding.md"), []byte("# coding"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".leedevkit"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(assets, ".agent", "rules"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".leedevkit", "VERSION"), []byte("0.11.4\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(assets, "VERSION"), []byte("0.11.4\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	var stderr bytes.Buffer
-	if code := runDoctor(root, &bytes.Buffer{}, &stderr); code != 0 {
+	if code := runDoctorWithAssets(root, assets, &bytes.Buffer{}, &stderr); code != 0 {
 		t.Fatalf("doctor exit code = %d, output = %q", code, stderr.String())
 	}
-	for _, want := range []string{"Project config:", ".agent: real directory, 1 rulebooks", "DevKit:", "runtime docker:"} {
+	for _, want := range []string{"Project config:", ".agent: real directory, 1 rulebooks", "Global DevKit:", "Global DevKit assets: available", "runtime docker:"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("doctor output missing %q: %s", want, stderr.String())
 		}
 	}
+	if strings.Contains(stderr.String(), filepath.Join(root, ".leedevkit")) {
+		t.Fatalf("doctor inspected project runtime instead of global assets: %s", stderr.String())
+	}
 }
 
-func TestRunDoctorDoesNotModifyProject(t *testing.T) {
-	root := t.TempDir()
-	before, err := os.ReadDir(root)
-	if err != nil {
+func TestRunDoctorWarnsAboutLegacyLauncherWithoutRemoving(t *testing.T) {
+	root, assets := t.TempDir(), t.TempDir()
+	launcher := filepath.Join(root, "leedevkit")
+	if err := os.WriteFile(launcher, []byte("legacy"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := runDoctor(root, &bytes.Buffer{}, &stderr); code != 0 {
-		t.Fatalf("doctor exit code = %d", code)
+	runDoctorWithAssets(root, assets, &bytes.Buffer{}, &stderr)
+	if !strings.Contains(stderr.String(), "legacy project launcher detected and left unchanged") {
+		t.Fatalf("legacy launcher warning missing: %s", stderr.String())
 	}
-	after, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(before) != len(after) {
-		t.Fatalf("doctor mutated project: before=%d after=%d", len(before), len(after))
+	if got, err := os.ReadFile(launcher); err != nil || string(got) != "legacy" {
+		t.Fatalf("legacy launcher changed: %q, %v", got, err)
 	}
 }
 
-func TestRepairDoctorRulesCopiesMissingFilesAndPreservesUserFiles(t *testing.T) {
-	root := t.TempDir()
-	runtimeRules := filepath.Join(root, ".leedevkit", ".agent", "rules")
+func TestRunDoctorDoesNotModifyProjectData(t *testing.T) {
+	root, assets := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".leedevkit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectData := filepath.Join(root, ".leedevkit", "VERSION")
+	if err := os.WriteFile(projectData, []byte("project-version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	runDoctorWithAssets(root, assets, &bytes.Buffer{}, &stderr)
+	if got, err := os.ReadFile(projectData); err != nil || string(got) != "project-version" {
+		t.Fatalf("project runtime data changed: %q, %v", got, err)
+	}
+}
+
+func TestRepairDoctorRulesCopiesGlobalRulesAndPreservesProjectRules(t *testing.T) {
+	root, assets := t.TempDir(), t.TempDir()
+	globalRules := filepath.Join(assets, ".agent", "rules")
 	projectRules := filepath.Join(root, ".agent", "rules")
-	if err := os.MkdirAll(runtimeRules, 0o700); err != nil {
+	if err := os.MkdirAll(globalRules, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(projectRules, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runtimeRules, "base.md"), []byte("base"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(globalRules, "base.md"), []byte("base"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(projectRules, "base.md"), []byte("user"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runtimeRules, "testing.md"), []byte("testing"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(globalRules, "testing.md"), []byte("testing"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := repairDoctorRules(root); err != nil {
+	if err := repairDoctorRulesFromAssets(root, assets); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(filepath.Join(projectRules, "base.md")); err != nil || string(got) != "user" {
 		t.Fatalf("user rule changed: %q, %v", got, err)
 	}
 	if got, err := os.ReadFile(filepath.Join(projectRules, "testing.md")); err != nil || string(got) != "testing" {
-		t.Fatalf("missing rule not copied: %q, %v", got, err)
+		t.Fatalf("missing global rule not copied: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".leedevkit")); !os.IsNotExist(err) {
+		t.Fatalf("repair created project runtime data: %v", err)
 	}
 }
 
 func TestRepairDoctorRulesRejectsSymlinkedProjectRules(t *testing.T) {
-	root := t.TempDir()
-	runtimeRules := filepath.Join(root, ".leedevkit", ".agent", "rules")
-	if err := os.MkdirAll(runtimeRules, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(runtimeRules, filepath.Join(root, ".agent-rules")); err != nil {
+	root, assets := t.TempDir(), t.TempDir()
+	globalRules := filepath.Join(assets, ".agent", "rules")
+	if err := os.MkdirAll(globalRules, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, ".agent"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(root, ".agent-rules"), filepath.Join(root, ".agent", "rules")); err != nil {
+	if err := os.Symlink(globalRules, filepath.Join(root, ".agent", "rules")); err != nil {
 		t.Fatal(err)
 	}
-	if err := repairDoctorRules(root); err == nil {
+	if err := repairDoctorRulesFromAssets(root, assets); err == nil {
 		t.Fatal("symlinked project rules accepted")
 	}
 }

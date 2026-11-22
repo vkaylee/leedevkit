@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALLER="$ROOT_DIR/install.sh"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+make_release() {
+    local version="$1" layout="${2:-valid}"
+    local root="$WORK/build/leedevkit-$version"
+    rm -rf "$WORK/build"
+    mkdir -p "$root/bin/go" "$WORK/releases/download/v$version" "$WORK/home"
+    printf '%s\n' "$version" > "$root/VERSION"
+    if [[ "$layout" == invalid-launcher ]]; then
+        printf '#!/bin/sh\nexit 1\n' > "$root/bin/leedevkit"
+    else
+        printf '#!/bin/sh\nexit 0\n' > "$root/bin/leedevkit"
+    fi
+    if [[ "$layout" == invalid-launcher ]]; then
+        printf '#!/bin/sh\nexit 1\n' > "$root/bin/go/leedevkit-go-linux-amd64"
+    else
+        printf '#!/bin/sh\nexit 0\n' > "$root/bin/go/leedevkit-go-linux-amd64"
+    fi
+    tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
+    if [[ "$layout" == traversal ]]; then
+        printf x > "$WORK/escape"
+        tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK" --transform="s|escape|leedevkit-$version/../escape|" escape
+    elif [[ "$layout" == link ]]; then
+        ln -s /etc/passwd "$root/outside"
+        tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
+    elif [[ "$layout" == fifo ]]; then
+        mkfifo "$root/fifo"
+        tar -czf "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" -C "$WORK/build" "leedevkit-$version"
+    fi
+    (cd "$WORK/releases/download/v$version" && sha256sum "$WORK/releases/download/v$version/leedevkit-$version.tar.gz" > "leedevkit-$version.tar.gz.sha256")
+}
+
+run_install() {
+    DEVKIT_HOME="$WORK/home/.leedevkit" \
+    LEEDEVKIT_RELEASE_BASE_URL="file://$WORK/releases" \
+        bash "$INSTALLER" "$1"
+}
+
+make_release 1.2.3
+run_install 1.2.3 || fail 'valid local mirror install failed'
+[[ -L "$WORK/home/.leedevkit/current" ]] || fail 'current symlink missing'
+[[ -x "$WORK/home/.leedevkit/current/bin/leedevkit" ]] || fail 'installed launcher not executable'
+
+make_release 1.2.4
+printf 'preserve-me\n' > "$WORK/home/.leedevkit/current/keep"
+# Existing version collision must stop before touching active install.
+run_install 1.2.3 && fail 'existing version overwrite accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on collision'
+
+mkdir "$WORK/home/.leedevkit/.install.lock"
+printf occupied > "$WORK/home/.leedevkit/.install.lock/owner"
+run_install 1.2.4 && fail 'concurrent lock accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed while locked'
+rm -rf "$WORK/home/.leedevkit/.install.lock"
+
+make_release 1.2.4
+printf bad > "$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz.sha256"
+run_install 1.2.4 && fail 'bad checksum accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on checksum failure'
+
+make_release 1.2.4
+printf '%2048s\n' '' >> "$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz.sha256"
+run_install 1.2.4 && fail 'oversized checksum accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on oversized checksum'
+
+make_release 1.2.4
+archive="$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz"
+python3 -I - "$archive" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = path.read_bytes()
+path.write_bytes(data[:-8])
+PY
+sha256sum "$archive" > "$archive.sha256"
+run_install 1.2.4 && fail 'truncated gzip accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on truncated gzip'
+
+make_release 1.2.4
+archive="$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz"
+gzip -dc "$archive" > "$WORK/large.tar"
+truncate -s $((513 * 1024 * 1024)) "$WORK/large.tar"
+gzip -c "$WORK/large.tar" > "$archive"
+sha256sum "$archive" > "$archive.sha256"
+run_install 1.2.4 && fail 'oversized expanded archive accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on oversized archive'
+
+make_release 1.2.4
+archive="$WORK/releases/download/v1.2.4/leedevkit-1.2.4.tar.gz"
+python3 -I - "$archive" <<'PY'
+import io, sys, tarfile
+with tarfile.open(sys.argv[1], 'w:gz') as archive:
+    for i in range(100001):
+        entry = tarfile.TarInfo('leedevkit-1.2.4/entry-%d' % i)
+        archive.addfile(entry, io.BytesIO())
+PY
+sha256sum "$archive" > "$archive.sha256"
+run_install 1.2.4 > "$WORK/entry-output" 2>&1 && fail 'archive with too many entries accepted'
+grep -q 'archive exceeds entry limit' "$WORK/entry-output" || fail 'excessive entries were not rejected by entry limit'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on excessive entries'
+
+make_release 1.2.4
+python3 -I - "$INSTALLER" "$WORK" <<'PY'
+import http.server, os, pathlib, subprocess, sys, threading
+installer, work = sys.argv[1], pathlib.Path(sys.argv[2])
+archive = (work / 'releases/download/v1.2.4/leedevkit-1.2.4.tar.gz').read_bytes()
+checksum = (work / 'releases/download/v1.2.4/leedevkit-1.2.4.tar.gz.sha256').read_bytes()
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = checksum + b' ' * 2048 if self.path.endswith('.sha256') else archive
+        self.send_response(200)
+        self.send_header('Transfer-Encoding', 'chunked')
+        self.end_headers()
+        try:
+            for start in range(0, len(body), 128):
+                chunk = body[start:start + 128]
+                self.wfile.write(('%x\r\n' % len(chunk)).encode() + chunk + b'\r\n')
+            self.wfile.write(b'0\r\n\r\n')
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+    def log_message(self, *_):
+        pass
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+thread = threading.Thread(target=server.serve_forever, daemon=True)
+thread.start()
+try:
+    env = dict(os.environ, DEVKIT_HOME=str(work / 'home/.leedevkit'),
+               LEEDEVKIT_RELEASE_BASE_URL='http://127.0.0.1:%d' % server.server_port)
+    result = subprocess.run(['bash', installer, '1.2.4'], env=env, capture_output=True, timeout=30)
+    assert result.returncode != 0, 'oversized chunked checksum accepted'
+    assert b'checksum' in result.stderr, result.stderr
+    assert (work / 'home/.leedevkit/current/keep').read_text() == 'preserve-me\n'
+finally:
+    server.shutdown()
+    server.server_close()
+    thread.join()
+PY
+
+run_install '../escape' && fail 'invalid version accepted'
+
+make_release 1.2.4 traversal
+run_install 1.2.4 && fail 'archive traversal accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on traversal failure'
+
+make_release 1.2.4 link
+run_install 1.2.4 && fail 'archive symlink accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on link failure'
+
+make_release 1.2.4 fifo
+run_install 1.2.4 && fail 'archive FIFO accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on FIFO failure'
+
+make_release 1.2.4 invalid-launcher
+run_install 1.2.4 && fail 'invalid staged launcher accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'existing install changed on launcher failure'
+
+make_release 1.2.4
+mkdir -p "$WORK/fake-bin"
+real_mv="$(command -v mv)"
+printf '#!/bin/bash\nif [[ "$1" == -Tf ]]; then exit 1; fi\nexec %q "$@"\n' "$real_mv" > "$WORK/fake-bin/mv"
+chmod +x "$WORK/fake-bin/mv"
+PATH="$WORK/fake-bin:$PATH" run_install 1.2.4 && fail 'activation failure accepted'
+grep -qx preserve-me "$WORK/home/.leedevkit/current/keep" || fail 'activation failure damaged active release'
+[[ ! -e "$WORK/home/.leedevkit/v1.2.4" ]] || fail 'failed activation left new release'
+[[ ! -e "$WORK/home/.leedevkit/.install.lock" ]] || fail 'failed activation left lock'
+
+printf 'install tests passed\n'

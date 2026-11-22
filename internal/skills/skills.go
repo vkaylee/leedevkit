@@ -31,9 +31,6 @@ func (m *Manager) Run(args []string) error {
 	if m.Root == "" {
 		return errors.New("skills root required")
 	}
-	if err := os.MkdirAll(filepath.Join(m.Root, ".leedevkit", "skills.d"), 0o755); err != nil {
-		return err
-	}
 	switch args[0] {
 	case "list":
 		return nil
@@ -81,7 +78,14 @@ func (m *Manager) cloneAndActivate(entry Entry) error {
 	if !safeName(entry.Name) || !safeURL(entry.URL) {
 		return errors.New("invalid skill entry")
 	}
-	base := filepath.Join(m.Root, ".leedevkit", "skills.d")
+	legacy := filepath.Join(m.Root, ".leedevkit", "skills.d", entry.Name)
+	if exists(legacy) {
+		return fmt.Errorf("skill %q conflicts with legacy skill at %s; resolve manually", entry.Name, legacy)
+	}
+	base := filepath.Join(m.Root, ".agent", "skills.d")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
 	target := filepath.Join(base, entry.Name)
 	if exists(target) {
 		return fmt.Errorf("skill %q already exists", entry.Name)
@@ -109,29 +113,40 @@ func (m *Manager) remove(name string) error {
 	if name == "" || strings.ContainsAny(name, `/\\`) || name == "." || name == ".." {
 		return errors.New("invalid skill name")
 	}
-	target := filepath.Join(m.Root, ".leedevkit", "skills.d", name)
-	if !exists(target) {
-		return fmt.Errorf("skill %q not found", name)
+	legacy := filepath.Join(m.Root, ".leedevkit", "skills.d", name)
+	for _, base := range []string{filepath.Join(m.Root, ".agent", "skills.d")} {
+		target := filepath.Join(base, name)
+		if !exists(target) {
+			continue
+		}
+		if exists(legacy) {
+			return fmt.Errorf("skill %q conflicts with legacy skill; resolve manually", name)
+		}
+		backup := filepath.Join(filepath.Dir(target), "."+name+".remove-backup")
+		if err := os.Rename(target, backup); err != nil {
+			return err
+		}
+		if err := m.writeLock(name); err != nil {
+			_ = os.Rename(backup, target)
+			return err
+		}
+		return os.RemoveAll(backup)
 	}
-	backup := filepath.Join(filepath.Dir(target), "."+name+".remove-backup")
-	if err := os.Rename(target, backup); err != nil {
-		return err
-	}
-	if err := m.writeLock(); err != nil {
-		_ = os.Rename(backup, target)
-		return err
-	}
-	return os.RemoveAll(backup)
+	return fmt.Errorf("skill %q not found", name)
 }
 
 func (m *Manager) update() error {
-	base := filepath.Join(m.Root, ".leedevkit", "skills.d")
+	base := filepath.Join(m.Root, ".agent", "skills.d")
 	entries, err := os.ReadDir(base)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
+	legacyBase := filepath.Join(m.Root, ".leedevkit", "skills.d")
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") || !entry.IsDir() || !exists(filepath.Join(base, entry.Name(), ".git")) {
+		if strings.HasPrefix(entry.Name(), ".") || !entry.IsDir() || !exists(filepath.Join(base, entry.Name(), ".git")) || exists(filepath.Join(legacyBase, entry.Name())) {
 			continue
 		}
 		if err := runGit(filepath.Join(base, entry.Name()), "pull", "--ff-only"); err != nil {
@@ -141,15 +156,26 @@ func (m *Manager) update() error {
 	return m.writeLock()
 }
 
-func (m *Manager) writeLock() error {
-	base := filepath.Join(m.Root, ".leedevkit", "skills.d")
+func (m *Manager) writeLock(removed ...string) error {
+	base := filepath.Join(m.Root, ".agent", "skills.d")
+	lockPath := filepath.Join(m.Root, "leedevkit.lock")
 	lock := map[string]string{}
+	if data, err := os.ReadFile(lockPath); err == nil {
+		if err := json.Unmarshal(data, &lock); err != nil {
+			return fmt.Errorf("read skill lock: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	for _, name := range removed {
+		delete(lock, name)
+	}
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") || !entry.IsDir() || !exists(filepath.Join(base, entry.Name(), ".git")) {
+		if strings.HasPrefix(entry.Name(), ".") || !entry.IsDir() || !exists(filepath.Join(base, entry.Name(), ".git")) || exists(filepath.Join(m.Root, ".leedevkit", "skills.d", entry.Name())) {
 			continue
 		}
 		output, err := gitOutput(filepath.Join(base, entry.Name()), "rev-parse", "HEAD")

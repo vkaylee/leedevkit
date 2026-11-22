@@ -58,6 +58,16 @@ func TestRunVersionAliases(t *testing.T) {
 	}
 }
 
+func TestRunUpdateRejectsExtraArguments(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"update", "v1.2.3", "unexpected"}, strings.NewReader(""), &stdout, &stderr); code != 2 {
+		t.Fatalf("update exit code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "usage: leedevkit update [version]") {
+		t.Fatalf("missing update usage: %q", stderr.String())
+	}
+}
+
 func TestRunVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	version = "0.10.0-test"
@@ -161,6 +171,23 @@ func TestConfiguredGoServiceNamePrefersCanonicalGoServiceDeterministically(t *te
 	}
 }
 
+func TestRuntimeAssetRootUsesExecutableLocation(t *testing.T) {
+	root := t.TempDir()
+	asset := filepath.Join(root, "container", "go", "docker-compose.test.yml")
+	if err := os.MkdirAll(filepath.Dir(asset), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(asset, []byte("services: {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := assetRootFromExecutable(filepath.Join(root, "bin", "leedevkit")); err != nil || got != root {
+		t.Fatalf("asset root = %q, want %q; err=%v", got, root, err)
+	}
+	if _, err := assetRootFromExecutable(filepath.Join(t.TempDir(), "bin", "leedevkit")); err == nil {
+		t.Fatal("missing global asset root accepted")
+	}
+}
+
 func TestBuildTestLifecyclePlanMatchesProjectComposeContract(t *testing.T) {
 	root := t.TempDir()
 	composeFile := filepath.Join(root, ".compose", "docker-compose.test.yml")
@@ -173,8 +200,8 @@ func TestBuildTestLifecyclePlanMatchesProjectComposeContract(t *testing.T) {
 	projectConfig := config.Project{
 		Services: map[string]config.Service{
 			"apiserver": {Language: "go", Name: "apiserver"},
-			"go":       {Language: "go", Name: "go"},
-			"api":      {Language: "go", Name: "api"},
+			"go":        {Language: "go", Name: "go"},
+			"api":       {Language: "go", Name: "api"},
 		},
 		Dependencies: map[string][]string{"int-api": {"apiserver"}},
 	}

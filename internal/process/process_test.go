@@ -14,7 +14,7 @@ func TestRunForwardsSeparateStreamsAndExitCode(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	result := Run(context.Background(), Request{
 		Args:   []string{os.Args[0], "-test.run=TestProcessHelper", "--", "output"},
-		Env:    []string{"GO_WANT_PROCESS_HELPER=1"},
+		Env:    []string{"GO_WANT_PROCESS_HELPER=1", "GOCOVERDIR=" + t.TempDir()},
 		Stdout: &stdout,
 		Stderr: &stderr,
 	})

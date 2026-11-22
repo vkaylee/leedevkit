@@ -14,30 +14,54 @@ import (
 	"github.com/vkaylee/leedevkit/internal/process"
 )
 
+func globalDoctorAssetRoot() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locate leedevkit executable: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve leedevkit executable: %w", err)
+	}
+	absolute, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve leedevkit executable path: %w", err)
+	}
+	return filepath.Dir(filepath.Dir(absolute)), nil
+}
+
 func repairDoctorRules(root string) error {
-	runtimeRules := filepath.Join(root, ".leedevkit", ".agent", "rules")
+	assetRoot, err := globalDoctorAssetRoot()
+	if err != nil {
+		return err
+	}
+	return repairDoctorRulesFromAssets(root, assetRoot)
+}
+
+func repairDoctorRulesFromAssets(root, assetRoot string) error {
+	globalRules := filepath.Join(assetRoot, ".agent", "rules")
 	projectRules := filepath.Join(root, ".agent", "rules")
 	if info, err := os.Lstat(projectRules); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("refusing to modify symlinked rules directory: %s", projectRules)
 	}
-	if info, err := os.Stat(runtimeRules); err != nil || !info.IsDir() {
+	if info, err := os.Stat(globalRules); err != nil || !info.IsDir() {
 		if err != nil {
-			return fmt.Errorf("runtime rules unavailable: %w", err)
+			return fmt.Errorf("global rules unavailable: %w", err)
 		}
-		return fmt.Errorf("runtime rules path is not a directory: %s", runtimeRules)
+		return fmt.Errorf("global rules path is not a directory: %s", globalRules)
 	}
 	if err := os.MkdirAll(projectRules, 0o755); err != nil {
 		return fmt.Errorf("create project rules directory: %w", err)
 	}
-	entries, err := os.ReadDir(runtimeRules)
+	entries, err := os.ReadDir(globalRules)
 	if err != nil {
-		return fmt.Errorf("read runtime rules directory: %w", err)
+		return fmt.Errorf("read global rules directory: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
 			continue
 		}
-		source := filepath.Join(runtimeRules, entry.Name())
+		source := filepath.Join(globalRules, entry.Name())
 		target := filepath.Join(projectRules, entry.Name())
 		if _, err := os.Lstat(target); err == nil {
 			continue
@@ -46,7 +70,7 @@ func repairDoctorRules(root string) error {
 		}
 		data, err := os.ReadFile(source)
 		if err != nil {
-			return fmt.Errorf("read runtime rule %s: %w", entry.Name(), err)
+			return fmt.Errorf("read global rule %s: %w", entry.Name(), err)
 		}
 		if err := os.WriteFile(target, data, 0o644); err != nil {
 			return fmt.Errorf("write project rule %s: %w", entry.Name(), err)
@@ -56,6 +80,15 @@ func repairDoctorRules(root string) error {
 }
 
 func runDoctor(root string, stdout, stderr io.Writer) int {
+	assetRoot, err := globalDoctorAssetRoot()
+	if err != nil {
+		fmt.Fprintf(stderr, "warning: global DevKit assets unavailable: %v\n", err)
+		return runDoctorWithAssets(root, "", stdout, stderr)
+	}
+	return runDoctorWithAssets(root, assetRoot, stdout, stderr)
+}
+
+func runDoctorWithAssets(root, assetRoot string, stdout, stderr io.Writer) int {
 	failed := false
 	fmt.Fprintln(stderr, "LeeDevKit System Doctor")
 
@@ -85,19 +118,29 @@ func runDoctor(root string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, ".agent: real directory, %d rulebooks\n", count)
 	}
 
-	runtime := filepath.Join(root, ".leedevkit")
-	if info, err := os.Stat(runtime); err != nil {
-		fmt.Fprintf(stderr, "warning: DevKit runtime unavailable: %v\n", err)
+	if assetRoot == "" {
+		fmt.Fprintln(stderr, "warning: global DevKit assets unavailable")
 		failed = true
 	} else {
 		version := "?"
-		if data, err := os.ReadFile(filepath.Join(runtime, "VERSION")); err == nil {
+		if data, err := os.ReadFile(filepath.Join(assetRoot, "VERSION")); err == nil {
 			version = strings.TrimSpace(string(data))
 		}
-		fmt.Fprintf(stderr, "DevKit: %s (v%s)\n", runtime, version)
-		if info.IsDir() {
-			fmt.Fprintln(stderr, "DevKit runtime: available")
+		fmt.Fprintf(stderr, "Global DevKit: %s (v%s)\n", assetRoot, version)
+		if info, err := os.Stat(assetRoot); err != nil || !info.IsDir() {
+			fmt.Fprintln(stderr, "warning: global DevKit assets unavailable")
+			failed = true
+		} else if info, err := os.Stat(filepath.Join(assetRoot, ".agent", "rules")); err != nil || !info.IsDir() {
+			fmt.Fprintln(stderr, "warning: global DevKit rules unavailable")
+			failed = true
+		} else {
+			fmt.Fprintln(stderr, "Global DevKit assets: available")
 		}
+	}
+
+	legacyLauncher := filepath.Join(root, "leedevkit")
+	if _, err := os.Lstat(legacyLauncher); err == nil {
+		fmt.Fprintf(stderr, "warning: legacy project launcher detected and left unchanged: %s\n", legacyLauncher)
 	}
 
 	for _, name := range []string{"docker", "podman", "podman-compose", "kiri"} {

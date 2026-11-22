@@ -23,7 +23,12 @@ jobs:
 
       - name: Check shell syntax
         run: |
-          bash -n install.sh bootstrap.sh bin/leedevkit leedevkit </dev/null
+          for script in install.sh bootstrap.sh bin/leedevkit leedevkit tests/install-test.sh; do
+            bash -n "$script" </dev/null
+          done
+
+      - name: Test global installer
+        run: bash tests/install-test.sh </dev/null
 
       - name: Smoke test agent skill utilities
         run: |

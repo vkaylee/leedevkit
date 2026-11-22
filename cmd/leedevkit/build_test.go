@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/vkaylee/leedevkit/internal/config"
@@ -51,6 +54,115 @@ func TestBuildFlowForServiceBuildsFromConfiguredInputs(t *testing.T) {
 	}
 	if len(calls) != 3 || calls[0] != "build" || calls[1] != "verify:docker:test-image" || calls[2] != "publish:"+fingerprint {
 		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestGlobalComposeAssetsConfigFromUnrelatedCWDWithSpacedProjectRoot(t *testing.T) {
+	compose, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("docker CLI unavailable")
+	}
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(sourceFile), "../.."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := t.TempDir()
+	projectRoot := filepath.Join(fixture, "project root")
+	cwd := filepath.Join(fixture, "unrelated cwd")
+	for _, path := range []string{projectRoot, cwd} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, asset := range []string{"go", "rust"} {
+		composeFile := filepath.Join("container", asset, "docker-compose.test.yml")
+		command := exec.Command(compose, "compose", "--profile", asset, "-f", filepath.Join(repoRoot, composeFile), "config", "--format", "json")
+		command.Dir = cwd
+		command.Env = append(os.Environ(), "LEEDEVKIT_PROJECT_ROOT="+projectRoot)
+		output, err := command.Output()
+		if err != nil {
+			t.Fatalf("docker compose config for %s: %v", asset, err)
+		}
+		if !strings.Contains(string(output), filepath.Join(repoRoot, "container", asset)) || !strings.Contains(string(output), projectRoot) {
+			t.Fatalf("resolved config for %s missing asset context or project mount: %s", asset, output)
+		}
+	}
+}
+
+func TestCustomComposeWithGlobalAssetSuffixKeepsProjectContext(t *testing.T) {
+	root := t.TempDir()
+	compose := filepath.Join(root, "custom", "container", "go", "docker-compose.test.yml")
+	if err := os.MkdirAll(filepath.Dir(compose), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		compose:                           "services: {}",
+		filepath.Join(root, "Dockerfile"): "FROM scratch",
+		filepath.Join(root, "custom", "Dockerfile"): "FROM scratch",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := config.Service{Image: "image", Dockerfile: "Dockerfile", ComposeFile: compose}
+	_, before, err := buildFlowForService(root, "project", lifecycle.Plan{}, service, lifecycle.BuildRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "custom", "project-input.txt"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, after, err := buildFlowForService(root, "project", lifecycle.Plan{}, service, lifecycle.BuildRunner{})
+	if err != nil || before == after {
+		t.Fatalf("custom Compose context was not fingerprinted: %v", err)
+	}
+}
+
+func TestGlobalComposeAssetsFingerprintOnlySelectedBuildContext(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join("container", "go", "docker-compose.test.yml"),
+		filepath.Join(".leedevkit", "container", "rust", "docker-compose.test.yml"),
+	} {
+		root := t.TempDir()
+		assetDir := filepath.Join(root, filepath.Dir(path))
+		if err := os.MkdirAll(assetDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range map[string]string{
+			"docker-compose.test.yml": "services: {}",
+			"Dockerfile":              "FROM scratch",
+		} {
+			if err := os.WriteFile(filepath.Join(assetDir, name), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		composePath, err := filepath.Abs(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		service := config.Service{Image: "image", Dockerfile: ".leedevkit/container/rust/Dockerfile", ComposeFile: composePath}
+		_, before, err := buildFlowForService(root, "project", lifecycle.Plan{}, service, lifecycle.BuildRunner{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("project source"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, unchanged, err := buildFlowForService(root, "project", lifecycle.Plan{}, service, lifecycle.BuildRunner{})
+		if err != nil || before != unchanged {
+			t.Fatalf("unrelated project source changed fingerprint for %s: %v", path, err)
+		}
+		if err := os.WriteFile(filepath.Join(assetDir, "Dockerfile"), []byte("FROM scratch\n# changed"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, changed, err := buildFlowForService(root, "project", lifecycle.Plan{}, service, lifecycle.BuildRunner{})
+		if err != nil || before == changed {
+			t.Fatalf("asset Dockerfile did not change fingerprint for %s: %v", path, err)
+		}
 	}
 }
 

@@ -1,112 +1,48 @@
 # leedevkit
 
-Enterprise DevKit for AI-first projects — unified CLI, test orchestrator, AI agent context, skill catalog, and integrity verification.
+Enterprise DevKit for AI-first projects — one global CLI for testing, AI agent context, skills, and project setup.
 
-Global CLI plus per-project runtime: `leedevkit` is installed globally, while each project keeps pinned runtime state in `.leedevkit/` (like `node_modules/`).
+> **Migration in progress:** Global-only support is incomplete and must not be released yet. Release acceptance, update rollback and migration paths require further verification.
+
+LeeDevKit is migrating to one globally installed `leedevkit` CLI. The new `leedevkit init` configures project context without installing a project-local runtime.
 
 ## Install
 
-### Bootstrap (one-time, installs the `leedevkit` command)
-
-Two ways to get started — pick one:
-
-### Option A: bootstrap.sh (project runtime)
-
-```bash
-cd my-project && git init
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
-```
-
-Downloads pinned runtime into `.leedevkit/` inside project. Install global `leedevkit` separately with `install.sh`.
-
-### Option B: install.sh + init (recommended)
+Install the global CLI, then initialize a project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
-cd my-project && git init
-leedevkit init                      # ← uses global binary for this step only
+cd my-project && leedevkit init
 ```
 
-Installs native `leedevkit` to `~/.leedevkit/current/bin`, then `init` downloads pinned runtime into `.leedevkit/`.
+The installer places the CLI under `${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin`. Ensure that directory is on `PATH` before running `leedevkit`. Run `leedevkit update` to install the latest global release, or `leedevkit update vX.Y.Z` for a specific release. Updates preserve the previous release and do not modify project configuration. Release checksums detect corruption but do not authenticate the publisher.
 
-### After install
+`leedevkit init` sets up project configuration and AI context. Keep existing local files and custom content; review any proposed changes before accepting them. Initialization does not install a project-local CLI or runtime.
 
-`init` or `bootstrap` creates this structure:
+Commit `leedevkit.toml` and `leedevkit.lock` when they belong to the project. `leedevkit.lock` records skill pins.
 
-- `.leedevkit/` — pinned per-project Go runtime
-- `.agent/rules/` — project's AI rulebooks (copied from devkit base)
-- `leedevkit` — global executable
-
-`.leedevkit/` and bootstrap lock files are gitignored. Commit `leedevkit`, `leedevkit.toml`, and `leedevkit.lock`.
+`bootstrap.sh` is a legacy setup path. New setups use the global installer and `leedevkit init`.
 
 ## Quick Start
 
 ```bash
-# Recommended: bootstrap.sh (no global, per-project only)
-cd my-project && git init
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
-
-# Focused commands provide fast feedback; select completion checks by affected risk.
-./leedevkit test go --lint-only   # focused Go lint
-./leedevkit test go --unit-only   # focused Go unit tests
-./leedevkit test all              # all configured targets/phases
-./leedevkit test all --json         # stable final JSON report
-./leedevkit test all --json-stream --quiet  # JSONL events for AI agents; logs stay in .test_logs/
-# Human mode streams parallel task output as [task-name] lines and tees it to .test_logs/.
-# --quiet suppresses live task output but keeps complete task logs for failure diagnosis.
-# ./leedevkit init auto-detects Cargo.toml and scaffolds the right config.
-./leedevkit test all                # Rust targets use configured Rust verification
-
-# Development environment
-
-## Debug MCP
-
-LeeDevKit provides optional generic, read-only Debug MCP over stdio. It requires explicit validated environment configuration; it never infers Compose projects or attaches to every host network.
-
-Configure a versioned `[debug]` manifest in `leedevkit.toml` (see `templates/leedevkit.default.toml`), then launch:
-
-```bash
-./leedevkit debug mcp --environment <environment>
+curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/install.sh | bash
+cd my-project
+leedevkit init
+leedevkit test all
 ```
 
-Configure an MCP client with placeholders only:
+Use the global `leedevkit` command from project directories. Do not rely on a project-local `./leedevkit` runtime.
 
-```json
-{
-  "mcpServers": {
-    "project-debug": {
-      "command": "leedevkit",
-      "args": ["debug", "mcp", "--environment", "<environment>"]
-    }
-  }
-}
-```
+### Skills
 
-Tools: `debug_environment`, `service_health`, `http_get`, `recent_logs`, `database_schema`, and approved `database_query` templates. Resources: `debug://runbook`, `debug://safety`, `debug://environment`, `debug://capabilities`, `debug://evidence`. Prompt: `debug_incident`.
+Built-in skills come from the global installation. Project community skills live under `.agent/skills.d/`; `leedevkit.lock` records their Git revisions. `leedevkit skills list` also reports legacy `.leedevkit/skills.d/` entries, which are not moved or deleted automatically.
 
-Debug MCP rejects shell execution, writes, migrations, arbitrary URLs/networks, host filesystem/socket access, credentials, cookies/tokens, unapproved paths, cross-environment access, and production selection. Responses and diagnostics are bounded and redacted. Existing task-assessor MCP remains unchanged.
-./leedevkit dev up                   # start dev environment
-./leedevkit dev down                 # stop dev environment
-./leedevkit doctor                   # health check: config, installed runtimes, selected runtime, containers
+## Configuration
 
-# Explicit container-provider selection
-./leedevkit --container-provider docker dev up
-CONTAINER_PROVIDER=kiri ./leedevkit test all
+`leedevkit init` configures project context without installing a project-local runtime. Preserve local data and review changes before accepting them. Details of files managed by initialization depend on project configuration; do not remove existing project files to initialize.
 
-# Skills catalog
-./leedevkit skills list             # browse built-in + community catalog
-./leedevkit skills install <name>   # install community skill by name
-./leedevkit skills add <git-url>    # install external skill
-./leedevkit skills update           # pull latest for all installed skills
-
-# Version
-./leedevkit version                 # show devkit version
-```
-
-### Why `leedevkit` instead of `./leedevkit`?
-`leedevkit` is one global native executable. `leedevkit.toml` pins project runtime version; `.leedevkit/` stores that runtime locally and stays gitignored.
-
-Existing projects may keep their old `./leedevkit` wrapper during migration. New projects do not create one.
+Commit `leedevkit.toml` and the skills lock file `leedevkit.lock` as appropriate for the project.
 
 Installer updates existing `$HOME/.bashrc` (preferred) or `$HOME/.zshrc` with the actual `${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin` path. It does not create startup files or change the parent shell running the installer. Source the updated file, or export the path in the current shell:
 
@@ -118,49 +54,18 @@ If installer found no supported startup file, run that export manually or add it
 
 ## Migrating existing projects
 
-If your project was initialized with the old global install (has `.agent/skills`, `.agent/workflows`, etc. as symlinks to `~/.leedevkit/`):
-
-```bash
-cd my-project
-rm -rf .agent                      # Remove legacy symlinks + stale content
-leedevkit init                      # Re-init clean from per-project install
-```
-
-Running `leedevkit init` will also warn you if legacy symlinks are detected.
+Existing projects may contain legacy wrappers, generated context, or local runtime files. Keep those files and any local data. Do not delete project files as a migration step. Use the global `leedevkit` command and review initialization changes before accepting them.
 
 ## Project Structure
 
-```
-my-project/
-├── leedevkit.toml            # project config (commit this)
-├── leedevkit.lock            # skill version pins (commit this)
-├── .leedevkit/               # gitignored — devkit engine (downloaded on init)
-│   ├── cmd/                  # Go command entrypoints
-│   ├── internal/             # Go runtime packages
-│   ├── templates/            # default config templates
-│   ├── bin/leedevkit         # CLI entry point
-│   ├── .agent/               # base rules, agents, built-in skills catalog
-│   ├── bin/go/               # platform Go runtime binaries
-│   ├── skills.d/             # cloned community skills (like node_modules)
-│   ├── VERSION
-│   └── dev-state.json        # { version, source }
-├── .agent/                   # project AI context (real directory, not symlinks)
-│   ├── rules/                # rulebooks (copied from devkit + project custom)
-│   ├── overrides.yaml        # which devkit rules to replace/extend/add
-│   └── agents/, workflows/   # project-specific (optional)
-├── .claude/                  # Claude Code discovery paths (active when claude harness enabled)
-│   ├── agents/                # symlinks to .leedevkit/.agent/agents/
-│   ├── skills/                # symlinks to .leedevkit/.agent/skills/
-│   └── settings.local.json    # optional machine-local permissions (do not commit)
-├── AGENTS.md                 # root instructions for Codex, Copilot, Aider, Cline
-├── GEMINI.md                 # root instructions for Gemini CLI
-├── .cursor/rules/            # Cursor project rules (leedevkit.mdc)
-└── leedevkit                   # committed self-bootstrapping CLI launcher
-```
+Project contents vary by configuration. Common project-owned files include:
 
-`.claude/settings.local.json` is for local Claude Code permissions and may contain
-machine-specific paths. Keep it untracked; shared project settings belong in
-`.claude/settings.json` when needed.
+- `leedevkit.toml` — project configuration
+- `leedevkit.lock` — skill pins
+- `.agent/` — project AI context, where configured
+- `.claude/`, `.cursor/`, or other harness context — where configured
+
+The global CLI is installed separately from project files. `init` does not install a project-local runtime.
 
 ## Container providers
 
@@ -197,8 +102,6 @@ exist before runtime commands can use a non-default provider.
 ## leedevkit.toml
 
 ```toml
-[devkit]
-version = "0.1.0"              # pinned devkit version
 
 [project]
 name = "MyProject"
@@ -251,27 +154,69 @@ skills = [
 ]
 ```
 
-### Claude Code model routing
+## Testing
 
-LeeDevKit automatically wires a fail-open `PreToolUse` hook into `.claude/settings.json` and registers the `assess_task` MCP tool in `.mcp.json`. Enable active subagent model routing by setting `ai.model_routing.enabled = true` in `leedevkit.toml`. When disabled (`enabled = false`, the default), the hook is dormant and exits immediately without modifying tool inputs. Explicit `model` values always win.
+```bash
+leedevkit test go --lint-only   # focused Go lint
+leedevkit test go --unit-only   # focused Go unit tests
+leedevkit test all              # all configured targets/phases
+leedevkit test all --json        # stable final JSON report
+leedevkit test all --json-stream --quiet  # JSONL events; logs stay in .test_logs/
+```
 
-The default routing tiers are `haiku` for lookups, `sonnet` for routine implementation, `opus` for debugging or security work, and `fable` for ambiguous cross-system design.
+Human mode streams parallel task output as `[task-name]` lines and tees it to `.test_logs/`. `--quiet` suppresses live task output but keeps complete task logs for failure diagnosis.
+
+## Debug MCP
+
+LeeDevKit provides optional generic, read-only Debug MCP over stdio. It requires explicit validated environment configuration; it never infers Compose projects or attaches to every host network.
+
+Configure a versioned `[debug]` manifest in `leedevkit.toml` (see `templates/leedevkit.default.toml`), then launch:
+
+```bash
+leedevkit debug mcp --environment <environment>
+```
+
+Configure an MCP client with placeholders only:
+
+```json
+{
+  "mcpServers": {
+    "project-debug": {
+      "command": "leedevkit",
+      "args": ["debug", "mcp", "--environment", "<environment>"]
+    }
+  }
+}
+```
+
+Tools: `debug_environment`, `service_health`, `http_get`, `recent_logs`, `database_schema`, and approved `database_query` templates. Resources: `debug://runbook`, `debug://safety`, `debug://environment`, `debug://capabilities`, `debug://evidence`. Prompt: `debug_incident`.
+
+Debug MCP rejects shell execution, writes, migrations, arbitrary URLs/networks, host filesystem/socket access, credentials, cookies/tokens, unapproved paths, cross-environment access, and production selection. Responses and diagnostics are bounded and redacted. Existing task-assessor MCP remains unchanged.
+
+```bash
+leedevkit dev up
+leedevkit dev down
+leedevkit doctor
+leedevkit --container-provider docker dev up
+CONTAINER_PROVIDER=kiri leedevkit test all
+```
+
+See `leedevkit skills --help` for supported skill operations.
 
 ## Go-Only Project
 
 For Go modules, `leedevkit init` detects `go.mod` and scaffolds Go config automatically.
 
 ```bash
-cd my-go-project && git init
-touch go.mod
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
-./leedevkit test go                 # gofmt + go vet + go test
-./leedevkit test go --coverage      # Go coverage report
-./leedevkit run go test ./...       # Run Go command in container
+cd my-go-project
+leedevkit init
+leedevkit test go                 # gofmt + go vet + go test
+leedevkit test go --coverage      # Go coverage report
+leedevkit run go test ./...       # Run Go command in container
 ```
 
 Generated config uses built-in `container/go/` image. Override toolchain with `GO_VERSION=1.24` or `[services.go] go_version = "1.24"`.
-Use `./leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase runs only configured integration gates.
+Use `leedevkit test go --lint-only --fix` to rewrite formatting. Go package tests run in unit phase; integration phase runs only configured integration gates.
 
 ### Go quality gates
 
@@ -344,33 +289,18 @@ For Rust libraries, CLI tools, or any crate that doesn't need a web frontend or 
 No Dockerfile or docker-compose.yml setup required — the devkit provides defaults.
 
 ```bash
-cd my-rust-crate && git init
-curl -fsSL https://raw.githubusercontent.com/vkaylee/leedevkit/main/bootstrap.sh | bash
-
-# init auto-detects Cargo.toml → scaffolds leedevkit.rust.toml
-./leedevkit test all   # cargo fmt → clippy → nextest → llvm-cov
+cd my-rust-crate
+leedevkit init                 # detects Cargo.toml and scaffolds Rust config
+leedevkit test all             # cargo fmt → clippy → nextest → llvm-cov
 ```
 
-### How it works
+### Project files
 
-```
-my-rust-crate/
-├── Cargo.toml
-├── src/
-├── leedevkit.toml              ← auto-generated (rust template)
-├── leedevkit                   ← wrapper script
-├── .leedevkit/
-│   │   └── container/rust/     ← language-specific Dockerfile + compose (zero setup)
-├── .agent/rules/               ← AI context (copied from devkit)
-└── .compose/                   ← (optional) create to override the default image
-```
+`leedevkit init` configures the project for Rust using the global CLI. It does not install a project-local CLI or runtime. Preserve existing project files and local data while reviewing initialization changes.
 
 ### leedevkit.toml (Rust-only)
 
 ```toml
-[devkit]
-version = "latest"
-
 [project]
 name = "MyRustCrate"
 namespace = "myrustcrate"
@@ -397,9 +327,9 @@ To add system dependencies (e.g., `libpq-dev` for diesel):
 mkdir -p .compose
 ```
 
-The devkit resolves compose files in priority order:
+The devkit resolves Compose files in priority order:
 1. `.compose/docker-compose.test.yml` (your override, if present)
-2. `.leedevkit/container/<lang>/docker-compose.test.yml` (devkit default, auto-discovered)
+2. Matching built-in language default, when available. Consult CLI help for current behavior.
 
 See `container/README.md` for full architecture details.
 
@@ -445,25 +375,7 @@ The context cleanup reduced the base template from 92 lines / 5,448 bytes to 37 
 
 ## Skills
 
-### Built-in Skills (38 top-level packages, 49 skill files)
-Shipped with devkit inside `.leedevkit/.agent/skills/`. During `init` and `update`,
-LeeDevKit recursively discovers skills and syncs them across active harness adapters.
-Pi and OMP consume the standard `SKILL.md` layout directly; Claude receives
-additional symlink projections for plugin compatibility.
-User-owned files in destination directories are never overwritten or removed.
-
-### Community Catalog
-Installable via `leedevkit skills install <name>`. Cloned into `.leedevkit/skills.d/` per-project. Catalog at `.agent/skills-catalog.toml`.
-
-```bash
-./leedevkit skills list              # show built-in + catalog + installed
-./leedevkit skills install <name>    # install from catalog by name
-./leedevkit skills add <git-url>     # install external (not in catalog)
-./leedevkit skills update            # git pull all installed skills
-./leedevkit skills remove <name>     # remove
-```
-
-Skill-owned utilities under `.agent/skills/**/scripts/` remain payloads for AI agents. They run in the project environment documented by each skill and are separate from Go control-plane commands.
+`leedevkit.lock` records skill pins. Use `leedevkit skills --help` for available commands. Skill storage locations and update behavior depend on implementation details not specified here.
 
 ## LeeDevKit development project
 

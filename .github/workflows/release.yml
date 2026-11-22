@@ -93,6 +93,7 @@ jobs:
           test -f ".ci-artifacts/release-notes.md"
           artifact=".ci-artifacts/release-dist/leedevkit-${RELEASE_TAG#v}.tar.gz"
           test -f "$artifact"
+          test -f "$artifact.sha256"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub Release already exists: $RELEASE_TAG" >&2
             exit 1
@@ -103,6 +104,7 @@ jobs:
             --title "LeeDevKit $RELEASE_TAG" \
             --notes-file .ci-artifacts/release-notes.md \
             "$artifact" \
+            "$artifact.sha256" \
             .ci-artifacts/release-artifact.sha256 \
             .ci-artifacts/release-sbom.cdx.json \
             .ci-artifacts/release-sbom.cdx.json.sha256
@@ -111,4 +113,4 @@ jobs:
         run: |
           set -euo pipefail
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets \
-            --jq '.isDraft == false and .isPrerelease == false and ([.assets[].name] | index("leedevkit-" + (env.RELEASE_TAG | ltrimstr("v")) + ".tar.gz")) != null'
+            --jq '.isDraft == false and .isPrerelease == false and ([.assets[].name] | index("leedevkit-" + (env.RELEASE_TAG | ltrimstr("v")) + ".tar.gz")) != null and ([.assets[].name] | index("leedevkit-" + (env.RELEASE_TAG | ltrimstr("v")) + ".tar.gz.sha256")) != null'

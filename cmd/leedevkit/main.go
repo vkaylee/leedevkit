@@ -296,18 +296,51 @@ func configuredServiceName(project config.Project, language string) string {
 	return language
 }
 
-func testComposeFiles(root string) []string {
-	for _, relative := range []string{
-		filepath.Join(".compose", "docker-compose.test.yml"),
-		filepath.Join(".leedevkit", "container", "go", "docker-compose.test.yml"),
-		filepath.Join("container", "go", "docker-compose.test.yml"),
-	} {
-		path := filepath.Join(root, relative)
-		if fileExists(path) {
-			return []string{path}
+func runtimeAssetRoot() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executable for global assets: %w", err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve executable path for global assets: %w", err)
+	}
+	return assetRootFromExecutable(executable)
+}
+
+func assetRootFromExecutable(executable string) (string, error) {
+	binaryDir := filepath.Dir(executable)
+	if filepath.Base(binaryDir) == "go" {
+		binaryDir = filepath.Dir(binaryDir)
+	}
+	root := filepath.Dir(binaryDir)
+	asset := filepath.Join(root, "container", "go", "docker-compose.test.yml")
+	if !fileExists(asset) {
+		return "", fmt.Errorf("global Compose asset not found beside executable: %s", asset)
+	}
+	return root, nil
+}
+
+func testComposeFiles(projectRoot string) ([]string, error) {
+	custom := filepath.Join(projectRoot, ".compose", "docker-compose.test.yml")
+	if fileExists(custom) {
+		return []string{custom}, nil
+	}
+	assetRoot, err := runtimeAssetRoot()
+	if err != nil {
+		return nil, err
+	}
+	return []string{filepath.Join(assetRoot, "container", "go", "docker-compose.test.yml")}, nil
+}
+
+func withProjectRoot(env []string, root string) []string {
+	result := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_ROOT=") {
+			result = append(result, entry)
 		}
 	}
-	return nil
+	return append(result, "LEEDEVKIT_PROJECT_ROOT="+root)
 }
 
 func testDependencies(project config.Project, target string) []string {
@@ -321,9 +354,9 @@ func testDependencies(project config.Project, target string) []string {
 
 func buildTestLifecyclePlan(root, project, target string, providerConfig provider.Provider, projectConfig config.Project, skipBuild bool) (lifecycle.Plan, string, error) {
 	service := configuredServiceName(projectConfig, "go")
-	files := testComposeFiles(root)
-	if len(files) == 0 {
-		return lifecycle.Plan{}, "", fmt.Errorf("test Compose file not found")
+	files, err := testComposeFiles(root)
+	if err != nil {
+		return lifecycle.Plan{}, "", err
 	}
 	return lifecycle.Plan{
 		Provider:     providerConfig,
@@ -335,6 +368,10 @@ func buildTestLifecyclePlan(root, project, target string, providerConfig provide
 		SkipBuild:    skipBuild,
 		OwnsProject:  true,
 	}, service, nil
+}
+
+func isInfraTarget(project config.Project, target string) bool {
+	return target == "infra" || (target == "all" && len(project.Targets["all"]) == 1 && project.Targets["all"][0] == "infra")
 }
 
 func shouldUseGoTest(project config.Project, target string) bool {
@@ -692,7 +729,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 		configuredPlan := testplan.RequestFromConfig(args[1], projectConfig)
-		if len(configuredPlan.Services) == 0 && args[1] != "all" {
+		if len(configuredPlan.Services) == 0 && args[1] != "all" && !isInfraTarget(projectConfig, args[1]) {
 			fmt.Fprintf(stderr, "test target %q has no configured services\n", args[1])
 			return 2
 		}
@@ -730,6 +767,28 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				flags.JSONStream = true
 			}
 		}
+		if isInfraTarget(projectConfig, flags.Target) {
+			if err := validateInfraProject(projectRootOrCWD()); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			if err := validateInfraFlags(args[2:]); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
+			result := runInfra(projectRootOrCWD(), flags, process.Run, stdout)
+			if !flags.JSONStream {
+				summary := result.Summary(args[1], "go-cli")
+				if result.Status == "partial" {
+					summary.NextAction = "Restore or replace the removed infrastructure formatting, linting and coverage gates."
+				}
+				if err := json.NewEncoder(stdout).Encode(summary); err != nil {
+					fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
+					return 2
+				}
+			}
+			return result.ExitCode
+		}
 		if !shouldUseGoTest(projectConfig, flags.Target) {
 			fmt.Fprintf(stderr, "Go test path does not support target %q\n", flags.Target)
 			return 2
@@ -755,7 +814,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v\n", lifecyclePlanErr)
 				return 2
 			}
-			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: projectRootOrCWD(), Env: os.Environ(), Execute: process.Run}
+			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Execute: process.Run}
 			if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 				workdir := "/workspace"
 				if service.Workdir != "" {
@@ -778,11 +837,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v\n", upErr, downErr)
 				return 2
 			}
-			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: os.Environ()}
+			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD())}
 			readinessArgs := append(append([]string(nil), composeTool...), "-p", project, "ps", "--status", "running")
 			lifecycleExecutor := lifecycle.Executor{
 				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
-					return lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: os.Environ(), Stdout: stdout, Stderr: stderr}.Execute(ctx, args)
+					return lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Stdout: stdout, Stderr: stderr}.Execute(ctx, args)
 				}, Readiness: func(ctx context.Context) error {
 					return readiness.Wait(ctx, readinessArgs, []string{compose.Service}, 120*time.Second)
 				}, ReadinessArgs: readinessArgs, Report: func(phase string, args []string, err error) {
@@ -818,10 +877,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "doctor":
 		if len(args) > 1 && args[1] == "--fix" {
 			root := projectRootOrCWD()
-			if err := runtimepkg.InitProject(root, os.Getenv("DEVKIT_LOCAL_PATH"), false); err != nil {
-				fmt.Fprintf(stderr, "doctor runtime repair failed: %v\n", err)
-				return 2
-			}
 			if err := repairDoctorRules(root); err != nil {
 				fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
 				return 2
@@ -1059,15 +1114,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Project initialized.")
 		return 0
 	case "update":
+		if len(args) > 2 {
+			fmt.Fprintln(stderr, "usage: leedevkit update [version]")
+			return 2
+		}
 		target := ""
-		if len(args) > 1 {
+		if len(args) == 2 {
 			target = args[1]
 		}
 		if err := runtimepkg.UpdateProject(projectRootOrCWD(), target, os.Getenv("DEVKIT_LOCAL_PATH")); err != nil {
 			fmt.Fprintf(stderr, "update failed: %v\n", err)
 			return 2
 		}
-		fmt.Fprintln(stderr, "DevKit updated.")
+		fmt.Fprintln(stderr, "Global DevKit updated.")
 		return 0
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])

@@ -10,8 +10,8 @@ import (
 
 func TestRunSkillsListShowsDirectoriesOnly(t *testing.T) {
 	root := t.TempDir()
-	builtin := filepath.Join(root, ".leedevkit", ".agent", "skills")
-	community := filepath.Join(root, ".leedevkit", "skills.d")
+	builtin := filepath.Join(root, "global", ".agent", "skills")
+	community := filepath.Join(root, ".agent", "skills.d")
 	for _, path := range []string{
 		filepath.Join(builtin, "testing", "SKILL.md"),
 		filepath.Join(community, "demo", "SKILL.md"),
@@ -28,7 +28,7 @@ func TestRunSkillsListShowsDirectoriesOnly(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	if code := runSkillsList(root, &bytes.Buffer{}, &stderr); code != 0 {
+	if code := runSkillsListWithBuiltinRoot(root, builtin, &stderr); code != 0 {
 		t.Fatalf("skills list exit code = %d", code)
 	}
 	output := stderr.String()
@@ -39,6 +39,55 @@ func TestRunSkillsListShowsDirectoriesOnly(t *testing.T) {
 	}
 	if strings.Contains(output, "README.md") {
 		t.Fatalf("regular file listed as skill: %q", output)
+	}
+}
+
+func TestGlobalSkillsRootUsesExecutableLocation(t *testing.T) {
+	executable := filepath.Join("", "opt", "leedevkit", "current", "bin", "leedevkit")
+	if got, want := globalSkillsRootFromExecutable(executable), filepath.Join("", "opt", "leedevkit", "current", ".agent", "skills"); got != want {
+		t.Fatalf("globalSkillsRootFromExecutable() = %q, want %q", got, want)
+	}
+}
+
+func TestRunSkillsListShowsLegacySkillsWithoutChangingThem(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".leedevkit", "skills.d", "demo")
+	community := filepath.Join(root, ".agent", "skills.d", "demo")
+	for path, body := range map[string]string{
+		filepath.Join(legacy, "SKILL.md"):    "legacy",
+		filepath.Join(community, "SKILL.md"): "project",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotTree(t, root)
+	var stderr bytes.Buffer
+	if code := runSkillsListWithBuiltinRoot(root, "", &stderr); code != 0 {
+		t.Fatalf("skills list exit code = %d", code)
+	}
+	for _, want := range []string{"Legacy community (not migrated):", "demo", "remain in .leedevkit/skills.d"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("legacy output missing %q: %q", want, stderr.String())
+		}
+	}
+	if after := snapshotTree(t, root); strings.Join(before, "\n") != strings.Join(after, "\n") {
+		t.Fatalf("skills list mutated project: before=%v after=%v", before, after)
+	}
+}
+
+func TestRunSkillsListLegacyOnlyDoesNotReportEmpty(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".leedevkit", "skills.d", "demo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	runSkillsListWithBuiltinRoot(root, "", &stderr)
+	if strings.Contains(stderr.String(), "No community skills") {
+		t.Fatalf("legacy skill reported as absent: %s", stderr.String())
 	}
 }
 
@@ -57,9 +106,9 @@ func TestRunSkillsListIsReadOnlyAndHandlesMissingRoots(t *testing.T) {
 	}
 }
 
-func TestRunSkillsListCommandUsesGoPath(t *testing.T) {
+func TestRunSkillsListCommandUsesProjectOwnedCommunityPath(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".leedevkit", ".agent", "skills", "testing"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".agent", "skills.d", "testing"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	old, err := os.Getwd()

@@ -3,6 +3,8 @@ package runtime
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ const (
 	defaultReleaseBase = "https://github.com/vkaylee/leedevkit/releases"
 	defaultReleaseAPI  = "https://api.github.com/repos/vkaylee/leedevkit/releases"
 	maxReleaseBytes    = 512 << 20
+	maxReleaseEntries  = 100000
 )
 
 type Release struct {
@@ -34,79 +37,240 @@ func (r Release) Close() {
 
 func InitProject(root, localSource string, force bool) error {
 	root = filepath.Clean(root)
-	configPath := filepath.Join(root, "leedevkit.toml")
-	configured, err := configuredVersion(configPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	source := localSource
+	if source == "" {
+		var err error
+		source, err = releaseRootFromExecutable()
+		if err != nil {
+			return err
+		}
 	}
-	if configured == "" {
-		configured = "latest"
+	if !filepath.IsAbs(source) {
+		source = filepath.Join(root, source)
 	}
+	return Init(root, source, force)
+}
 
-	release, err := acquireRelease(root, localSource, configured)
+func releaseRootFromExecutable() (string, error) {
+	executable, err := os.Executable()
 	if err != nil {
-		return err
+		return "", fmt.Errorf("resolve executable: %w", err)
 	}
-	defer release.Close()
-	return Init(root, release.Root, force)
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve executable symlink: %w", err)
+	}
+	for candidate := filepath.Dir(executable); ; candidate = filepath.Dir(candidate) {
+		if exists(filepath.Join(candidate, "VERSION")) && directoryExists(filepath.Join(candidate, ".agent", "rules")) {
+			return candidate, nil
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			break
+		}
+	}
+	return "", errors.New("cannot locate global devkit assets from executable")
+}
+
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func UpdateProject(root, target, localSource string) error {
 	root = filepath.Clean(root)
-	configPath := filepath.Join(root, "leedevkit.toml")
-	configured, err := configuredVersion(configPath)
-	if err != nil {
-		return err
-	}
 	if target == "" {
 		target = "latest"
 	}
-	release, err := acquireRelease(root, localSource, target)
+	release, err := acquireRelease(root, localSource, target, true)
 	if err != nil {
 		return err
 	}
 	defer release.Close()
-	version, err := readVersion(filepath.Join(release.Root, "VERSION"))
+	return updateGlobal(release.Root)
+}
+
+func globalHome() string {
+	if home := os.Getenv("DEVKIT_HOME"); home != "" {
+		return filepath.Clean(home)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".leedevkit")
+	}
+	return filepath.Join(home, ".leedevkit")
+}
+
+func globalCurrentDir() string {
+	return filepath.Join(globalHome(), "current")
+}
+
+func copyExecutable(source, target string) error {
+	input, err := os.Open(source)
 	if err != nil {
 		return err
 	}
-	current, err := readVersion(filepath.Join(root, ".leedevkit", "VERSION"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
 		return err
 	}
-	if current == version && configured == version {
-		return nil
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("source is not executable regular file: %s", source)
+	}
+	output, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(output, input); err != nil {
+		_ = output.Close()
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		_ = output.Close()
+		return err
+	}
+	return output.Close()
+}
+
+func validReleaseVersion(version string) bool {
+	if version == "" || version == "." || version == ".." || strings.ContainsAny(version, `/\\`) {
+		return false
+	}
+	for _, character := range version {
+		if !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') && !(character >= '0' && character <= '9') && character != '.' && character != '-' && character != '+' {
+			return false
+		}
+	}
+	return true
+}
+
+func updateGlobal(source string) error {
+	home := globalHome()
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	lockPath := filepath.Join(home, ".install.lock")
+	if err := os.Mkdir(lockPath, 0o700); errors.Is(err, os.ErrExist) {
+		return errors.New("global install or update already in progress")
+	} else if err != nil {
+		return fmt.Errorf("lock global update: %w", err)
+	}
+	defer os.Remove(lockPath)
+	if _, err := os.Lstat(filepath.Join(source, "devkit.manifest.json")); err != nil {
+		return fmt.Errorf("release integrity manifest required: %w", err)
+	}
+	result, err := VerifyManifest(source)
+	if err != nil {
+		return fmt.Errorf("verify release integrity: %w", err)
+	}
+	if !result.Clean() {
+		return fmt.Errorf("release integrity check failed: modified=%v missing=%v extra=%v invalid=%v", result.Modified, result.Missing, result.Extra, result.Invalid)
+	}
+	version, err := readVersion(filepath.Join(source, "VERSION"))
+	if err != nil {
+		return err
+	}
+	if !validReleaseVersion(version) {
+		return fmt.Errorf("invalid release version %q", version)
 	}
 	binaryName, err := nativeBinaryName()
 	if err != nil {
 		return err
 	}
-	binarySource := filepath.Join(release.Root, "bin", "go", binaryName)
-	binaryInfo, err := os.Stat(binarySource)
+	binary := filepath.Join(source, "bin", "go", binaryName)
+	if info, err := os.Stat(binary); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("release missing executable native binary: %s", binary)
+	}
+	launcher := filepath.Join(source, "bin", "leedevkit")
+	if info, err := os.Stat(launcher); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("release missing launcher: %s", launcher)
+	}
+	current := filepath.Join(home, "current")
+	oldTarget, err := os.Lstat(current)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect global current: %w", err)
+	}
+	var previousVersion string
+	if err == nil {
+		if oldTarget.Mode()&os.ModeSymlink == 0 {
+			return errors.New("global current is not a symlink; refusing update")
+		}
+		resolvedCurrent, resolveErr := filepath.EvalSymlinks(current)
+		if resolveErr != nil {
+			return fmt.Errorf("resolve global current: %w", resolveErr)
+		}
+		resolvedHome, resolveErr := filepath.EvalSymlinks(home)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		relative, relErr := filepath.Rel(resolvedHome, resolvedCurrent)
+		if relErr != nil || filepath.IsAbs(relative) || filepath.Dir(relative) != "." || !validReleaseVersion(relative) {
+			return errors.New("global current points outside managed releases; refusing update")
+		}
+		previousVersion = relative
+		if previousVersion == "v"+version {
+			return nil
+		}
+	}
+	stage, err := os.MkdirTemp(home, ".update-*")
 	if err != nil {
-		return fmt.Errorf("release missing native executable: %w", err)
+		return err
 	}
-	configData, err := os.ReadFile(configPath)
+	defer os.RemoveAll(stage)
+	staged := filepath.Join(stage, "release")
+	if err := copyPayload(source, staged); err != nil {
+		return err
+	}
+	stagedResult, err := VerifyManifest(staged)
+	if err != nil || !stagedResult.Clean() {
+		return fmt.Errorf("staged release integrity check failed: result=%+v err=%v", stagedResult, err)
+	}
+	if err := copyExecutable(filepath.Join(staged, "bin", "go", binaryName), filepath.Join(staged, "bin", "leedevkit")); err != nil {
+		return fmt.Errorf("prepare global launcher: %w", err)
+	}
+	versionDir := filepath.Join(home, "v"+version)
+	createdVersionDir := false
+	if exists(versionDir) {
+		return fmt.Errorf("refusing to replace existing global release: %s", versionDir)
+	} else if err := os.Rename(staged, versionDir); err != nil {
+		return fmt.Errorf("stage global release: %w", err)
+	} else {
+		createdVersionDir = true
+	}
+	cleanupVersion := func() {
+		if createdVersionDir {
+			_ = os.RemoveAll(versionDir)
+		}
+	}
+	newLink, err := os.CreateTemp(home, ".current-update-*")
 	if err != nil {
+		cleanupVersion()
 		return err
 	}
-	updatedConfig := updateConfigVersionData(configData, version)
-	if updatedConfig == nil {
-		return fmt.Errorf("project config has no [devkit].version")
-	}
-	if err := replaceRuntime(filepath.Join(root, ".leedevkit"), release.Root, []string{"skills.d", ".venv"}); err != nil {
+	newLinkPath := newLink.Name()
+	if err := newLink.Close(); err != nil {
+		_ = os.Remove(newLinkPath)
+		cleanupVersion()
 		return err
 	}
-	if err := updateProjectLauncher(root, binarySource, binaryInfo.Mode()); err != nil {
+	if err := os.Remove(newLinkPath); err != nil {
+		cleanupVersion()
 		return err
 	}
-	if err := writeAtomic(configPath, updatedConfig, 0o644); err != nil {
+	if err := os.Symlink("v"+version, newLinkPath); err != nil {
+		cleanupVersion()
 		return err
+	}
+	if err := os.Rename(newLinkPath, current); err != nil {
+		_ = os.Remove(newLinkPath)
+		cleanupVersion()
+		return fmt.Errorf("activate global release: %w", err)
 	}
 	return nil
 }
 
-func acquireRelease(root, localSource, version string) (Release, error) {
+func acquireRelease(root, localSource, version string, globalOnly bool) (Release, error) {
 	if localSource != "" {
 		path := filepath.Clean(localSource)
 		if !filepath.IsAbs(path) {
@@ -117,8 +281,10 @@ func acquireRelease(root, localSource, version string) (Release, error) {
 		}
 		return Release{Root: path}, nil
 	}
-	if _, err := os.Stat(filepath.Join(root, "VERSION")); err == nil {
-		return Release{Root: root}, nil
+	if !globalOnly {
+		if _, err := os.Stat(filepath.Join(root, "VERSION")); err == nil {
+			return Release{Root: root}, nil
+		}
 	}
 	return Download(version)
 }
@@ -132,8 +298,8 @@ func Download(version string) (Release, error) {
 		}
 	}
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
-	if version == "" {
-		return Release{}, errors.New("release version is empty")
+	if !validReleaseVersion(version) || version == "latest" {
+		return Release{}, fmt.Errorf("invalid release version %q", version)
 	}
 	base := strings.TrimRight(os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"), "/")
 	if base == "" {
@@ -154,6 +320,27 @@ func Download(version string) (Release, error) {
 	if response.StatusCode != http.StatusOK {
 		return Release{}, fmt.Errorf("download release: HTTP %s", response.Status)
 	}
+	checksumRequest, err := http.NewRequest(http.MethodGet, url+".sha256", nil)
+	if err != nil {
+		return Release{}, err
+	}
+	checksumRequest.Header.Set("User-Agent", "leedevkit-go")
+	checksumResponse, err := client.Do(checksumRequest)
+	if err != nil {
+		return Release{}, fmt.Errorf("download release checksum: %w", err)
+	}
+	checksumData, checksumErr := io.ReadAll(io.LimitReader(checksumResponse.Body, 1025))
+	checksumCloseErr := checksumResponse.Body.Close()
+	if checksumErr != nil || checksumCloseErr != nil || checksumResponse.StatusCode != http.StatusOK {
+		return Release{}, errors.New("download release checksum failed")
+	}
+	expectedChecksum := strings.Fields(string(checksumData))
+	if len(checksumData) > 1024 || len(expectedChecksum) != 2 || len(expectedChecksum[0]) != sha256.Size*2 {
+		return Release{}, errors.New("release checksum format invalid")
+	}
+	if _, err := hex.DecodeString(expectedChecksum[0]); err != nil {
+		return Release{}, errors.New("release checksum format invalid")
+	}
 	stage, err := os.MkdirTemp("", "leedevkit-release-")
 	if err != nil {
 		return Release{}, err
@@ -165,7 +352,8 @@ func Download(version string) (Release, error) {
 		cleanup()
 		return Release{}, err
 	}
-	_, copyErr := io.Copy(archive, io.LimitReader(response.Body, maxReleaseBytes+1))
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(archive, hash), io.LimitReader(response.Body, maxReleaseBytes+1))
 	closeErr := archive.Close()
 	if copyErr != nil || closeErr != nil {
 		cleanup()
@@ -174,6 +362,10 @@ func Download(version string) (Release, error) {
 	if info, statErr := os.Stat(archivePath); statErr != nil || info.Size() > maxReleaseBytes {
 		cleanup()
 		return Release{}, errors.New("release archive exceeds maximum size")
+	}
+	if !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), expectedChecksum[0]) {
+		cleanup()
+		return Release{}, errors.New("release archive checksum mismatch")
 	}
 	extractRoot := filepath.Join(stage, "extracted")
 	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
@@ -258,6 +450,7 @@ func extractArchive(archivePath, stage string) (string, error) {
 		size int64
 	}
 	members := []member{}
+	var totalExpanded int64
 	for {
 		header, readErr := tarball.Next()
 		if errors.Is(readErr, io.EOF) {
@@ -273,10 +466,18 @@ func extractArchive(archivePath, stage string) (string, error) {
 		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeDir {
 			return "", fmt.Errorf("unsupported release member: %s", header.Name)
 		}
+		if header.Size < 0 || header.Size > maxReleaseBytes || totalExpanded+header.Size > maxReleaseBytes || len(members) >= maxReleaseEntries {
+			return "", errors.New("release archive exceeds extraction limits")
+		}
+		totalExpanded += header.Size
 		members = append(members, member{header.Name, header.Mode, header.Typeflag, header.Size})
 	}
-	input.Seek(0, io.SeekStart)
-	compressed.Close()
+	if err := compressed.Close(); err != nil {
+		return "", err
+	}
+	if _, err := input.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
 	compressed, err = gzip.NewReader(input)
 	if err != nil {
 		return "", err
@@ -341,146 +542,6 @@ func nativeBinaryName() (string, error) {
 		suffix = ".exe"
 	}
 	return fmt.Sprintf("leedevkit-go-%s-%s%s", osName, architecture, suffix), nil
-}
-
-func updateProjectLauncher(root, binary string, mode os.FileMode) error {
-	launcher := filepath.Join(root, "leedevkit")
-	stage, err := os.CreateTemp(root, ".leedevkit-launcher-*")
-	if err != nil {
-		return err
-	}
-	stagePath := stage.Name()
-	defer os.Remove(stagePath)
-	input, err := os.Open(binary)
-	if err != nil {
-		_ = stage.Close()
-		return err
-	}
-	_, copyErr := io.Copy(stage, input)
-	closeInputErr := input.Close()
-	closeStageErr := stage.Close()
-	if err := firstError(copyErr, closeInputErr, closeStageErr); err != nil {
-		return err
-	}
-	permissions := mode.Perm() | 0o111
-	if err := os.Chmod(stagePath, permissions); err != nil {
-		return err
-	}
-	backup := launcher + ".update-backup"
-	if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Rename(launcher, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Rename(stagePath, launcher); err != nil {
-		_ = os.Rename(backup, launcher)
-		return err
-	}
-	if err := os.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func replaceRuntime(target, source string, preserve []string) error {
-	parent := filepath.Dir(target)
-	stage, err := os.MkdirTemp(parent, ".leedevkit-update-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(stage)
-	staged := filepath.Join(stage, "runtime")
-	if err := copyPayload(source, staged); err != nil {
-		return err
-	}
-	backup := filepath.Join(stage, "previous")
-	if exists(target) && !exists(backup) {
-		if err := os.Rename(target, backup); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(staged, target); err != nil {
-		if exists(backup) {
-			_ = os.Rename(backup, target)
-		}
-		return err
-	}
-	for _, name := range preserve {
-		old, next := filepath.Join(backup, name), filepath.Join(target, name)
-		if exists(old) {
-			_ = os.RemoveAll(next)
-			if err := os.Rename(old, next); err != nil {
-				_ = os.RemoveAll(target)
-				_ = os.Rename(backup, target)
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func updateConfigVersion(path, version string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	updated := updateConfigVersionData(data, version)
-	if updated == nil {
-		return fmt.Errorf("project config has no [devkit].version")
-	}
-	return writeAtomic(path, updated, 0o644)
-}
-
-func updateConfigVersionData(data []byte, version string) []byte {
-	lines := strings.Split(string(data), "\n")
-	inDevkit := false
-	for index, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inDevkit = trimmed == "[devkit]"
-			continue
-		}
-		if inDevkit && strings.HasPrefix(trimmed, "version") {
-			prefix, _, found := strings.Cut(line, "=")
-			if found {
-				lines[index] = prefix + "= \"" + version + "\""
-				return []byte(strings.Join(lines, "\n"))
-			}
-		}
-	}
-	return nil
-}
-
-func writeAtomic(path string, contents []byte, mode os.FileMode) (result error) {
-	directory := filepath.Dir(path)
-	file, err := os.CreateTemp(directory, ".leedevkit-update-*")
-	if err != nil {
-		return err
-	}
-	staged := file.Name()
-	defer func() {
-		_ = os.Remove(staged)
-	}()
-	if err := file.Chmod(mode); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if _, err := file.Write(contents); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(staged, path); err != nil {
-		return err
-	}
-	return nil
 }
 
 func releaseTimeout() time.Duration {

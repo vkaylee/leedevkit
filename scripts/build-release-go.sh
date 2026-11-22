@@ -50,13 +50,14 @@ for target in "${TARGETS[@]}"; do
     "${COMPOSE[@]}" run --rm --build -e GOPROXY=off -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-debug-build build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-debug ./cmd/debug-mcp
     cp "$ROOT/.leedevkit-go-build/leedevkit-debug" "$OUT/.debug-mcp/$dname"
     chmod +x "$OUT/.debug-mcp/$dname"
+    rm -rf "$ROOT/.leedevkit-go-build"
 done
 cp -a "$OUT/.go-core/." "$CANONICAL/bin/go/"
 cp -a "$OUT/.debug-mcp/." "$CANONICAL/bin/debug-mcp/"
-docker run --rm -e GOPROXY=off -v "$ROOT":/source:ro -v "$CANONICAL":/workspace -v "$LEEDEVKIT_GO_MODULE_CACHE:/go/pkg/mod" -w /source golang:1.26.11-bookworm go run ./cmd/release-manifest --root /workspace
 cat > "$CANONICAL/sbom.cdx.json" <<EOF
 {"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[{"type":"library","name":"github.com/pelletier/go-toml/v2","version":"v2.2.2","purl":"pkg:golang/github.com/pelletier/go-toml/v2@v2.2.2"}]}
 EOF
+docker run --rm -e GOPROXY=off -v "$ROOT":/source:ro -v "$CANONICAL":/workspace -v "$LEEDEVKIT_GO_MODULE_CACHE:/go/pkg/mod" -w /source golang:1.26.11-bookworm go run ./cmd/release-manifest --root /workspace
 cp "$CANONICAL/sbom.cdx.json" "$OUT/release-sbom.cdx.json"
 rm -f "$OUT/leedevkit-$VERSION.tar.gz"
 tar -czf "$OUT/leedevkit-$VERSION.tar.gz" -C "$STAGE" "leedevkit-$VERSION"

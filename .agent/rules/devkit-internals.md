@@ -4,7 +4,7 @@
 
 ## Project Identity
 
-Changes here ship to downstream projects through release artifacts installed into each project's `.leedevkit/`. Init/update synchronize project wrappers, rulebooks, and harness discovery paths. `install.sh` retains a legacy global installation path; it is not the source checkout layout.
+Changes here ship through release artifacts installed globally under `${DEVKIT_HOME:-$HOME/.leedevkit}`. `init` creates project configuration and copies missing rules without installing a project-local runtime. `update` changes the global release, not project data. Legacy project-local runtimes and skills must not be deleted automatically.
 
 ## Stack
 
@@ -47,10 +47,10 @@ scripts/build-release-go.sh /tmp/dist
 ```
 
 What the gate proves:
-1. Artifact is built from the staged allowlist and embeds a fresh `devkit.manifest.json`
-2. Extracted `bin/leedevkit version|help` works offline without creating `.venv`
-3. `bootstrap.sh` can install from a local release mirror (`LEEDEVKIT_RELEASE_BASE_URL`)
-4. Failed bootstrap does not destroy an existing `.leedevkit`
+1. Artifact is built from the staged allowlist and embeds a fresh `devkit.manifest.json`, SBOM, and checksum sidecar.
+2. The installed CLI runs offline without creating a project-local runtime or `.venv`.
+3. `install.sh` installs from a local release mirror (`LEEDEVKIT_RELEASE_BASE_URL`); `leedevkit update` installs a verified release.
+4. Failed install or update preserves the active global release and existing project data; rollback to a previous release is verified.
 
 Notes:
 - Manifest is a **build output**, not a hand-edited source file.

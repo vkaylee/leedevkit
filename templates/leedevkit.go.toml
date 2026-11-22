@@ -1,10 +1,5 @@
 # LeeDevKit Go project profile
 
-[devkit]
-version = "latest"
-install = "per-project"
-source = "release"
-
 [project]
 name = "MyGoProject"
 namespace = "mygoproject"

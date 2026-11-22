@@ -4,9 +4,8 @@
 # Default compose file for Rust-only projects (library crates, CLI tools, etc.).
 # Provides a single service with the Rust toolchain, no database dependencies.
 #
-# Path resolution (relative to this file at .leedevkit/container/rust/):
-#   context: ../../..  → project root
-#   dockerfile: .leedevkit/container/rust/Dockerfile
+# Build context and Dockerfile stay beside this asset; project source mounts
+# from the absolute path supplied by the launcher.
 #
 # For multi-service projects, create your own at .compose/docker-compose.test.yml
 # (takes priority over this default).
@@ -14,13 +13,15 @@
 
 services:
   rust:
+    x-leedevkit-build-inputs:
+      - Dockerfile
     build:
-      context: ../../..
-      dockerfile: .leedevkit/container/rust/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         RUST_VERSION: ${RUST_VERSION:-1.85}
     volumes:
-      - ../../..:/workspace
+      - ${LEEDEVKIT_PROJECT_ROOT:?LEEDEVKIT_PROJECT_ROOT must be set}:/workspace
       - cargo-registry:/usr/local/cargo/registry
       - cargo-target:/workspace/target
     working_dir: /workspace
