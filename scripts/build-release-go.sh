@@ -6,7 +6,8 @@ OUT="${1:-$ROOT/dist-go}"
 VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
 STAGE="$(mktemp -d)"
 PREFETCH_DIR="$(mktemp -d)"
-trap 'rm -rf "$STAGE" "$PREFETCH_DIR"' EXIT
+BUILD_CACHE="$(mktemp -d)"
+trap 'rm -rf "$STAGE" "$PREFETCH_DIR" "$BUILD_CACHE"' EXIT
 CANONICAL="$STAGE/leedevkit-$VERSION"
 mkdir -p "$CANONICAL"
 for item in templates bin .agent container cmd internal VERSION go.mod; do
@@ -16,7 +17,8 @@ mkdir -p "$OUT" "$OUT/.go-core" "$OUT/.debug-mcp"
 export LEEDEVKIT_PROJECT_ROOT="$ROOT"
 export LEEDEVKIT_GO_DOCKERFILE="$ROOT/container/go/Dockerfile"
 export LEEDEVKIT_GO_MODULE_CACHE="${LEEDEVKIT_GO_MODULE_CACHE:-$HOME/go/pkg/mod}"
-mkdir -p "$LEEDEVKIT_GO_MODULE_CACHE"
+export LEEDEVKIT_GO_BUILD_CACHE="${LEEDEVKIT_GO_BUILD_CACHE:-$BUILD_CACHE}"
+mkdir -p "$LEEDEVKIT_GO_MODULE_CACHE" "$LEEDEVKIT_GO_BUILD_CACHE"
 docker run --rm \
     -e "GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}" \
     -e GOMODCACHE=/go/pkg/mod \
@@ -31,11 +33,13 @@ for target in "${TARGETS[@]}"; do
     read -r goos goarch <<< "$target"
     name="leedevkit-go-$goos-$goarch"; [[ "$goos" == windows ]] && name+=".exe"
     rm -rf "$ROOT/.leedevkit-go-build"
+    mkdir -p "$ROOT/.leedevkit-go-build"
     "${COMPOSE[@]}" run --rm --build -e GOPROXY=off -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-go build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-go ./cmd/leedevkit
     cp "$ROOT/.leedevkit-go-build/leedevkit-go" "$OUT/.go-core/$name"
     chmod +x "$OUT/.go-core/$name"
     rm -rf "$ROOT/.leedevkit-go-build"
     dname="leedevkit-debug-$goos-$goarch"; [[ "$goos" == windows ]] && dname+=".exe"
+    mkdir -p "$ROOT/.leedevkit-go-build"
     "${COMPOSE[@]}" run --rm --build -e GOPROXY=off -e "GOOS=$goos" -e "GOARCH=$goarch" leedevkit-debug-build build -buildvcs=false -trimpath -ldflags "-X=main.version=$VERSION" -o /workspace/.leedevkit-go-build/leedevkit-debug ./cmd/debug-mcp
     cp "$ROOT/.leedevkit-go-build/leedevkit-debug" "$OUT/.debug-mcp/$dname"
     chmod +x "$OUT/.debug-mcp/$dname"
