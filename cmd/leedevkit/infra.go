@@ -29,10 +29,13 @@ func validateInfraFlags(args []string) error {
 	return nil
 }
 
-// ponytail: infra runs CI source-quality checks only; extend when CI adds a source gate.
+// ponytail: infra remains partial until legacy regression behavior has Go coverage; add parity tests before declaring full regression.
 func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer) testplan.RunResult {
 	checks := [][]string{
 		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "test", "./..."},
+		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
+		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "vet", "./..."},
+		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`},
 		{"bash", "-n", "install.sh"},
 		{"bash", "-n", "bootstrap.sh"},
 		{"bash", "-n", "bin/leedevkit"},
@@ -65,8 +68,7 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		}
 		return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(errors, "; "), Command: "source-quality checks"}
 	}), stream)
-	// The legacy infra formatting, linting and 80% coverage gates were removed
-	// with the Python control plane; CI source checks alone are not equivalent.
+	// Go checks do not yet establish parity with the removed Python regression suite.
 	if result.Status == "passed" {
 		result.Status = "partial"
 		result.FullRegression = false

@@ -44,6 +44,11 @@ jobs:
           bash -n scripts/test-skill-utilities.sh
           scripts/test-skill-utilities.sh
 
+      - name: Run configured full regression gate
+        run: |
+          docker run --rm -v "$PWD":/workspace:ro -v "$RUNNER_TEMP":/output -w /workspace golang:1.26.11-bookworm go build -o /output/leedevkit ./cmd/leedevkit
+          "$RUNNER_TEMP/leedevkit" test all --json </dev/null
+
       - name: Upload quality and supply-chain evidence
         if: always()
         uses: actions/upload-artifact@v4

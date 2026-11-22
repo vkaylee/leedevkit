@@ -8,24 +8,24 @@ import (
 )
 
 type Gate struct {
-	Name            string   `json:"name"`
-	Phase           string   `json:"phase"`
-	Command         []string `json:"command"`
-	Mode            string   `json:"mode"`
-	WorkingDir      string   `json:"working_dir"`
-	Service         string   `json:"service"`
-	Timeout         *float64 `json:"timeout"`
-	Required        bool     `json:"required"`
-	Condition       string   `json:"condition"`
-	FailurePolicy   string   `json:"failure_policy"`
-	Environment     []string `json:"environment"`
-	Requires        []string `json:"requires"`
-	ExpectedVersion *string  `json:"expected_version"`
-	VersionCommand  []string `json:"version_command"`
-	FixCommand      []string `json:"fix_command"`
-	NewFindingsFlag []string `json:"new_findings_flag"`
-	SetupCommand    []string `json:"setup_command"`
-	TeardownCommand []string `json:"teardown_command"`
+	Name            string   `json:"name" toml:"name"`
+	Phase           string   `json:"phase" toml:"phase"`
+	Command         []string `json:"command" toml:"command"`
+	Mode            string   `json:"mode" toml:"mode"`
+	WorkingDir      string   `json:"working_dir" toml:"working_dir"`
+	Service         string   `json:"service" toml:"service"`
+	Timeout         *float64 `json:"timeout" toml:"timeout"`
+	Required        bool     `json:"required" toml:"required"`
+	Condition       string   `json:"condition" toml:"condition"`
+	FailurePolicy   string   `json:"failure_policy" toml:"failure_policy"`
+	Environment     []string `json:"environment" toml:"environment"`
+	Requires        []string `json:"requires" toml:"requires"`
+	ExpectedVersion *string  `json:"expected_version" toml:"expected_version"`
+	VersionCommand  []string `json:"version_command" toml:"version_command"`
+	FixCommand      []string `json:"fix_command" toml:"fix_command"`
+	NewFindingsFlag []string `json:"new_findings_flag" toml:"new_findings_flag"`
+	SetupCommand    []string `json:"setup_command" toml:"setup_command"`
+	TeardownCommand []string `json:"teardown_command" toml:"teardown_command"`
 }
 
 var defaults = []Gate{

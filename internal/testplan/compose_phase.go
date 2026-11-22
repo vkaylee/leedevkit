@@ -41,7 +41,7 @@ func (e ComposePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) (
 		}
 		return fmt.Errorf("phase %s: %s", phase.Name, result.Diagnostic)
 	})
-	if err != nil && result.Status == "" {
+	if err != nil && (result.Status == "" || result.Status == "passed") {
 		command := e.Lifecycle.UpArgs
 		if failure, ok := err.(*lifecycle.Failure); ok {
 			command = failure.Args

@@ -328,7 +328,7 @@ func TestBuildGoCoverageCommandAddsPattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) == 0 || !strings.Contains(got[len(got)-1], "go test -run=auth.*") {
+	if len(got) < 2 || got[len(got)-1] != "-run=auth.*" || !strings.Contains(got[len(got)-3], `go test "$@"`) {
 		t.Fatalf("coverage pattern missing: %#v", got)
 	}
 }

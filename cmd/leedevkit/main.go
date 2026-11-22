@@ -216,11 +216,14 @@ func buildGoCoverageCommand(compose []string, service, pattern string, jsonOutpu
 		goTest += " -json"
 	}
 	if pattern != "" {
-		goTest += " -run=" + pattern
+		goTest += ` "$@"`
 	}
 	command := "mkdir -p /workspace/.test_logs && " + goTest + " -coverprofile=/workspace/.test_logs/coverage-go.out ./... && go tool cover -func=/workspace/.test_logs/coverage-go.out"
 	args := append([]string{}, compose...)
 	args = append(args, "exec", "-T", service, "-w", "/workspace", "sh", "-c", command)
+	if pattern != "" {
+		args = append(args, "coverage", "-run="+pattern)
+	}
 	return args, nil
 }
 
@@ -780,7 +783,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			if !flags.JSONStream {
 				summary := result.Summary(args[1], "go-cli")
 				if result.Status == "partial" {
-					summary.NextAction = "Restore or replace the removed infrastructure formatting, linting and coverage gates."
+					summary.NextAction = "Restore missing regression behavior and verify parity with the removed suite."
 				}
 				if err := json.NewEncoder(stdout).Encode(summary); err != nil {
 					fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
@@ -788,6 +791,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				}
 			}
 			return result.ExitCode
+		}
+		// ponytail: filtering custom gates is unsupported; implement verified pattern execution before accepting it.
+		if flags.Pattern != "" {
+			fmt.Fprintln(stderr, "--pattern is not supported by the Go test runner")
+			return 2
 		}
 		if !shouldUseGoTest(projectConfig, flags.Target) {
 			fmt.Fprintf(stderr, "Go test path does not support target %q\n", flags.Target)

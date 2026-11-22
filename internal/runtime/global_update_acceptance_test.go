@@ -61,6 +61,35 @@ func TestGlobalUpdateAcceptsVerifiedReleaseAndKeepsRunningRelease(t *testing.T) 
 	}
 }
 
+func TestGlobalUpdateRejectsUnmanagedCurrent(t *testing.T) {
+	for _, kind := range []string{"directory", "outside"} {
+		t.Run(kind, func(t *testing.T) {
+			home, source := t.TempDir(), t.TempDir()
+			t.Setenv("DEVKIT_HOME", home)
+			writeGlobalUpdateRelease(t, source, "2.0.0")
+			current := filepath.Join(home, "current")
+			if kind == "directory" {
+				if err := os.Mkdir(current, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Symlink(t.TempDir(), current); err != nil {
+				t.Fatal(err)
+			}
+			if err := updateGlobal(source); err == nil || !strings.Contains(err.Error(), "refusing update") {
+				t.Fatalf("updateGlobal() = %v, want refusal", err)
+			}
+			if info, err := os.Lstat(current); err != nil || (kind == "directory" && !info.IsDir()) || (kind == "outside" && info.Mode()&os.ModeSymlink == 0) {
+				t.Fatalf("current changed: %v, %v", info, err)
+			}
+			for _, name := range []string{"v2.0.0", ".install.lock"} {
+				if _, err := os.Lstat(filepath.Join(home, name)); !os.IsNotExist(err) {
+					t.Fatalf("%s remains after rejection: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
 func TestGlobalUpdateRejectsInvalidOrMissingChecksumWithoutReplacingCurrent(t *testing.T) {
 	for _, checksumMode := range []string{"incorrect", "missing"} {
 		t.Run(checksumMode, func(t *testing.T) {

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vkaylee/leedevkit/internal/config"
@@ -33,8 +37,22 @@ func TestInfraRunRequiresEveryCheckAndPropagatesFailure(t *testing.T) {
 	if result.Status != "failed" || result.ExitCode != 7 || result.FullRegression {
 		t.Fatalf("result = %#v", result)
 	}
-	if len(commands) != 9 {
-		t.Fatalf("ran %d checks, want 9", len(commands))
+	if len(commands) != 12 {
+		t.Fatalf("ran %d checks, want 12", len(commands))
+	}
+}
+
+func TestInfraIncludesGoQualityGates(t *testing.T) {
+	var commands []string
+	runInfra("/fixture", testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+		commands = append(commands, strings.Join(request.Args, " "))
+		return process.Result{}
+	}, nil)
+	joined := strings.Join(commands, "\n")
+	for _, check := range []string{"gofmt", "go vet", "go test -cover"} {
+		if !strings.Contains(joined, check) {
+			t.Errorf("missing %s gate", check)
+		}
 	}
 }
 
@@ -78,6 +96,19 @@ func TestInfraRunDoesNotClaimFullRegressionForCIChecks(t *testing.T) {
 	}, nil)
 	if result.Status != "partial" || result.FullRegression || result.ExitCode == 0 {
 		t.Fatalf("result = %#v; missing legacy gates must not be reported as full regression", result)
+	}
+}
+
+func TestGoTestRejectsUnsupportedPatternBeforeRunningAnything(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"test", "all", "--pattern", "TestMissing"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "--pattern") {
+		t.Fatalf("exit = %d, stderr = %q; want unsupported pattern error", code, stderr.String())
 	}
 }
 

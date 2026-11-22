@@ -27,15 +27,6 @@ func TestComposeRunnerBuildsExecArgv(t *testing.T) {
 	}
 }
 
-func hasArg(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
-}
-
 func TestComposeRunnerCapturesVersionOutput(t *testing.T) {
 	runner := ComposeRunner{
 		Compose: []string{"compose"}, Project: "test", Service: "go",
@@ -55,12 +46,13 @@ func TestComposeRunnerCapturesVersionOutput(t *testing.T) {
 
 func TestComposeRunnerAddsEnvironment(t *testing.T) {
 	var got []string
-	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Execute: func(_ context.Context, request process.Request) process.Result {
+	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Env: []string{"GOFLAGS=-race", "PRIVATE_VALUE=not-forwarded"}, Execute: func(_ context.Context, request process.Request) process.Result {
 		got = request.Args
 		return process.Result{}
 	}}
 	runner.Run(context.Background(), []string{"go", "vet", "./..."}, []string{"GOFLAGS"})
-	if !hasArg(got, "-e") || !hasArg(got, "GOFLAGS") {
-		t.Fatalf("argv = %#v", got)
+	want := []string{"compose", "-p", "test", "exec", "-T", "-e", "GOFLAGS", "go", "go", "vet", "./..."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv = %#v, want %#v", got, want)
 	}
 }

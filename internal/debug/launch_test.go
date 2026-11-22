@@ -2,6 +2,7 @@ package debug
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -186,6 +187,50 @@ func TestLaunchWithValidationInspectsEveryResolvedNetwork(t *testing.T) {
 	}
 	if !reflect.DeepEqual(inspected, []string{"fixture-project_backend", "shared_frontend"}) {
 		t.Fatalf("inspected = %#v", inspected)
+	}
+}
+
+func TestLaunchWithValidationReturnsComposeConfigErrorWithoutLaunching(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest}
+	runCalls := 0
+	outputCalls := 0
+	outputErr := errors.New("compose config failed")
+	err := LaunchWithValidation(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(context.Context, []string) error {
+		runCalls++
+		return nil
+	}, func(context.Context, []string) ([]byte, error) {
+		outputCalls++
+		return nil, outputErr
+	})
+	if !errors.Is(err, outputErr) || outputCalls != 1 || runCalls != 0 {
+		t.Fatalf("err = %v, output calls = %d, run calls = %d", err, outputCalls, runCalls)
+	}
+}
+
+func TestLaunchWithValidationReturnsCleanupVerificationError(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "leedevkit.toml")
+	if err := os.WriteFile(manifest, []byte("debug = {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := Environment{Name: "fixture", ComposeProject: "fixture-project", ProjectRoot: root, SourcePath: manifest, Networks: []string{"backend"}}
+	output := func(_ context.Context, args []string) ([]byte, error) {
+		if contains(args, "ps") {
+			return []byte("\nresidual-container\n"), nil
+		}
+		if contains(args, "config") {
+			return []byte(`{"services":{"api":{}},"networks":{"backend":{}}}`), nil
+		}
+		return []byte(`[{"Labels":{"com.docker.compose.project":"fixture-project"}}]`), nil
+	}
+	err := LaunchWithValidation(context.Background(), environment, []string{"compose"}, []string{"docker"}, func(context.Context, []string) error { return nil }, output)
+	if err == nil || !strings.Contains(err.Error(), "residual debug container after cleanup") {
+		t.Fatalf("err = %v, want residual cleanup verification error", err)
 	}
 }
 
