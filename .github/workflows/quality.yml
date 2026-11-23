@@ -46,7 +46,7 @@ jobs:
 
       - name: Run configured full regression gate
         run: |
-          docker run --rm -v "$PWD":/workspace:ro -v "$RUNNER_TEMP":/output -w /workspace golang:1.26.11-bookworm go build -o /output/leedevkit ./cmd/leedevkit
+          docker run --rm -v "$PWD":/workspace:ro -v "$RUNNER_TEMP":/output -w /workspace golang:1.26.11-bookworm go build -buildvcs=false -o /output/leedevkit ./cmd/leedevkit
           "$RUNNER_TEMP/leedevkit" test all --json </dev/null
 
       - name: Upload quality and supply-chain evidence
