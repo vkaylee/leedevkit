@@ -57,10 +57,27 @@ run_install() {
         bash "$INSTALLER" "$1"
 }
 
+project="$WORK/project"
+mkdir -p "$project/.leedevkit/skills.d/custom" "$project/.venv/bin"
+printf 'project config\n' > "$project/leedevkit.toml"
+printf 'skill lock\n' > "$project/leedevkit.lock"
+printf 'legacy runtime\n' > "$project/.leedevkit/marker"
+printf 'custom skill\n' > "$project/.leedevkit/skills.d/custom/SKILL.md"
+printf 'virtual environment\n' > "$project/.venv/marker"
+printf '%s\n' '#!/bin/sh' 'printf "legacy\\n"' > "$project/leedevkit"
+chmod +x "$project/leedevkit"
+
 make_release 1.2.3
 run_install 1.2.3 || fail 'valid local mirror install failed'
 [[ -L "$WORK/home/.leedevkit/current" ]] || fail 'current symlink missing'
 [[ -x "$WORK/home/.leedevkit/current/bin/leedevkit" ]] || fail 'installed launcher not executable'
+[[ "$(cat "$project/leedevkit.toml")" == 'project config' ]] || fail 'project config changed during global install'
+[[ "$(cat "$project/leedevkit.lock")" == 'skill lock' ]] || fail 'skill lock changed during global install'
+[[ "$(cat "$project/.leedevkit/marker")" == 'legacy runtime' ]] || fail 'legacy runtime changed during global install'
+[[ "$(cat "$project/.leedevkit/skills.d/custom/SKILL.md")" == 'custom skill' ]] || fail 'custom skill changed during global install'
+[[ "$(cat "$project/.venv/marker")" == 'virtual environment' ]] || fail 'project virtual environment changed during global install'
+[[ -f "$project/leedevkit" ]] || fail 'legacy project launcher removed during global install'
+[[ "$("$project/leedevkit")" == legacy ]] || fail 'legacy project launcher no longer works after global install'
 
 make_release 1.2.4
 printf 'preserve-me\n' > "$WORK/home/.leedevkit/current/keep"

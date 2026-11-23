@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestGlobalUpdateRejectsInvalidReleaseWithoutChangingCurrent(t *testing.T) {
+func TestGlobalUpdateRejectsInvalidExistingReleaseWithoutChangingCurrent(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string
 		change     func(*testing.T, string)

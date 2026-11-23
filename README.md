@@ -2,7 +2,7 @@
 
 Enterprise DevKit for AI-first projects — one global CLI for testing, AI agent context, skills, and project setup.
 
-> **Migration in progress:** Global-only support is incomplete and must not be released yet. Release acceptance, update rollback and migration paths require further verification.
+> **Migration notice:** LeeDevKit uses one global CLI. Existing projects may need migration; back up project data and follow the migration and manual rollback steps below. Migration has been tested in isolated Linux fixtures, not representative consumer projects; compatibility remains project-specific.
 
 LeeDevKit is migrating to one globally installed `leedevkit` CLI. The new `leedevkit init` configures project context without installing a project-local runtime.
 
@@ -59,7 +59,15 @@ export PATH="${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin:$PATH"
 3. Review the project diff and untracked files. Init creates `leedevkit.toml` only if absent and copies missing rule files; it does not overwrite existing files or move legacy skills. Keep `leedevkit.lock`, which records skill revisions. Do not delete old runtimes or wrappers automatically.
 4. Update project scripts and CI to invoke global `leedevkit` only after validating their behavior. Keep backups until consumers and rollback have been verified.
 
-Project rollback is not automated: restore selected project files from the backup or Git, taking care not to overwrite later changes. Global update retains the previous version directory, but rollback is manual and has only been tested in an isolated Linux fixture. Verify the old binary and compatibility with current project data before switching `current`; do not assume older versions understand newer project state.
+Project rollback is not automated: restore selected project files from the backup or Git, taking care not to overwrite later changes. Global update retains previous version directories. To roll back, request the exact previous version through the current global CLI, then verify active version and command path:
+
+```bash
+leedevkit update vX.Y.Z
+leedevkit version
+command -v leedevkit
+```
+
+The updater verifies the downloaded archive checksum and validates the release integrity manifest before switching `current`. Keep project backups and verify compatibility: older binaries may not understand newer project state. Rollback remains manual; migration and rollback have only been tested in isolated Linux fixtures, not representative consumer projects.
 
 If an interrupted install leaves `${DEVKIT_HOME:-$HOME/.leedevkit}/.install.lock`, first verify no install or update is running and inspect the lock. Only then remove an empty stale lock directory with `rmdir`; never remove an active lock. `SIGKILL` or a system crash can leave one behind.
 

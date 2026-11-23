@@ -61,6 +61,59 @@ func TestGlobalUpdateAcceptsVerifiedReleaseAndKeepsRunningRelease(t *testing.T) 
 	}
 }
 
+func TestGlobalUpdateCanSelectAnAlreadyActiveRelease(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DEVKIT_HOME", home)
+	previous := filepath.Join(home, "v1.0.0")
+	currentRelease := filepath.Join(home, "v2.0.0")
+	writeGlobalUpdateRelease(t, previous, "1.0.0")
+	writeGlobalUpdateRelease(t, currentRelease, "2.0.0")
+	if err := os.Symlink("v2.0.0", filepath.Join(home, "current")); err != nil {
+		t.Fatal(err)
+	}
+	server := globalUpdateServer(t, globalUpdateArchive(t, "1.0.0"), "valid")
+	defer server.Close()
+	t.Setenv("LEEDEVKIT_RELEASE_BASE_URL", server.URL)
+
+	if err := UpdateProject(t.TempDir(), "1.0.0", ""); err != nil {
+		t.Fatalf("UpdateProject(existing verified release) error = %v", err)
+	}
+	current, err := filepath.EvalSymlinks(filepath.Join(home, "current"))
+	if err != nil || current != previous {
+		t.Fatalf("current resolves to %q, error = %v; want %q", current, err, previous)
+	}
+	assertGlobalUpdateRelease(t, previous, "1.0.0")
+	assertGlobalUpdateRelease(t, currentRelease, "2.0.0")
+}
+
+func TestGlobalUpdateRejectsExistingVersionSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DEVKIT_HOME", home)
+	outside := t.TempDir()
+	writeGlobalUpdateRelease(t, outside, "1.0.0")
+	writeGlobalUpdateRelease(t, filepath.Join(home, "v2.0.0"), "2.0.0")
+	if err := os.Symlink(outside, filepath.Join(home, "v1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("v2.0.0", filepath.Join(home, "current")); err != nil {
+		t.Fatal(err)
+	}
+	server := globalUpdateServer(t, globalUpdateArchive(t, "1.0.0"), "valid")
+	defer server.Close()
+	t.Setenv("LEEDEVKIT_RELEASE_BASE_URL", server.URL)
+
+	if err := UpdateProject(t.TempDir(), "1.0.0", ""); err == nil || !strings.Contains(err.Error(), "invalid existing global release") {
+		t.Fatalf("UpdateProject(symlinked release) error = %v, want refusal", err)
+	}
+	if target, err := os.Readlink(filepath.Join(home, "current")); err != nil || target != "v2.0.0" {
+		t.Fatalf("current link changed to %q: %v", target, err)
+	}
+	assertGlobalUpdateRelease(t, outside, "1.0.0")
+	if _, err := os.Lstat(filepath.Join(home, ".install.lock")); !os.IsNotExist(err) {
+		t.Fatalf("lock remains after rejecting symlink: %v", err)
+	}
+}
+
 func TestGlobalUpdateRejectsUnmanagedCurrent(t *testing.T) {
 	for _, kind := range []string{"directory", "outside"} {
 		t.Run(kind, func(t *testing.T) {

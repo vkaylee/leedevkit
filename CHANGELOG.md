@@ -2,17 +2,18 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
-## [Unreleased]
+## [0.11.9] - 2026-11-23
 
-### Changed
-- Migrate to one global LeeDevKit runtime per user; project configuration and skill revision locks remain project-owned.
-- `leedevkit init` creates missing project configuration and rules without installing a project-local runtime. Existing local launchers, skills and custom data are not moved or removed.
-
-### Security
-- Verify release archive checksums and stage updates before atomically activating the global release. Checksums do not authenticate the publisher.
+### Fixed
+- Allow rollback to previously installed global releases after verifying release version and integrity manifest.
+- Preserve project configuration, skill locks, custom skills, local runtimes, wrappers, and virtual environments during global installation.
 
 ### Migration
-- Install the global CLI, add it to `PATH`, back up existing project data, and review initialization changes. Existing project launchers and CI scripts require migration; see the README for precautions and rollback limitations.
+- Continue migration to one global LeeDevKit runtime. Back up project data and review initialization changes; legacy project launchers and CI scripts may need updates. See README for migration and manual rollback steps.
+
+### Verification
+- Full Go suite, `go vet`, installer regression tests, configured regression gate, and release artifact build pass on Linux.
+- macOS installer fixture passes CI; release artifact acceptance on macOS and representative consumer migration remain unverified.
 
 ## [0.11.8] - 2026-11-22
 

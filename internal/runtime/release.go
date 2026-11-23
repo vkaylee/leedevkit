@@ -232,7 +232,16 @@ func updateGlobal(source string) error {
 	versionDir := filepath.Join(home, "v"+version)
 	createdVersionDir := false
 	if exists(versionDir) {
-		return fmt.Errorf("refusing to replace existing global release: %s", versionDir)
+		info, infoErr := os.Lstat(versionDir)
+		existingVersion, versionErr := readVersion(filepath.Join(versionDir, "VERSION"))
+		existingManifest, manifestErr := VerifyManifest(versionDir)
+		if infoErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || versionErr != nil || existingVersion != version || manifestErr != nil || !existingManifest.Clean() {
+			return fmt.Errorf("refusing to activate invalid existing global release: %s", versionDir)
+		}
+		if err := activateGlobalVersion(home, current, version); err != nil {
+			return err
+		}
+		return nil
 	} else if err := os.Rename(staged, versionDir); err != nil {
 		return fmt.Errorf("stage global release: %w", err)
 	} else {
@@ -243,28 +252,31 @@ func updateGlobal(source string) error {
 			_ = os.RemoveAll(versionDir)
 		}
 	}
+	if err := activateGlobalVersion(home, current, version); err != nil {
+		cleanupVersion()
+		return err
+	}
+	return nil
+}
+
+func activateGlobalVersion(home, current, version string) error {
 	newLink, err := os.CreateTemp(home, ".current-update-*")
 	if err != nil {
-		cleanupVersion()
 		return err
 	}
 	newLinkPath := newLink.Name()
 	if err := newLink.Close(); err != nil {
 		_ = os.Remove(newLinkPath)
-		cleanupVersion()
 		return err
 	}
 	if err := os.Remove(newLinkPath); err != nil {
-		cleanupVersion()
 		return err
 	}
 	if err := os.Symlink("v"+version, newLinkPath); err != nil {
-		cleanupVersion()
 		return err
 	}
 	if err := os.Rename(newLinkPath, current); err != nil {
 		_ = os.Remove(newLinkPath)
-		cleanupVersion()
 		return fmt.Errorf("activate global release: %w", err)
 	}
 	return nil
