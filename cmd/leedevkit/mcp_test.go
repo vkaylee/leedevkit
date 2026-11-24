@@ -11,7 +11,7 @@ import (
 
 func TestProjectMCPStdioListsAndCallsTools(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(root+"/leedevkit.toml", []byte("[targets]\nall = [\"go\", \"web\"]\nzeta = [\"go\"]\nalpha = [\"web\"]\n"), 0o600); err != nil {
+	if err := os.WriteFile(root+"/leedevkit.toml", []byte("[targets]\nall = [\"go\", \"web\"]\nzeta = [\"go\"]\nalpha = [\"web\"]\n[test.dependencies]\nunit-zeta = [\"go\"]\nunit-alpha = [\"web\"]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	input := strings.NewReader("" +

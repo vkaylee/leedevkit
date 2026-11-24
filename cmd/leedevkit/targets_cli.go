@@ -36,8 +36,8 @@ func describeTargets(project config.Project) targetsResponse {
 	for name, selected := range project.Targets {
 		allTargets[name] = selected
 	}
-	for name := range project.Services {
-		if _, ok := allTargets[name]; !ok {
+	if len(project.Targets) == 0 {
+		for name := range project.Services {
 			allTargets[name] = []string{name}
 		}
 	}
@@ -110,6 +110,9 @@ func describeTargets(project config.Project) targetsResponse {
 			if configured {
 				entry.Phases = append(entry.Phases, phase.name)
 			}
+		}
+		if len(entry.Phases) == 0 {
+			continue
 		}
 		result.Targets[target] = entry
 	}

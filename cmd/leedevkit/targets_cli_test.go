@@ -49,7 +49,7 @@ lint-web = ["web"]
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatalf("invalid JSON: %v; output=%q", err, stdout.String())
 	}
-	if len(got.Targets) != 6 || strings.Join(got.Targets["all"].Targets, ",") != "backend,web,infra" || strings.Join(got.Targets["all"].Services, ",") != "api,webdashboard" {
+	if len(got.Targets) != 4 || strings.Join(got.Targets["all"].Targets, ",") != "backend,web,infra" || strings.Join(got.Targets["all"].Services, ",") != "api,webdashboard" {
 		t.Fatalf("targets = %#v", got.Targets)
 	}
 	if strings.Join(got.Targets["backend"].Languages, ",") != "go" || strings.Join(got.Targets["backend"].Services, ",") != "api" || strings.Join(got.Targets["backend"].Phases, ",") != "unit,integration,lint" {
@@ -63,11 +63,19 @@ lint-web = ["web"]
 	}
 }
 
-func TestTargetsIncludesDirectServiceTargets(t *testing.T) {
-	project := config.Project{Services: map[string]config.Service{"api": {Language: "go"}}, Targets: map[string][]string{"all": {"api"}}}
+func TestTargetsServiceFallbackAndEmptyPhases(t *testing.T) {
+	project := config.Project{
+		Services:     map[string]config.Service{"api": {Language: "go"}, "unused": {Language: "go"}},
+		Dependencies: map[string][]string{"unit-api": {"api"}},
+	}
 	targets := describeTargets(project).Targets
-	if entry, ok := targets["api"]; !ok || len(entry.Services) != 1 || entry.Services[0] != "api" {
-		t.Fatalf("direct service target missing: %#v", targets)
+	if entry, ok := targets["api"]; !ok || len(entry.Services) != 1 || entry.Services[0] != "api" || strings.Join(entry.Phases, ",") != "unit" || len(targets) != 1 {
+		t.Fatalf("fallback targets = %#v", targets)
+	}
+	project.Targets = map[string][]string{"all": {"api"}, "empty": {"unused"}, "infra": {"infra"}}
+	targets = describeTargets(project).Targets
+	if len(targets) != 2 || strings.Join(targets["all"].Phases, ",") != "unit" || strings.Join(targets["infra"].Phases, ",") != "infrastructure" {
+		t.Fatalf("explicit targets = %#v", targets)
 	}
 }
 
