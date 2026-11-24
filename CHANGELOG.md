@@ -2,6 +2,11 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.12.4] - 2026-11-24
+
+### Fixed
+- Resolve phase test dependency keys through single-service target aliases for every service language.
+
 ## [0.12.3] - 2026-11-24
 
 ### Fixed
