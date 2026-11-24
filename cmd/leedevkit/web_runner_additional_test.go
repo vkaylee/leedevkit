@@ -404,6 +404,23 @@ func TestValidateWebTestFlagsFailsClosed(t *testing.T) {
 	}
 }
 
+func TestGoServiceUsesSingleServiceTargetAliasForPhaseDependencies(t *testing.T) {
+	project := config.Project{
+		Services: map[string]config.Service{"apiserver": {Language: "go"}},
+		Targets:  map[string][]string{"api": {"apiserver"}, "all": {"apiserver", "webdashboard"}},
+		Dependencies: map[string][]string{
+			"unit-api": {"apiserver"},
+			"int-api":  {"apiserver"},
+			"lint-api": {"apiserver"},
+		},
+	}
+	for phase, want := range map[string]string{"Unit Tests": "unit-api", "Integration Tests": "int-api", "Linting": "lint-api"} {
+		if got := phaseDependencyKey(project, phase, "apiserver"); got != want {
+			t.Errorf("%s dependency key=%q want %q", phase, got, want)
+		}
+	}
+}
+
 func TestGoAliasUsesConfiguredComposeServiceAndProfile(t *testing.T) {
 	project := config.Project{Services: map[string]config.Service{"api": {Language: "go", Workdir: "apiserver"}}, Targets: map[string][]string{"api": {"api"}}, Dependencies: map[string][]string{"unit-api": {"apiserver"}, "int-api": {"apiserver"}, "lint-api": {"apiserver"}}}
 	for phase, want := range map[string]string{"Unit Tests": "unit-api", "Integration Tests": "int-api", "Linting": "lint-api"} {

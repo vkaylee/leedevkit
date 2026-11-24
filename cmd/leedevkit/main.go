@@ -397,17 +397,15 @@ func phaseDependencyKey(project config.Project, phase, target string) string {
 		return ""
 	}
 	candidates := []string{prefix + target}
-	if project.Services[target].Language == "typescript" {
-		aliases := make([]string, 0, len(project.Targets))
-		for alias := range project.Targets {
-			aliases = append(aliases, alias)
-		}
-		sort.Strings(aliases)
-		for _, alias := range aliases {
-			services := project.Targets[alias]
-			if len(services) == 1 && services[0] == target {
-				candidates = append(candidates, prefix+alias)
-			}
+	aliases := make([]string, 0, len(project.Targets))
+	for alias := range project.Targets {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		services := project.Targets[alias]
+		if len(services) == 1 && services[0] == target {
+			candidates = append(candidates, prefix+alias)
 		}
 	}
 	for _, key := range candidates {
