@@ -30,7 +30,8 @@ func (e ComposePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) (
 	}
 	if e.Build != nil {
 		if err := e.Build(ctx, phase); err != nil {
-			return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: fmt.Sprintf("build: %v", err), Command: strings.Join(process.RedactArgs(e.Lifecycle.UpArgs), " ")}
+			diagnostic := process.RedactDiagnostic(err.Error())
+			return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "build: " + diagnostic, LifecycleError: diagnostic, Command: strings.Join(process.RedactArgs(e.Lifecycle.UpArgs), " ")}
 		}
 	}
 	result = PhaseResult{}
@@ -43,10 +44,12 @@ func (e ComposePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) (
 	})
 	if err != nil && (result.Status == "" || result.Status == "passed") {
 		command := e.Lifecycle.UpArgs
+		lifecycleError := process.RedactDiagnostic(err.Error())
 		if failure, ok := err.(*lifecycle.Failure); ok {
 			command = failure.Args
+			lifecycleError = process.RedactDiagnostic(failure.Err.Error())
 		}
-		result = PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: process.RedactDiagnostic(err.Error()), Command: strings.Join(process.RedactArgs(command), " ")}
+		result = PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: process.RedactDiagnostic(err.Error()), LifecycleError: lifecycleError, Command: strings.Join(process.RedactArgs(command), " ")}
 	}
 	return result
 }

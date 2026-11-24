@@ -1,18 +1,9 @@
-# Go-only Control-Plane Completion
+# Checklist: Test output cho AI agents
 
-- [x] Go owns CLI dispatch, config/provider resolution, process execution, reports, lifecycle, builds, gates, runtime transactions, skills, debug, DB/migration commands, and release tooling.
-- [x] Customer repositories own DB schema, migrations, seeds, and test DB lifecycle; `db:setup` removed.
-- [x] Launcher, wrapper, bootstrap, install, release builder, manifest, SBOM, checksum, and acceptance paths are Go-only.
-- [x] Retired runtime source, tests, helper scripts, dependency locks, and obsolete configuration removed.
-- [x] Active documentation and test names describe Go-only ownership.
-- [ ] Run final Go suite, shell syntax checks, release build, release acceptance, and archive inspection after documentation cleanup.
-
-Final gate:
-
-```bash
-git ls-files '*.py'
-git diff --check
-docker run --rm -e GOPROXY=off -v "$PWD":/workspace -v "$HOME/go/pkg/mod":/go/pkg/mod -w /workspace golang:1.26.11-bookworm go test ./...
-bash -n bin/leedevkit leedevkit bootstrap.sh install.sh scripts/build-release.sh scripts/build-release-go.sh
-scripts/build-release-go.sh /tmp/dist-final
-```
+- [ ] Kiểm chứng runner thực tế, định nghĩa contract và fallback không nhận diện.
+- [ ] Thêm adapter Go structured, test nhiều package/test, lỗi build và JSON-stream. Đã kiểm tra fixture nhiều package, compiler thật và JSON-stream qua CLI; còn giới hạn log lớn và stderr không nhận diện.
+- [ ] Thêm adapter Vitest theo reporter chính thức và kiểm thử thực tế. Repo không có package.json/Vitest; script `bun run test` có thể dùng runner tùy biến, hiện dùng fallback an toàn.
+- [ ] Xác thực Bun test; Bun 1.4.4 hỗ trợ JUnit, nhưng chưa có cấu hình xác định script dùng Bun test để bật reporter an toàn.
+- [ ] Hoàn thiện compact, blocked/lifecycle stderr và fallback ngắn có log path.
+- [x] Xác minh targets discovery và cả ba MCP tool qua stdio. Đã bổ sung direct service và sửa alias chọn nhầm; MCP stdio thực tế gọi đủ ba tool.
+- [ ] Review diff, chạy Go tests và `./leedevkit test all --json`; báo các target hoặc runner chưa chạy được.

@@ -33,6 +33,17 @@ func TestWebPhaseCommands(t *testing.T) {
 	}
 }
 
+func TestPhaseDependencyKeyPrefersDirectServiceOverSharedAlias(t *testing.T) {
+	project := config.Project{
+		Services:     map[string]config.Service{"web": {Language: "typescript"}, "admin": {Language: "typescript"}},
+		Targets:      map[string][]string{"all": {"web", "admin"}},
+		Dependencies: map[string][]string{"unit-web": {"web"}, "unit-admin": {"admin"}, "unit-all": {"web"}},
+	}
+	if got := phaseDependencyKey(project, "Unit Tests", "admin"); got != "unit-admin" {
+		t.Fatalf("admin dependency key = %q", got)
+	}
+}
+
 func TestLeeAttendManifestDefaultsAndPhases(t *testing.T) {
 	project := leeAttendFixture(t)
 	if hasPhaseGate(project.Gates, "integration") {

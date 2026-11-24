@@ -12,10 +12,11 @@ import (
 )
 
 type Executor struct {
-	Run     func(context.Context, process.Request) process.Result
-	Fix     bool
-	Done    map[string]bool
-	BaseRef string
+	Run                 func(context.Context, process.Request) process.Result
+	Fix                 bool
+	Done                map[string]bool
+	BaseRef             string
+	StructuredDefaultGo bool
 }
 
 type PhaseResult struct {
@@ -60,6 +61,9 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 				command = append([]string(nil), gate.FixCommand...)
 			} else if gate.Mode == "check" && gate.Name == "gofmt" {
 				command = []string{"gofmt", "-l", "."}
+			}
+			if e.StructuredDefaultGo && gate.Name == "go-test" && slicesEqual(command, []string{"go", "test", "./..."}) {
+				command = []string{"go", "test", "-json", "./..."}
 			}
 			if e.BaseRef != "" && len(gate.NewFindingsFlag) > 0 {
 				command = append(command, gate.NewFindingsFlag...)

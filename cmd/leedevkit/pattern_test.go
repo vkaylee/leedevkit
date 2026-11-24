@@ -37,6 +37,63 @@ func TestPatternGoGate(t *testing.T) {
 	}
 }
 
+func TestDefaultGoJSONThroughCompose(t *testing.T) {
+	root := t.TempDir()
+	engine := filepath.Join(root, "compose-fixture")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$ARGV_LOG\"\nfor arg do\n if [ \"$arg\" = ps ]; then printf '[{\"Service\":\"backend\",\"State\":\"running\"}]\\n'; exit; fi\n if [ \"$arg\" = exec ]; then printf '%s\\n' '{\"Action\":\"output\",\"Package\":\"p\",\"Test\":\"TestBad\",\"Output\":\"bad_test.go:12: broken\\\\n\"}' '{\"Action\":\"fail\",\"Package\":\"p\",\"Test\":\"TestBad\"}'; exit 1; fi\ndone\n"
+	if err := os.WriteFile(engine, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "[container]\nprovider = 'fixture'\n[container.providers.fixture]\ncli = ['fixture-engine']\ncompose = ['" + engine + "']\n[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n"
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".compose"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".compose", "docker-compose.test.yml"), []byte("services: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	t.Setenv("HOME", root)
+	t.Setenv("LEEDEVKIT_CONTAINER_PROVIDER", "fixture")
+	log := filepath.Join(root, "argv.log")
+	t.Setenv("ARGV_LOG", log)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"test", "all", "--unit-only", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	var summary struct {
+		Failures []struct {
+			TestName string `json:"test_name"`
+			Line     int    `json:"line"`
+		} `json:"failures"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &summary); err != nil {
+		t.Fatalf("stdout=%q stderr=%q: %v", stdout.String(), stderr.String(), err)
+	}
+	if code != 1 || len(summary.Failures) != 1 || summary.Failures[0].TestName != "TestBad" || summary.Failures[0].Line != 12 {
+		t.Fatalf("exit=%d summary=%#v stderr=%q", code, summary, stderr.String())
+	}
+	args, err := os.ReadFile(log)
+	if err != nil || !strings.Contains(string(args), "-json\n") {
+		t.Fatalf("argv=%q err=%v", args, err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"test", "all", "--unit-only", "--json-stream", "--quiet"}, strings.NewReader(""), &stdout, &stderr)
+	lines := bytes.Split(bytes.TrimSpace(stdout.Bytes()), []byte{'\n'})
+	var finished struct {
+		Event   string `json:"event"`
+		Summary struct {
+			Failures []struct {
+				TestName string `json:"test_name"`
+			} `json:"failures"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(lines[len(lines)-1], &finished); err != nil || code != 1 || finished.Event != "run_finished" || len(finished.Summary.Failures) != 1 || finished.Summary.Failures[0].TestName != "TestBad" {
+		t.Fatalf("exit=%d event=%#v err=%v stderr=%q", code, finished, err, stderr.String())
+	}
+}
+
 func TestPatternCLIThroughCompose(t *testing.T) {
 	root := t.TempDir()
 	engine := filepath.Join(root, "compose-fixture")

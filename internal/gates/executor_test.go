@@ -20,6 +20,24 @@ func TestExecutorRunsSelectedPhaseGates(t *testing.T) {
 	}
 }
 
+func TestExecutorStructuredDefaultGoIsOptIn(t *testing.T) {
+	for _, structured := range []bool{false, true} {
+		var got []string
+		executor := Executor{StructuredDefaultGo: structured, Run: func(_ context.Context, request process.Request) process.Result {
+			got = request.Args
+			return process.Result{}
+		}}
+		executor.RunPhase(context.Background(), "unit", Defaults())
+		want := []string{"go", "test", "./..."}
+		if structured {
+			want = []string{"go", "test", "-json", "./..."}
+		}
+		if !slicesEqual(got, want) {
+			t.Fatalf("structured=%t: argv=%v want=%v", structured, got, want)
+		}
+	}
+}
+
 func TestExecutorStopsRequiredFailure(t *testing.T) {
 	calls := 0
 	executor := Executor{Run: func(_ context.Context, request process.Request) process.Result {

@@ -43,7 +43,7 @@ func TestComposePhaseExecutorBlocksWhenBuildFails(t *testing.T) {
 		},
 	}
 	result := executor.ExecuteContext(context.Background(), Phase{Name: "Unit Tests", Status: "selected"})
-	if result.Status != "blocked" || result.ExitCode == 0 {
+	if result.Status != "blocked" || result.ExitCode == 0 || !strings.Contains(result.LifecycleError, "context canceled") {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -76,5 +76,8 @@ func TestComposePhaseExecutorReportsLifecycleFailureDetails(t *testing.T) {
 	}
 	if !strings.Contains(result.Diagnostic, "no such service api") || !strings.Contains(result.Diagnostic, "startup") {
 		t.Fatalf("diagnostic = %q", result.Diagnostic)
+	}
+	if !strings.Contains(result.LifecycleError, "no such service api") {
+		t.Fatalf("lifecycle error = %q", result.LifecycleError)
 	}
 }

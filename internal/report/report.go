@@ -16,36 +16,49 @@ type Counts struct {
 }
 
 type Phase struct {
-	Phase      string  `json:"phase"`
-	Target     string  `json:"target"`
-	Command    string  `json:"command"`
-	StartTime  string  `json:"start_time"`
-	EndTime    string  `json:"end_time"`
-	DurationS  float64 `json:"duration_s"`
-	Status     string  `json:"status"`
-	ExitCode   *int    `json:"exit_code"`
-	Required   bool    `json:"required"`
-	Log        string  `json:"log,omitempty"`
-	Rerun      string  `json:"rerun,omitempty"`
-	Diagnostic string  `json:"diagnostic,omitempty"`
+	Phase          string   `json:"phase"`
+	Target         string   `json:"target"`
+	Command        string   `json:"command"`
+	StartTime      string   `json:"start_time"`
+	EndTime        string   `json:"end_time"`
+	DurationS      float64  `json:"duration_s"`
+	Status         string   `json:"status"`
+	ExitCode       *int     `json:"exit_code"`
+	Required       bool     `json:"required"`
+	Log            string   `json:"log,omitempty"`
+	Rerun          string   `json:"rerun,omitempty"`
+	Diagnostic     string   `json:"diagnostic,omitempty"`
+	LifecycleError string   `json:"lifecycle_error,omitempty"`
+	Failure        *Failure `json:"failure,omitempty"`
+}
+
+type Failure struct {
+	Phase    string `json:"phase"`
+	File     string `json:"file,omitempty"`
+	TestName string `json:"test_name,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Stack    string `json:"stack,omitempty"`
 }
 
 type Summary struct {
-	SchemaVersion  int     `json:"schema_version"`
-	RunID          string  `json:"run_id"`
-	Status         string  `json:"status"`
-	FullRegression bool    `json:"full_regression"`
-	ExitCode       int     `json:"exit_code"`
-	Target         string  `json:"target"`
-	StartedAt      string  `json:"started_at,omitempty"`
-	FinishedAt     string  `json:"finished_at,omitempty"`
-	DurationS      float64 `json:"duration_s,omitempty"`
-	Counts         Counts  `json:"counts"`
-	Phases         []Phase `json:"phases"`
-	Failed         []Phase `json:"failed"`
-	Blocked        []Phase `json:"blocked"`
-	Skipped        []Phase `json:"skipped"`
-	NextAction     string  `json:"next_action"`
+	SchemaVersion  int       `json:"schema_version"`
+	RunID          string    `json:"run_id"`
+	Status         string    `json:"status"`
+	FullRegression bool      `json:"full_regression"`
+	ExitCode       int       `json:"exit_code"`
+	Target         string    `json:"target"`
+	StartedAt      string    `json:"started_at,omitempty"`
+	FinishedAt     string    `json:"finished_at,omitempty"`
+	DurationS      float64   `json:"duration_s,omitempty"`
+	Counts         Counts    `json:"counts"`
+	Phases         []Phase   `json:"phases"`
+	Failed         []Phase   `json:"failed"`
+	Failures       []Failure `json:"failures"`
+	LifecycleError string    `json:"lifecycle_error,omitempty"`
+	Blocked        []Phase   `json:"blocked"`
+	Skipped        []Phase   `json:"skipped"`
+	NextAction     string    `json:"next_action"`
 }
 
 func (s Summary) MarshalJSON() ([]byte, error) {

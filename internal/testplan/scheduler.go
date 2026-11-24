@@ -19,6 +19,8 @@ type Flags struct {
 	BaseRef     string
 	DryRun      bool
 	JSONStream  bool
+	FailedOnly  bool
+	Compact     bool
 }
 
 type Phase struct {

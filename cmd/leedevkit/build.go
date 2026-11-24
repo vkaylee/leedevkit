@@ -71,14 +71,7 @@ func newBuildRunner(root, project string, output io.Writer) lifecycle.BuildRunne
 	return lifecycle.BuildRunner{
 		Lock: lifecycle.NewBuildLock(),
 		Execute: func(ctx context.Context, args []string) error {
-			result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
-			if result.ExitCode == 0 {
-				return nil
-			}
-			if result.Err != nil {
-				return result.Err
-			}
-			return fmt.Errorf("build exited with code %d", result.ExitCode)
+			return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
 		},
 		Publish: lifecycle.MetadataPublisher(root, project),
 	}

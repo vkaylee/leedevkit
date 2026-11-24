@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/vkaylee/leedevkit/internal/report"
 )
 
 func TestRunProducesSummaryAndJSONL(t *testing.T) {
@@ -36,6 +38,25 @@ func TestRunProducesSummaryAndJSONL(t *testing.T) {
 	}
 }
 
+func TestRunStreamIncludesFinalizedFailures(t *testing.T) {
+	var stream bytes.Buffer
+	Run(Flags{Target: "go", JSONStream: true}, ExecutorFunc(func(phase Phase) PhaseResult {
+		return PhaseResult{Status: "failed", ExitCode: 1}
+	}), &stream, func(result *RunResult) {
+		result.Failures = []report.Failure{{Phase: "Unit Tests", TestName: "TestBroken"}}
+	})
+	lines := bytes.Split(bytes.TrimSpace(stream.Bytes()), []byte{'\n'})
+	var event struct {
+		Summary report.Summary `json:"summary"`
+	}
+	if err := json.Unmarshal(lines[len(lines)-1], &event); err != nil {
+		t.Fatal(err)
+	}
+	if len(event.Summary.Failures) != 1 || event.Summary.Failures[0].TestName != "TestBroken" {
+		t.Fatalf("summary = %#v", event.Summary)
+	}
+}
+
 func TestRunRecordsPhaseTiming(t *testing.T) {
 	result := Run(Flags{Target: "go", UnitOnly: true}, ExecutorFunc(func(Phase) PhaseResult {
 		return PhaseResult{Status: "passed"}
@@ -58,5 +79,11 @@ func TestRunFailureBecomesFailedSummary(t *testing.T) {
 	}), nil)
 	if result.Status != "failed" || result.ExitCode != 7 || len(result.Failed) != 1 {
 		t.Fatalf("result = %#v", result)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].Phase != "Unit Tests" || result.Failures[0].Message != "unit failed" {
+		t.Fatalf("structured failures = %#v", result.Failures)
+	}
+	if len(result.Summary("go", "run").Failures) != 1 {
+		t.Fatal("summary omitted structured failures")
 	}
 }

@@ -45,15 +45,17 @@ func (p Project) ServiceForLanguage(language string) (Service, bool) {
 }
 
 type Project struct {
-	Services     map[string]Service
-	Targets      map[string][]string
-	Dependencies map[string][]string
-	BuildPolicy  string
-	Gates        []gates.Gate
+	Languages      []string
+	Services       map[string]Service
+	Targets        map[string][]string
+	Dependencies   map[string][]string
+	BuildPolicy    string
+	Gates          []gates.Gate
+	DefaultGoGates bool
 }
 
 func Load(path string) (Project, error) {
-	project := Project{Services: map[string]Service{}, Targets: map[string][]string{}, Dependencies: map[string][]string{}, BuildPolicy: "once", Gates: gates.Defaults()}
+	project := Project{Services: map[string]Service{}, Targets: map[string][]string{}, Dependencies: map[string][]string{}, BuildPolicy: "once", Gates: gates.Defaults(), DefaultGoGates: true}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -62,6 +64,10 @@ func Load(path string) (Project, error) {
 		return project, err
 	}
 	var raw struct {
+		Languages []string `toml:"languages"`
+		Project   struct {
+			Languages []string `toml:"languages"`
+		} `toml:"project"`
 		Services map[string]struct {
 			Lang        string `toml:"lang"`
 			Workdir     string `toml:"workdir"`
@@ -90,6 +96,10 @@ func Load(path string) (Project, error) {
 	for name, service := range raw.Services {
 		project.Services[name] = Service{Name: name, Language: service.Lang, Workdir: service.Workdir, Image: service.Image, Dockerfile: service.Dockerfile, ComposeFile: service.ComposeFile}
 	}
+	project.Languages = append([]string(nil), raw.Project.Languages...)
+	if len(project.Languages) == 0 {
+		project.Languages = append([]string(nil), raw.Languages...)
+	}
 	project.Targets = raw.Targets
 	project.Dependencies = raw.Test.Dependencies
 	selected := append([]string{}, raw.Quality.Go.Lint...)
@@ -97,6 +107,7 @@ func Load(path string) (Project, error) {
 	selected = append(selected, raw.Quality.Go.Integration...)
 	selected = append(selected, raw.Quality.Go.Generated...)
 	if len(selected) > 0 {
+		project.DefaultGoGates = false
 		project.Gates = make([]gates.Gate, 0, len(selected))
 		seen := map[string]bool{}
 		for _, name := range selected {

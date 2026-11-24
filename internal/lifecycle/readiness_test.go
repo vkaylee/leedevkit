@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +36,16 @@ func TestReadinessRejectsUnhealthyService(t *testing.T) {
 	}}
 	if err := checker.Wait(context.Background(), []string{"compose", "ps"}, []string{"api"}, 10*time.Millisecond); err == nil {
 		t.Fatal("unhealthy service reported ready")
+	}
+}
+
+func TestReadinessTimeoutIncludesRuntimeStderr(t *testing.T) {
+	checker := Readiness{Run: func(_ context.Context, request process.Request) process.Result {
+		fmt.Fprint(request.Stderr, "cannot connect to runtime")
+		return process.Result{ExitCode: 1}
+	}}
+	if err := checker.Wait(context.Background(), []string{"compose", "ps"}, []string{"go"}, 10*time.Millisecond); err == nil || !strings.Contains(err.Error(), "cannot connect to runtime") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

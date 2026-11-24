@@ -22,6 +22,7 @@ import (
 	"github.com/vkaylee/leedevkit/internal/modes"
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/provider"
+	"github.com/vkaylee/leedevkit/internal/report"
 	runplan "github.com/vkaylee/leedevkit/internal/run"
 	runtimepkg "github.com/vkaylee/leedevkit/internal/runtime"
 	"github.com/vkaylee/leedevkit/internal/skills"
@@ -116,6 +117,7 @@ Usage: leedevkit <command> [args...]
 
 Commands:
   test     Run tests       (leedevkit test all)
+  targets  List configured targets, services, and phases
   dev      Dev environment (leedevkit dev up|down)
   init     Initialize a project with leedevkit
   update   Update the devkit to the latest (or pinned) release
@@ -402,10 +404,9 @@ func phaseDependencyKey(project config.Project, phase, target string) string {
 		}
 		sort.Strings(aliases)
 		for _, alias := range aliases {
-			for _, service := range project.Targets[alias] {
-				if service == target {
-					candidates = append([]string{prefix + alias}, candidates...)
-				}
+			services := project.Targets[alias]
+			if len(services) == 1 && services[0] == target {
+				candidates = append(candidates, prefix+alias)
 			}
 		}
 	}
@@ -540,11 +541,7 @@ func runWebPhase(root, project string, providerConfig provider.Provider, project
 	runner := lifecycle.Executor{UpArgs: upArgs, DownArgs: downArgs, ReadinessArgs: readinessArgs, Readiness: func(ctx context.Context) error {
 		return readiness.Wait(ctx, readinessArgs, []string{service}, 120*time.Second)
 	}, Execute: func(ctx context.Context, args []string) error {
-		result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
-		if result.ExitCode != 0 {
-			return fmt.Errorf("compose exited with status %d", result.ExitCode)
-		}
-		return nil
+		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
 	}}
 	var result testplan.PhaseResult
 	err = runner.Run(context.Background(), func() error {
@@ -569,6 +566,10 @@ func runWebPhase(root, project string, providerConfig provider.Provider, project
 	}
 	if output.Close() != nil {
 		return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: "test output write failed", Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))}
+	}
+	var lifecycleErr *lifecycle.Failure
+	if errors.As(err, &lifecycleErr) {
+		result.LifecycleError = process.RedactDiagnostic(err.Error())
 	}
 	return result
 }
@@ -666,14 +667,12 @@ func runGoPhase(root, project string, providerConfig provider.Provider, configPr
 	composeArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
 	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
 	gateResult, lifecycleResult := goPhaseWithCompose(context.Background(), func(ctx context.Context, args []string) error {
-		result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
-		if result.ExitCode != 0 {
-			return fmt.Errorf("compose exited with status %d", result.ExitCode)
-		}
-		return nil
+		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
 	}, up, down, func(ctx context.Context) gates.PhaseResult {
-		return gates.Executor{Run: func(ctx context.Context, request process.Request) process.Result {
-			return compose.Run(ctx, request.Args, request.Env)
+		return gates.Executor{StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream), Run: func(ctx context.Context, request process.Request) process.Result {
+			runner := compose
+			runner.AllowTruncatedCapture = configProject.DefaultGoGates && (quiet || flags.JSONStream) && name == "unit" && len(request.Args) == 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json" && request.Args[3] == "./..."
+			return runner.Run(ctx, request.Args, request.Env)
 		}}.RunPhase(ctx, name, configProject.Gates)
 	}, func(ctx context.Context) error {
 		readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root)}
@@ -702,7 +701,12 @@ func runGoPhase(root, project string, providerConfig provider.Provider, configPr
 			status, exitCode = "failed", 1
 			diagnostic = "test output write failed"
 		}
-		return testplan.PhaseResult{Status: status, ExitCode: exitCode, Diagnostic: diagnostic, Log: log}
+		result := testplan.PhaseResult{Status: status, ExitCode: exitCode, Diagnostic: diagnostic, Log: log}
+		var lifecycleErr *lifecycle.Failure
+		if errors.As(lifecycleResult, &lifecycleErr) {
+			result.LifecycleError = process.RedactDiagnostic(lifecycleResult.Error())
+		}
+		return result
 	}
 	return testplan.PhaseResult{Status: "passed"}
 }
@@ -729,6 +733,9 @@ func validateWebLifecycle(project config.Project, targets []string, flags testpl
 }
 
 func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.Project, stdout, stderr io.Writer, quiet bool) int {
+	compact := flags.FailedOnly || flags.Compact
+	quiet = quiet || compact
+	flags.JSONStream = flags.JSONStream && !compact
 	targets, err := configuredTargets(projectConfig, flags.Target)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -818,7 +825,13 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 			return stdout
 		}
 		return nil
-	}())
+	}(), func(result *testplan.RunResult) {
+		var failureOutput io.Writer
+		if compact {
+			failureOutput = stdout
+		}
+		collectFailureDetails(root, result, failureOutput)
+	})
 	if !flags.JSONStream {
 		if err := json.NewEncoder(stdout).Encode(result.Summary(flags.Target, "go-cli")); err != nil {
 			fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
@@ -826,6 +839,67 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 		}
 	}
 	return result.ExitCode
+}
+
+func collectFailureDetails(root string, result *testplan.RunResult, output io.Writer) {
+	result.Failures = []report.Failure{}
+	seen := map[string]bool{}
+	for _, phase := range append(append([]report.Phase(nil), result.Failed...), result.Blocked...) {
+		paths := []string{phase.Log}
+		if phase.Phase == "Infrastructure" && len(result.FailureLogs) > 0 {
+			paths = result.FailureLogs
+		}
+		found := false
+		if output != nil && phase.LifecycleError != "" {
+			fmt.Fprintf(output, "[%s] %s\n", phase.Phase, report.StripANSI(phase.LifecycleError))
+		}
+		for _, path := range paths {
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			// ponytail: larger logs use the diagnostic fallback; stream parsing to lift this ceiling.
+			const maxFailureLog = 16 << 20
+			file, err := os.Open(filepath.Join(root, path))
+			var data []byte
+			if err == nil {
+				data, err = io.ReadAll(io.LimitReader(file, maxFailureLog+1))
+				if closeErr := file.Close(); err == nil {
+					err = closeErr
+				}
+			}
+			if err == nil && len(data) > maxFailureLog {
+				result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: "log exceeds parsing limit; inspect " + path + ": " + report.StripANSI(phase.Diagnostic)})
+				found = true
+				if output != nil {
+					fmt.Fprintf(output, "[%s] Log exceeds parsing limit; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(phase.Diagnostic))
+				}
+				continue
+			}
+			if err != nil {
+				if output != nil {
+					fmt.Fprintf(output, "[%s] log unavailable: %s\n", phase.Phase, path)
+				}
+				continue
+			}
+			failures, filtered, reliable := report.ParseTestFailuresWithSupport(data, phase.Phase)
+			if len(failures) > 0 {
+				found = true
+				result.Failures = append(result.Failures, failures...)
+			}
+			if output != nil {
+				if reliable && len(failures) > 0 && strings.TrimSpace(filtered) != "" {
+					fmt.Fprintf(output, "[%s] %s\n", phase.Phase, strings.TrimRight(filtered, "\n"))
+				} else {
+					// ponytail: unknown runners cannot be filtered reliably; add a structured adapter when supported.
+					fmt.Fprintf(output, "[%s] Cannot filter this log accurately; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(phase.Diagnostic))
+				}
+			}
+		}
+		if !found {
+			result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: report.StripANSI(phase.Diagnostic)})
+		}
+	}
 }
 
 func buildGoLifecyclePlanForPhase(root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, skipBuild bool) lifecycle.Plan {
@@ -1155,6 +1229,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
+	case "targets":
+		projectConfig, err := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid project config: %v\n", err)
+			return 2
+		}
+		return printTargets(args, stdout, stderr, projectConfig)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, version)
 		return 0
@@ -1189,7 +1270,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 			fmt.Fprintln(stdout, `Usage: leedevkit test <target> [flags]
 
-Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet`)
+Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet --failed-only --compact`)
 			return 0
 		}
 		if len(args) < 2 {
@@ -1260,6 +1341,12 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				index++
 			case "--json-stream":
 				flags.JSONStream = true
+			case "--failed-only":
+				flags.FailedOnly = true
+				quiet = true
+			case "--compact":
+				flags.Compact = true
+				quiet = true
 			case "--json":
 				quiet = true
 				flags.JSON = true
@@ -1269,6 +1356,9 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				fmt.Fprintf(stderr, "unsupported test flag: %s\n", flag)
 				return 2
 			}
+		}
+		if flags.FailedOnly || flags.Compact {
+			flags.JSONStream = false
 		}
 		if !isInfraTarget(projectConfig, flags.Target) && !shouldUseGoTest(projectConfig, flags.Target) {
 			code := runMultiTargetTest(projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
@@ -1404,6 +1494,11 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				},
 			}
 			gateIndex := 0
+			compact := flags.FailedOnly || flags.Compact
+			if compact {
+				flags.JSONStream = false
+				quiet = true
+			}
 			result := testplan.Run(flags, testplan.ComposePhaseExecutor{
 				Build: func(ctx context.Context, _ testplan.Phase) error {
 					if buildCallback == nil {
@@ -1433,6 +1528,7 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 					runner := compose
 					runner.Output = output
 					runGate := func(ctx context.Context, args []string, environment []string) process.Result {
+						runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) == 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json" && args[3] == "./..."
 						result := runner.Run(ctx, args, environment)
 						if flags.Pattern != "" && result.ExitCode == 0 {
 							matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
@@ -1444,7 +1540,7 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 						}
 						return result
 					}
-					outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef}).ExecuteContext(ctx, phase)
+					outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
 					if err := output.Close(); err != nil {
 						return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
 					}
@@ -1453,7 +1549,13 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 					}
 					return outcome
 				},
-			}, stdout)
+			}, stdout, func(result *testplan.RunResult) {
+				var failureOutput io.Writer
+				if compact {
+					failureOutput = stdout
+				}
+				collectFailureDetails(projectRootOrCWD(), result, failureOutput)
+			})
 			if flags.JSONStream {
 				return result.ExitCode
 			}
@@ -1661,6 +1763,16 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 		}
 		result := process.Run(context.Background(), process.Request{Args: queryArgs, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
 		return result.ExitCode
+	case "mcp":
+		if len(args) != 2 || args[1] != "--stdio" {
+			fmt.Fprintln(stderr, "usage: leedevkit mcp --stdio")
+			return 2
+		}
+		if err := serveProjectMCP(stdin, stdout, stderr, projectRootOrCWD()); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return 0
 	case "debug":
 		options, err := parseDebugMCPArgs(args)
 		if err != nil {

@@ -10,14 +10,15 @@ import (
 )
 
 type ComposeRunner struct {
-	Compose []string
-	Project string
-	Service string
-	Workdir string
-	Dir     string
-	Env     []string
-	Execute func(context.Context, process.Request) process.Result
-	Output  io.Writer
+	Compose               []string
+	Project               string
+	Service               string
+	Workdir               string
+	Dir                   string
+	Env                   []string
+	Execute               func(context.Context, process.Request) process.Result
+	Output                io.Writer
+	AllowTruncatedCapture bool
 }
 
 func (r ComposeRunner) WithService(name, workdir string) ComposeRunner {
@@ -57,7 +58,7 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 	if len(result.Stderr) == 0 {
 		result.Stderr = append([]byte(nil), stderr.Bytes()...)
 	}
-	if stdout.overflow || stderr.overflow {
+	if (stdout.overflow || stderr.overflow) && !(r.AllowTruncatedCapture && r.Output != nil) {
 		result.ExitCode = 1
 		result.Err = fmt.Errorf("compose output exceeds capture limit; see task log")
 	}

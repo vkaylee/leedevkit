@@ -69,6 +69,7 @@ func (r Readiness) Wait(ctx context.Context, base []string, services []string, t
 	if run == nil {
 		run = process.Run
 	}
+	var lastError string
 	for {
 		var stdout, stderr bytes.Buffer
 		result := run(ctx, process.Request{Args: append(append([]string(nil), base...), services...), Dir: r.Dir, Env: append([]string(nil), r.Env...), Stdout: &stdout, Stderr: &stderr})
@@ -80,11 +81,20 @@ func (r Readiness) Wait(ctx context.Context, base []string, services []string, t
 			if readyOutput(output, services) {
 				return nil
 			}
+			lastError = ""
+		} else {
+			if len(result.Stderr) == 0 {
+				result.Stderr = stderr.Bytes()
+			}
+			lastError = result.Diagnostic()
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
+			if lastError != "" {
+				return fmt.Errorf("readiness timeout for %s: %s", strings.Join(services, ","), lastError)
+			}
 			return fmt.Errorf("readiness timeout for %s", strings.Join(services, ","))
 		case <-ticker.C:
 		}

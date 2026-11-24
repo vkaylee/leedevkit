@@ -26,7 +26,7 @@ func TestSummaryEncodesStableMachineContract(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"schema_version", "run_id", "status", "full_regression", "exit_code", "target", "counts", "phases", "failed", "blocked", "skipped", "next_action"} {
+	for _, key := range []string{"schema_version", "run_id", "status", "full_regression", "exit_code", "target", "counts", "phases", "failed", "failures", "blocked", "skipped", "next_action"} {
 		if _, ok := decoded[key]; !ok {
 			t.Fatalf("missing report field %q: %s", key, encoded)
 		}

@@ -137,6 +137,50 @@ func TestRunInfraFailureIncludesTaskLogAndContinuesAllChecks(t *testing.T) {
 	}
 }
 
+func TestRunInfraStreamIncludesParsedFailure(t *testing.T) {
+	root := t.TempDir()
+	var stream strings.Builder
+	calls := 0
+	runInfra(root, testplan.Flags{Target: "infra", JSONStream: true}, func(_ context.Context, request process.Request) process.Result {
+		calls++
+		if calls == 1 {
+			_, _ = request.Stdout.Write([]byte("--- FAIL: TestBroken (0.00s)\n    bad_test.go:9: broken\n"))
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, &stream)
+	lines := strings.Split(strings.TrimSpace(stream.String()), "\n")
+	var event struct {
+		Summary struct {
+			Failures []struct {
+				TestName string `json:"test_name"`
+			} `json:"failures"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &event); err != nil {
+		t.Fatal(err)
+	}
+	if len(event.Summary.Failures) != 1 || event.Summary.Failures[0].TestName != "TestBroken" {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestRunInfraKeepsAllFailedCheckLogs(t *testing.T) {
+	root := t.TempDir()
+	calls := 0
+	result := runInfra(root, testplan.Flags{Target: "infra", Compact: true}, func(_ context.Context, request process.Request) process.Result {
+		calls++
+		_, _ = request.Stdout.Write([]byte("check output"))
+		if calls == 2 || calls == 4 {
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, nil)
+	if len(result.FailureLogs) != 2 || !strings.HasSuffix(result.FailureLogs[0], "infra-02.log") || !strings.HasSuffix(result.FailureLogs[1], "infra-04.log") {
+		t.Fatalf("failed logs = %v", result.FailureLogs)
+	}
+}
+
 func TestRunInfraFailsClosedWhenLogRootIsSymlink(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

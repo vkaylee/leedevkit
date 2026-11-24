@@ -24,6 +24,9 @@ lint = ["custom"]
 	if err != nil {
 		t.Fatal(err)
 	}
+	if project.DefaultGoGates {
+		t.Fatal("configured gates must not be marked as defaults")
+	}
 	if len(project.Gates) != 1 || project.Gates[0].Name != "custom" || project.Gates[0].FailurePolicy != "optional" {
 		t.Fatalf("gates = %#v", project.Gates)
 	}
@@ -36,5 +39,8 @@ func TestLoadQualityGatesDefaultsToGoGates(t *testing.T) {
 	}
 	if len(project.Gates) != 4 || project.Gates[0].Name != "gofmt" {
 		t.Fatalf("gates = %#v", project.Gates)
+	}
+	if !project.DefaultGoGates {
+		t.Fatal("default Go gates must be identified separately from user-defined gates")
 	}
 }

@@ -58,6 +58,19 @@ func TestComposeRunnerBoundsCaptureButKeepsLog(t *testing.T) {
 	}
 }
 
+func TestComposeRunnerAllowsTruncationWhenStreamingOnly(t *testing.T) {
+	var log bytes.Buffer
+	data := bytes.Repeat([]byte("x"), 2<<20)
+	runner := ComposeRunner{Output: &log, AllowTruncatedCapture: true, Execute: func(_ context.Context, request process.Request) process.Result {
+		_, _ = request.Stdout.Write(data)
+		return process.Result{}
+	}}
+	result := runner.Run(context.Background(), []string{"go", "test", "-json", "./..."}, nil)
+	if result.ExitCode != 0 || len(result.Stdout) > 1<<20 || log.Len() != len(data) {
+		t.Fatalf("exit=%d captured=%d log=%d", result.ExitCode, len(result.Stdout), log.Len())
+	}
+}
+
 func TestComposeRunnerAddsEnvironment(t *testing.T) {
 	var got []string
 	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Env: []string{"GOFLAGS=-race", "PRIVATE_VALUE=not-forwarded"}, Execute: func(_ context.Context, request process.Request) process.Result {

@@ -24,7 +24,7 @@ func validateInfraProject(root string) error {
 
 func validateInfraFlags(args []string) error {
 	for _, flag := range args {
-		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" {
+		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" && flag != "--failed-only" && flag != "--compact" {
 			return fmt.Errorf("unsupported flag for infrastructure checks: %s", flag)
 		}
 	}
@@ -32,7 +32,11 @@ func validateInfraFlags(args []string) error {
 }
 
 func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer, quietMode ...bool) testplan.RunResult {
-	quiet := flags.JSONStream || (len(quietMode) > 0 && quietMode[0])
+	compact := flags.FailedOnly || flags.Compact
+	quiet := compact || flags.JSONStream || (len(quietMode) > 0 && quietMode[0])
+	if compact {
+		flags.JSONStream = false
+	}
 	checks := [][]string{
 		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "test", "./..."},
 		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
@@ -48,6 +52,7 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		{"bash", "scripts/test-skill-utilities.sh"},
 	}
 	flags.Target = "infra"
+	var failureLogs []string
 	result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
 		if phase.Name != "Infrastructure" {
 			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "focused infrastructure checks are not supported"}
@@ -76,6 +81,7 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 				return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
 			}
 			if child.ExitCode != 0 {
+				failureLogs = append(failureLogs, filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)))
 				if code == 0 {
 					code = child.ExitCode
 					firstLog = filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
@@ -85,7 +91,14 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 			}
 		}
 		return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(failures, "; "), Command: "source-quality checks", Log: firstLog}
-	}), stream)
+	}), stream, func(result *testplan.RunResult) {
+		result.FailureLogs = failureLogs
+		var failureOutput io.Writer
+		if compact {
+			failureOutput = stream
+		}
+		collectFailureDetails(root, result, failureOutput)
+	})
 	return result
 }
 

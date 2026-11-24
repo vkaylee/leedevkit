@@ -12,11 +12,12 @@ import (
 )
 
 type PhaseResult struct {
-	Status     string
-	ExitCode   int
-	Diagnostic string
-	Command    string
-	Log        string
+	Status         string
+	ExitCode       int
+	Diagnostic     string
+	LifecycleError string
+	Command        string
+	Log            string
 }
 
 type Executor interface {
@@ -30,12 +31,13 @@ type ContextExecutor interface {
 type ExecutorFunc func(Phase) PhaseResult
 
 type GatePhaseExecutor struct {
-	Definitions []gates.Gate
-	Run         func(context.Context, process.Request) process.Result
-	ComposeRun  func(context.Context, []string, []string) process.Result
-	Fix         bool
-	Done        map[string]bool
-	BaseRef     string
+	Definitions         []gates.Gate
+	Run                 func(context.Context, process.Request) process.Result
+	ComposeRun          func(context.Context, []string, []string) process.Result
+	Fix                 bool
+	Done                map[string]bool
+	BaseRef             string
+	StructuredDefaultGo bool
 }
 
 func (e GatePhaseExecutor) Execute(phase Phase) PhaseResult {
@@ -49,7 +51,7 @@ func (e GatePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) Phas
 			return e.ComposeRun(ctx, request.Args, request.Env)
 		}
 	}
-	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
+	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef, StructuredDefaultGo: e.StructuredDefaultGo}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
 	return PhaseResult{Status: result.Status, ExitCode: result.ExitCode, Diagnostic: result.Diagnostic}
 }
 
@@ -79,6 +81,9 @@ type RunResult struct {
 	Failed         []report.Phase
 	Blocked        []report.Phase
 	Skipped        []report.Phase
+	Failures       []report.Failure
+	LifecycleError string
+	FailureLogs    []string
 }
 
 func (r RunResult) Summary(target, runID string) report.Summary {
@@ -101,18 +106,20 @@ func (r RunResult) Summary(target, runID string) report.Summary {
 		Counts:         r.Counts,
 		Phases:         r.Phases,
 		Failed:         r.Failed,
+		Failures:       r.Failures,
+		LifecycleError: r.LifecycleError,
 		Blocked:        r.Blocked,
 		Skipped:        r.Skipped,
 		NextAction:     nextAction,
 	}
 }
 
-func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
+func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...func(*RunResult)) RunResult {
 	started := time.Now()
 	phases, err := Schedule(flags)
 	if err != nil {
 		phase := report.Phase{Phase: "Validation", Target: flags.Target, Status: "blocked", Required: true, Diagnostic: err.Error()}
-		return RunResult{Status: "blocked", FullRegression: false, ExitCode: 2, Counts: report.Counts{Blocked: 1}, Phases: []report.Phase{phase}, Blocked: []report.Phase{phase}}
+		return RunResult{Status: "blocked", FullRegression: false, ExitCode: 2, Counts: report.Counts{Blocked: 1}, Phases: []report.Phase{phase}, Blocked: []report.Phase{phase}, Failures: []report.Failure{}}
 	}
 	runID := fmt.Sprintf("go-%d", started.UnixNano())
 	var stream *report.Stream
@@ -120,7 +127,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 		stream, _ = report.NewStream(streamWriter, runID)
 		_ = stream.Emit("run_started", map[string]any{"target": flags.Target})
 	}
-	result := RunResult{}
+	result := RunResult{Failures: []report.Failure{}}
 	fullRegression := !flags.Coverage && !flags.LintOnly && !flags.UnitOnly && !flags.E2EOnly && !flags.SkipLint && !flags.SkipE2E && !flags.SkipBuild && flags.Pattern == "" && flags.BaseRef == ""
 	for _, phase := range phases {
 		phaseStarted := time.Now().UTC()
@@ -143,6 +150,14 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 				record.Command = outcome.Command
 				record.Log = outcome.Log
 				record.Diagnostic = outcome.Diagnostic
+				record.LifecycleError = outcome.LifecycleError
+				if outcome.Status == "failed" || outcome.Status == "blocked" {
+					record.Failure = &report.Failure{Phase: record.Phase, Message: outcome.Diagnostic}
+					result.Failures = append(result.Failures, *record.Failure)
+				}
+				if outcome.LifecycleError != "" {
+					result.LifecycleError = outcome.LifecycleError
+				}
 				code := outcome.ExitCode
 				record.ExitCode = &code
 			}
@@ -182,6 +197,9 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 	default:
 		result.Status = "passed"
 		result.FullRegression = true
+	}
+	for _, finish := range finalize {
+		finish(&result)
 	}
 	if stream != nil {
 		_ = stream.Emit("run_finished", map[string]any{"status": result.Status, "full_regression": result.FullRegression, "summary": result.Summary(flags.Target, runID)})
