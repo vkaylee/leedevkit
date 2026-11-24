@@ -1,3 +1,8 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "leedevkit": {
+      "command": "leedevkit",
+      "args": ["mcp", "--stdio"]
+    }
+  }
 }
