@@ -2,6 +2,15 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.12.1] - 2026-11-24
+
+### Added
+- Structured failure extraction (`failures` array) in `--json` test output for Go test failures, build errors, and panics.
+- Compact test log mode (`--compact`, `--failed-only`) hiding passing test output while preserving structured summary and failed diagnostics.
+- CLI target discovery (`leedevkit targets [--json]`) exposing configured test services and dependency phases.
+- Native Model Context Protocol (MCP) server over stdio (`leedevkit mcp --stdio`) implementing `run_test`, `get_project_status`, and `list_targets`.
+- Preserve container lifecycle failure stderr (`lifecycle_error`) without losing compose or readiness diagnostics.
+
 ## [0.12.0] - 2026-11-24
 
 ### Changed
