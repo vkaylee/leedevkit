@@ -8,21 +8,7 @@
 set -euo pipefail
 
 REPO="vkaylee/leedevkit"
-read_config_version() {
-    local config="$1" value
-    [ -f "$config" ] || { printf '%s\n' latest; return; }
-    value="$(awk '
-        /^\[/{ section=($0 == "[devkit]") }
-        section && $1 == "version" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/["'"'"'[:space:]]/, ""); print; exit }
-    ' "$config")"
-    printf '%s\n' "${value:-latest}"
-}
-
-if [ "$#" -eq 0 ] && [ -f leedevkit.toml ]; then
-    VERSION="$(read_config_version leedevkit.toml)"
-else
-    VERSION="${1:-latest}"
-fi
+VERSION="${1:-latest}"
 RELEASE_BASE_URL="${LEEDEVKIT_RELEASE_BASE_URL:-https://github.com/$REPO/releases}"
 
 # Must be in a project directory (Git worktrees expose .git as a file).
@@ -46,9 +32,6 @@ BOOTSTRAP_LOCK_HELD=1
 DOWNLOAD_TIMEOUT="${LEEDEVKIT_DOWNLOAD_TIMEOUT:-120}"
 TMP_DIR="$(mktemp -d)"
 trap 'rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true' EXIT
-if [ "$VERSION" = "latest" ] && [ -f leedevkit.toml ]; then
-    VERSION="$(read_config_version leedevkit.toml)"
-fi
 if [ "$VERSION" = "latest" ]; then
     VERSION_TAG="$(curl --fail --silent --show-error --location --max-time "$DOWNLOAD_TIMEOUT" \
         -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest" \
@@ -142,27 +125,13 @@ for REQUIRED in bin/leedevkit "bin/go/leedevkit-go-${platform_key}"; do
         exit 1
     fi
 done
-# Prepare project configuration before activation. Existing configuration is
-# copied and updated in staging, so malformed config fails harmlessly.
-
+# Preserve existing project configuration byte for byte.
 if [ -f leedevkit.toml ]; then
-    cp leedevkit.toml "$CONFIG_STAGE"
-    awk -v version="$VER" '
-        BEGIN { in_devkit=0; changed=0 }
-        /^\[/{ in_devkit=($0 == "[devkit]") }
-        in_devkit && $1 == "version" { print "version = \"" version "\""; changed=1; next }
-        { print }
-        END { if (!changed) exit 1 }
-    ' "$CONFIG_STAGE" > "$CONFIG_STAGE.tmp" && mv "$CONFIG_STAGE.tmp" "$CONFIG_STAGE"
+    cp -p leedevkit.toml "$CONFIG_STAGE"
 else
     PROJECT_NAME="$(basename "$(pwd)")"
     PROJECT_NAMESPACE="$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')"
     cat > "$CONFIG_STAGE" << TOML
-[devkit]
-version = "$VER"
-install = "per-project"
-source = "release"
-
 [project]
 name = "$PROJECT_NAME"
 namespace = "$PROJECT_NAMESPACE"

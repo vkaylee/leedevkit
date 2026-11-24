@@ -2,9 +2,6 @@
 # LeeDevKit Dogfood — devkit tests itself
 # =============================================================================
 
-[devkit]
-version = "0.11.4"
-
 [project]
 name = "leedevkit"
 namespace = "leedevkit"

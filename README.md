@@ -20,7 +20,7 @@ The installer places the CLI under `${DEVKIT_HOME:-$HOME/.leedevkit}/current/bin
 
 `leedevkit init` sets up project configuration and AI context. Keep existing local files and custom content; review any proposed changes before accepting them. Initialization does not install a project-local CLI or runtime.
 
-Commit `leedevkit.toml` and `leedevkit.lock` when they belong to the project. `leedevkit.lock` records skill pins.
+Commit `leedevkit.toml` and `leedevkit.lock` when they belong to the project. `leedevkit.lock` records skill pins. The CLI version is global, not pinned by `leedevkit.toml`; legacy `[devkit].version` entries are ignored and can be removed.
 
 `bootstrap.sh` is a legacy setup path. New setups use the global installer and `leedevkit init`.
 

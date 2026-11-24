@@ -2,6 +2,11 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.12.0] - 2026-11-24
+
+### Changed
+- Bootstrap no longer selects or writes a project-pinned CLI version. Existing `[devkit].version` entries are preserved but ignored; pass a version explicitly to bootstrap when needed.
+
 ## [0.11.10] - 2026-11-24
 
 ### Fixed
