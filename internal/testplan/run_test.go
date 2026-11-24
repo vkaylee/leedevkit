@@ -18,16 +18,20 @@ func TestRunProducesSummaryAndJSONL(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	lines := bytes.Split(bytes.TrimSpace(stream.Bytes()), []byte{'\n'})
-	if len(lines) != 5 {
-		t.Fatalf("JSONL lines = %d, want 5", len(lines))
+	if len(lines) != 8 {
+		t.Fatalf("JSONL lines = %d, want 8", len(lines))
 	}
-	for _, line := range lines {
+	for i, line := range lines {
 		var event map[string]any
 		if err := json.Unmarshal(line, &event); err != nil {
 			t.Fatal(err)
 		}
 		if event["schema_version"] != float64(1) {
 			t.Fatalf("event = %#v", event)
+		}
+		want := []string{"run_started", "phase_started", "phase_finished", "phase_started", "phase_finished", "phase_started", "phase_finished", "run_finished"}[i]
+		if event["event"] != want {
+			t.Fatalf("event %d = %#v, want %s", i, event, want)
 		}
 	}
 }

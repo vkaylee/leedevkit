@@ -125,6 +125,9 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer) RunResult {
 	for _, phase := range phases {
 		phaseStarted := time.Now().UTC()
 		record := report.Phase{Phase: phase.Name, Target: flags.Target, Status: phase.Status, Required: phase.Status == "selected", StartTime: phaseStarted.Format(time.RFC3339Nano)}
+		if stream != nil {
+			_ = stream.Emit("phase_started", map[string]any{"phase": record.Phase, "target": record.Target})
+		}
 		if phase.Status == "selected" {
 			if executor == nil {
 				record.Status = "blocked"

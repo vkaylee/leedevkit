@@ -27,7 +27,15 @@ func globalDoctorAssetRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve leedevkit executable path: %w", err)
 	}
-	return filepath.Dir(filepath.Dir(absolute)), nil
+	return doctorAssetRootFromExecutable(absolute), nil
+}
+
+func doctorAssetRootFromExecutable(executable string) string {
+	dir := filepath.Dir(executable)
+	if filepath.Base(dir) == "go" && filepath.Base(filepath.Dir(dir)) == "bin" {
+		dir = filepath.Dir(dir)
+	}
+	return filepath.Dir(dir)
 }
 
 func repairDoctorRules(root string) error {

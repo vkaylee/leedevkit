@@ -26,6 +26,28 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestRunTestHelpAliases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte("invalid = ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	for _, flag := range []string{"--help", "-h"} {
+		t.Run(flag, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"test", flag}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("test help exit code = %d, stderr = %q", code, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "Usage: leedevkit test") {
+				t.Fatalf("test help output missing usage: %q", stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("test help stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunNoArgsShowsHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run(nil, strings.NewReader(""), &stdout, &stderr); code != 0 {

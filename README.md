@@ -179,7 +179,9 @@ leedevkit test all --json        # stable final JSON report
 leedevkit test all --json-stream --quiet  # JSONL events; logs stay in .test_logs/
 ```
 
-Human mode streams parallel task output as `[task-name]` lines and tees it to `.test_logs/`. `--quiet` suppresses live task output but keeps complete task logs for failure diagnosis.
+Human mode streams parallel task output as `[task-name]` lines and tees it to `.test_logs/`. `--quiet` suppresses live task output but keeps complete task logs for failure diagnosis. JSONL streams emit `run_started`, `phase_started`, `phase_finished`, and `run_finished` events; skipped phases also emit start and finish events.
+
+For TypeScript services, configure phase dependencies such as `unit-web`, `e2e-web`, and `lint-web` in `[test.dependencies]` and corresponding Compose profiles. Web phases run `bun run test`, `bun run test:e2e`, and `bun run lint`, `bun run type-check`, `bun run check-i18n`. Mixed targets report partial regression when Go integration gates are not configured. Web targets reject `--pattern`, `--coverage`, `--fix`, and `--base-ref`.
 
 ## Debug MCP
 

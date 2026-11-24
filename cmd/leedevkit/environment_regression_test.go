@@ -10,13 +10,13 @@ import (
 )
 
 func TestProjectEnvironmentReplacesOnlyProjectRoot(t *testing.T) {
-	original := []string{"TOKEN=a=b", "LEEDEVKIT_PROJECT_ROOT=/old", "OTHER=value", "LEEDEVKIT_PROJECT_ROOT=/other"}
+	original := []string{"TOKEN=a=b", "LEEDEVKIT_PROJECT_ROOT=/old", "PROJECT_ROOT=/old", "OTHER=value", "LEEDEVKIT_PROJECT_ROOT=/other"}
 	got := withProjectRoot(original, "/new")
-	want := []string{"TOKEN=a=b", "OTHER=value", "LEEDEVKIT_PROJECT_ROOT=/new"}
+	want := []string{"TOKEN=a=b", "OTHER=value", "LEEDEVKIT_PROJECT_ROOT=/new", "PROJECT_ROOT=/new"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("environment = %q, want %q", got, want)
 	}
-	if original[1] != "LEEDEVKIT_PROJECT_ROOT=/old" {
+	if original[1] != "LEEDEVKIT_PROJECT_ROOT=/old" || original[2] != "PROJECT_ROOT=/old" {
 		t.Fatal("input environment mutated")
 	}
 	parsed := environMap(append(got, "NOT_AN_ASSIGNMENT"))

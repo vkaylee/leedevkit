@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -338,13 +339,22 @@ func testComposeFiles(projectRoot string) ([]string, error) {
 }
 
 func withProjectRoot(env []string, root string) []string {
-	result := make([]string, 0, len(env)+1)
+	result := make([]string, 0, len(env)+2)
 	for _, entry := range env {
-		if !strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_ROOT=") {
+		if !strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_ROOT=") && !strings.HasPrefix(entry, "PROJECT_ROOT=") {
 			result = append(result, entry)
 		}
 	}
-	return append(result, "LEEDEVKIT_PROJECT_ROOT="+root)
+	return append(result, "LEEDEVKIT_PROJECT_ROOT="+root, "PROJECT_ROOT="+root)
+}
+
+func hasCapability(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func testDependencies(project config.Project, target string) []string {
@@ -354,6 +364,475 @@ func testDependencies(project config.Project, target string) []string {
 		}
 	}
 	return nil
+}
+
+func validateWebTestFlags(flags testplan.Flags) error {
+	if flags.Pattern != "" || flags.Coverage || flags.Fix || flags.BaseRef != "" {
+		return fmt.Errorf("web tests do not support --pattern, --coverage, --fix or --base-ref")
+	}
+	return nil
+}
+
+func webPhaseCommands(phase string) [][]string {
+	switch phase {
+	case "Unit Tests":
+		return [][]string{{"bun", "run", "test"}}
+	case "Integration Tests":
+		return [][]string{{"bun", "run", "test:e2e"}}
+	case "Linting":
+		return [][]string{{"bun", "run", "lint"}, {"bun", "run", "type-check"}, {"bun", "run", "check-i18n"}}
+	default:
+		return nil
+	}
+}
+
+func phaseDependencyKey(project config.Project, phase, target string) string {
+	prefix := map[string]string{"Unit Tests": "unit-", "Integration Tests": "int-", "Linting": "lint-"}[phase]
+	if project.Services[target].Language == "typescript" && phase == "Integration Tests" {
+		prefix = "e2e-"
+	}
+	if prefix == "" {
+		return ""
+	}
+	candidates := []string{prefix + target}
+	if project.Services[target].Language == "typescript" {
+		aliases := make([]string, 0, len(project.Targets))
+		for alias := range project.Targets {
+			aliases = append(aliases, alias)
+		}
+		sort.Strings(aliases)
+		for _, alias := range aliases {
+			for _, service := range project.Targets[alias] {
+				if service == target {
+					candidates = append([]string{prefix + alias}, candidates...)
+				}
+			}
+		}
+	}
+	for _, key := range candidates {
+		if len(project.Dependencies[key]) > 0 {
+			return key
+		}
+	}
+	return candidates[0]
+}
+
+func phaseService(project config.Project, target string, phase string) ([]string, string, error) {
+	phaseTarget := phaseDependencyKey(project, phase, target)
+	dependencies := project.Dependencies[phaseTarget]
+	if phaseTarget == "" || len(dependencies) == 0 {
+		return nil, "", fmt.Errorf("test dependencies are not configured for %s", phaseTarget)
+	}
+	if _, ok := project.Services[target]; !ok {
+		return nil, "", fmt.Errorf("test target %q is not a configured service", target)
+	}
+	service := dependencies[len(dependencies)-1]
+	return append([]string(nil), dependencies...), service, nil
+}
+
+func configuredTargets(project config.Project, target string) ([]string, error) {
+	selected := project.Targets[target]
+	if len(selected) == 0 && target != "all" {
+		if _, ok := project.Services[target]; ok {
+			selected = []string{target}
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("test target %q has no configured services", target)
+	}
+	services := make([]string, 0, len(selected))
+	for _, selectedName := range selected {
+		if _, ok := project.Services[selectedName]; ok {
+			services = append(services, selectedName)
+			continue
+		}
+		aliasServices, ok := project.Targets[selectedName]
+		if !ok || len(aliasServices) == 0 {
+			return nil, fmt.Errorf("test target %q references unknown service or alias %q", target, selectedName)
+		}
+		for _, service := range aliasServices {
+			if _, ok := project.Services[service]; !ok {
+				return nil, fmt.Errorf("test alias %q references unknown service %q", selectedName, service)
+			}
+			services = append(services, service)
+		}
+	}
+	if len(services) == 0 {
+		return nil, fmt.Errorf("test target %q has no configured services", target)
+	}
+	return services, nil
+}
+
+func buildWebLifecyclePlan(root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, skipBuild bool) (lifecycle.Plan, string, string, error) {
+	service, ok := configProject.Services[target]
+	if !ok || service.Language != "typescript" {
+		return lifecycle.Plan{}, "", "", fmt.Errorf("web test target %q is not a configured TypeScript service", target)
+	}
+	phaseTarget := phaseDependencyKey(configProject, phase, target)
+	dependencies, serviceName, err := phaseService(configProject, target, phase)
+	if err != nil {
+		return lifecycle.Plan{}, "", "", err
+	}
+	if len(dependencies) == 0 {
+		return lifecycle.Plan{}, "", "", fmt.Errorf("web test dependencies are not configured for %s", phaseTarget)
+	}
+	if serviceName == "" {
+		return lifecycle.Plan{}, "", "", fmt.Errorf("web service is not configured for %s", phaseTarget)
+	}
+	workdir := "/workspace"
+	if service.Workdir != "" {
+		workdir = filepath.Join(workdir, filepath.ToSlash(service.Workdir))
+	} else if service.Dockerfile != "" {
+		workdir = filepath.Join(workdir, strings.TrimPrefix(filepath.ToSlash(service.Dockerfile), "./"))
+	} else {
+		workdir = filepath.Join(workdir, target)
+	}
+	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseTarget}, Services: []string{serviceName}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild || !flags.Build, OwnsProject: true}, serviceName, workdir, nil
+}
+
+func uniqueTestProject(root string) string {
+	return fmt.Sprintf("leedevkit-test-%x-%x-%x", fnv32a(root), os.Getpid(), time.Now().UnixNano())
+}
+
+func fnv32a(value string) uint32 {
+	var hash uint32 = 2166136261
+	for index := 0; index < len(value); index++ {
+		hash = (hash ^ uint32(value[index])) * 16777619
+	}
+	return hash
+}
+
+func testProjectName(env map[string]string, root string) string {
+	return uniqueTestProject(root)
+}
+
+func runWebPhase(root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	plan, service, workdir, err := buildWebLifecyclePlan(root, project, providerConfig, projectConfig, target, phase, flags, flags.SkipBuild)
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	upArgs, err := plan.Up()
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	downArgs, err := plan.Down()
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	logDir, err := createInfraLogDir(root)
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable"}
+	}
+	logName := fmt.Sprintf("web-%s.log", strings.ToLower(strings.ReplaceAll(phase, " ", "-")))
+	logPath := filepath.Join(logDir, logName)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable"}
+	}
+	defer file.Close()
+	live := io.Writer(io.Discard)
+	if !quiet && !flags.JSONStream {
+		live = &infraPrefixWriter{writer: stdout, prefix: "[web] "}
+	}
+	output := &infraOutputWriter{log: file, live: live}
+	readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root)}
+	readinessArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"), "ps", "--format", "json")
+	runner := lifecycle.Executor{UpArgs: upArgs, DownArgs: downArgs, ReadinessArgs: readinessArgs, Readiness: func(ctx context.Context) error {
+		return readiness.Wait(ctx, readinessArgs, []string{service}, 120*time.Second)
+	}, Execute: func(ctx context.Context, args []string) error {
+		result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
+		if result.ExitCode != 0 {
+			return fmt.Errorf("compose exited with status %d", result.ExitCode)
+		}
+		return nil
+	}}
+	var result testplan.PhaseResult
+	err = runner.Run(context.Background(), func() error {
+		compose := gates.ComposeRunner{Compose: providerConfig.Compose, Project: project, Service: service, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
+		compose.Compose = append(append([]string(nil), compose.Compose...), "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
+		for _, command := range webPhaseCommands(phase) {
+			processResult := compose.Run(context.Background(), command, nil)
+			if processResult.ExitCode != 0 {
+				result = testplan.PhaseResult{Status: "failed", ExitCode: processResult.ExitCode, Command: strings.Join(process.RedactArgs(command), " "), Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), Diagnostic: fmt.Sprintf("web phase command failed with exit code %d", processResult.ExitCode)}
+				return fmt.Errorf("web phase failed")
+			}
+		}
+		result = testplan.PhaseResult{Status: "passed"}
+		return nil
+	})
+	if err != nil && result.Status == "" {
+		result = testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: process.RedactDiagnostic(err.Error()), Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))}
+	} else if err != nil && result.Status == "passed" {
+		status, exitCode := lifecycleFailureStatus(err)
+		result.Status, result.ExitCode, result.Diagnostic = status, exitCode, process.RedactDiagnostic(err.Error())
+		result.Log = filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+	}
+	if output.Close() != nil {
+		return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: "test output write failed", Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))}
+	}
+	return result
+}
+
+func runConfiguredGatesAfterUp(ctx context.Context, execute func(context.Context, []string) error, up, down []string, run func(context.Context) error, readiness ...func(context.Context) error) error {
+	executor := lifecycle.Executor{UpArgs: up, DownArgs: down, Execute: execute}
+	if len(readiness) > 0 {
+		executor.Readiness = readiness[0]
+	}
+	return executor.Run(ctx, func() error { return run(ctx) })
+}
+
+func lifecycleFailureStatus(err error) (string, int) {
+	if err == nil {
+		return "passed", 0
+	}
+	var failure *lifecycle.Failure
+	if errors.As(err, &failure) && failure.Phase == "teardown" {
+		return "failed", 1
+	}
+	return "blocked", 1
+}
+
+func phaseFailureStatus(gate gates.PhaseResult, lifecycleErr error) (string, int) {
+	if gate.Status == "failed" || gate.Status == "blocked" {
+		return gate.Status, gate.ExitCode
+	}
+	return lifecycleFailureStatus(lifecycleErr)
+}
+
+func goPhaseWithCompose(ctx context.Context, execute func(context.Context, []string) error, up, down []string, gatesExecutor func(context.Context) gates.PhaseResult, readiness ...func(context.Context) error) (gates.PhaseResult, error) {
+	var outcome gates.PhaseResult
+	err := runConfiguredGatesAfterUp(ctx, execute, up, down, func(ctx context.Context) error {
+		outcome = gatesExecutor(ctx)
+		if outcome.Status != "passed" {
+			return fmt.Errorf("gate phase %s", outcome.Status)
+		}
+		return nil
+	}, readiness...)
+	return outcome, err
+}
+
+func runGoPhase(root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	name := map[string]string{"Unit Tests": "unit", "Integration Tests": "integration", "Linting": "lint"}[phase]
+	hasGate := false
+	for _, gate := range configProject.Gates {
+		if gate.Phase == name {
+			hasGate = true
+			break
+		}
+	}
+	if !hasGate && phase == "Integration Tests" {
+		return testplan.PhaseResult{Status: "skipped", Diagnostic: "no configured Go gates for integration"}
+	}
+	if !hasGate {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "no configured Go gates for " + name}
+	}
+	phaseKey := phaseDependencyKey(configProject, phase, target)
+	dependencies := configProject.Dependencies[phaseKey]
+	if len(dependencies) == 0 {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "Go test dependencies are not configured for " + phaseKey}
+	}
+	goService := dependencies[len(dependencies)-1]
+	service, ok := configProject.Services[target]
+	if !ok {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "Go test service is not configured: " + target}
+	}
+	workdir := "/workspace"
+	if service.Workdir != "" {
+		workdir = filepath.Join(workdir, filepath.ToSlash(service.Workdir))
+	}
+	plan := buildGoLifecyclePlanForPhase(root, project, providerConfig, configProject, target, phase, flags, flags.SkipBuild)
+	up, err := plan.Up()
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	down, err := plan.Down()
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	logDir, err := createInfraLogDir(root)
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable"}
+	}
+	logName := "go-" + strings.ToLower(strings.ReplaceAll(phase, " ", "-")) + ".log"
+	file, err := os.OpenFile(filepath.Join(logDir, logName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable"}
+	}
+	live := io.Writer(io.Discard)
+	if !quiet && !flags.JSONStream {
+		live = &infraPrefixWriter{writer: stdout, prefix: "[go] "}
+	}
+	output := &infraOutputWriter{log: file, live: live}
+	composeArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
+	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
+	gateResult, lifecycleResult := goPhaseWithCompose(context.Background(), func(ctx context.Context, args []string) error {
+		result := process.Run(ctx, process.Request{Args: args, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output})
+		if result.ExitCode != 0 {
+			return fmt.Errorf("compose exited with status %d", result.ExitCode)
+		}
+		return nil
+	}, up, down, func(ctx context.Context) gates.PhaseResult {
+		return gates.Executor{Run: func(ctx context.Context, request process.Request) process.Result {
+			return compose.Run(ctx, request.Args, request.Env)
+		}}.RunPhase(ctx, name, configProject.Gates)
+	}, func(ctx context.Context) error {
+		readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root)}
+		readinessArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"), "ps", "--format", "json")
+		return readiness.Wait(ctx, readinessArgs, []string{goService}, 120*time.Second)
+	})
+	log := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+	closeErr := output.Close()
+	if lifecycleResult != nil || gateResult.Status != "passed" || closeErr != nil {
+		diagnostic := "Go phase failed"
+		status := gateResult.Status
+		exitCode := gateResult.ExitCode
+		if lifecycleResult != nil {
+			status, exitCode = phaseFailureStatus(gateResult, lifecycleResult)
+		}
+		if status == "" {
+			status, exitCode = "failed", 1
+		}
+		if lifecycleResult != nil {
+			diagnostic = process.RedactDiagnostic(lifecycleResult.Error())
+		}
+		if gateResult.Diagnostic != "" {
+			diagnostic = gateResult.Diagnostic
+		}
+		if closeErr != nil {
+			status, exitCode = "failed", 1
+			diagnostic = "test output write failed"
+		}
+		return testplan.PhaseResult{Status: status, ExitCode: exitCode, Diagnostic: diagnostic, Log: log}
+	}
+	return testplan.PhaseResult{Status: "passed"}
+}
+
+func validateWebLifecycle(project config.Project, targets []string, flags testplan.Flags) error {
+	selected, err := testplan.Schedule(flags)
+	if err != nil {
+		return err
+	}
+	for _, phase := range selected {
+		if phase.Status != "selected" {
+			continue
+		}
+		for _, target := range targets {
+			if project.Services[target].Language != "typescript" {
+				continue
+			}
+			if _, _, err := phaseService(project, target, phase.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.Project, stdout, stderr io.Writer, quiet bool) int {
+	targets, err := configuredTargets(projectConfig, flags.Target)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	var goTargets, webTargets []string
+	for _, target := range targets {
+		service := projectConfig.Services[target]
+		switch service.Language {
+		case "go":
+			goTargets = append(goTargets, target)
+		case "typescript":
+			webTargets = append(webTargets, target)
+		default:
+			fmt.Fprintf(stderr, "test target %q uses unsupported language %q\n", target, service.Language)
+			return 2
+		}
+	}
+	if len(webTargets) == 0 {
+		return -1
+	}
+	if len(goTargets) > 1 {
+		fmt.Fprintln(stderr, "mixed test target supports at most one Go service")
+		return 2
+	}
+	if err := validateWebTestFlags(flags); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := validateWebLifecycle(projectConfig, webTargets, flags); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	env := environMap(os.Environ())
+	providerConfig, err := resolveProviderForProject(root, env)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid provider: %v\n", err)
+		return 2
+	}
+	project := testProjectName(env, root)
+	if env["COMPOSE_PROJECT_NAME"] != "" {
+		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using isolated test project %q\n", project)
+	}
+	built := map[string]bool{}
+	result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
+		if phase.Status != "selected" {
+			return testplan.PhaseResult{Status: "skipped"}
+		}
+		var partial *testplan.PhaseResult
+		for _, target := range goTargets {
+			phaseFlags := flags
+			if phaseFlags.BuildPolicy == "once" && built[target] {
+				phaseFlags.Build = false
+			}
+			outcome := runGoPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			if outcome.Status == "passed" && phaseFlags.BuildPolicy == "once" {
+				built[target] = true
+			}
+			if outcome.Status == "skipped" {
+				copy := outcome
+				partial = &copy
+				continue
+			}
+			if outcome.Status != "passed" {
+				return outcome
+			}
+		}
+		for _, target := range webTargets {
+			phaseFlags := flags
+			if phaseFlags.BuildPolicy == "once" && built[target] {
+				phaseFlags.Build = false
+			}
+			outcome := runWebPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			if outcome.Status != "passed" {
+				return outcome
+			}
+			if phaseFlags.BuildPolicy == "once" {
+				built[target] = true
+			}
+		}
+		if partial != nil {
+			return *partial
+		}
+		return testplan.PhaseResult{Status: "passed"}
+	}), func() io.Writer {
+		if flags.JSONStream {
+			return stdout
+		}
+		return nil
+	}())
+	if !flags.JSONStream {
+		if err := json.NewEncoder(stdout).Encode(result.Summary(flags.Target, "go-cli")); err != nil {
+			fmt.Fprintf(stderr, "failed to write test response: %v\n", err)
+			return 2
+		}
+	}
+	return result.ExitCode
+}
+
+func buildGoLifecyclePlanForPhase(root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, skipBuild bool) lifecycle.Plan {
+	phaseKey := phaseDependencyKey(projectConfig, phase, target)
+	dependencies := projectConfig.Dependencies[phaseKey]
+	service := dependencies[len(dependencies)-1]
+	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseKey}, Services: []string{service}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild || !flags.Build, NativeWait: hasCapability(providerConfig.Capabilities, "wait"), WaitTimeout: 120, OwnsProject: true}
 }
 
 func buildTestLifecyclePlan(root, project, target string, providerConfig provider.Provider, projectConfig config.Project, skipBuild bool) (lifecycle.Plan, string, error) {
@@ -707,6 +1186,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return result.Process.ExitCode
 	case "test":
+		if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+			fmt.Fprintln(stdout, `Usage: leedevkit test <target> [flags]
+
+Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet`)
+			return 0
+		}
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "test target is required")
 			return 2
@@ -719,6 +1204,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 		flags.BuildPolicy = projectConfig.BuildPolicy
+		flags.Build = true
 		for index, flag := range args[2:] {
 			if flag == "--base-ref" {
 				if index+3 >= len(args) {
@@ -774,11 +1260,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				index++
 			case "--json-stream":
 				flags.JSONStream = true
-			case "--json", "--quiet":
+			case "--json":
+				quiet = true
+				flags.JSON = true
+			case "--quiet":
 				quiet = true
 			default:
 				fmt.Fprintf(stderr, "unsupported test flag: %s\n", flag)
 				return 2
+			}
+		}
+		if !isInfraTarget(projectConfig, flags.Target) && !shouldUseGoTest(projectConfig, flags.Target) {
+			code := runMultiTargetTest(projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
+			if code >= 0 {
+				return code
 			}
 		}
 		if isInfraTarget(projectConfig, flags.Target) {
@@ -879,7 +1374,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD())}
-			readinessArgs := append(append([]string(nil), composeTool...), "-p", project, "ps", "--status", "running")
+			readinessArgs := append(append([]string(nil), composeTool...), "-p", project)
+			for _, file := range lifecyclePlan.Files {
+				readinessArgs = append(readinessArgs, "-f", file)
+			}
+			readinessArgs = append(readinessArgs, "ps", "--format", "json")
 			lifecycleExecutor := lifecycle.Executor{
 				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
 					file, err := os.OpenFile(filepath.Join(logDir, "lifecycle.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)

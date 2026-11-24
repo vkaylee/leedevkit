@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+func TestDoctorAssetRootForInstalledBinary(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "bin", "go", "leedevkit-go")
+	if got := doctorAssetRootFromExecutable(binary); got != root {
+		t.Fatalf("asset root = %q, want %q", got, root)
+	}
+}
+
 func TestGlobalDoctorAssetRootUsesExecutableDirectory(t *testing.T) {
 	assetRoot, err := globalDoctorAssetRoot()
 	if err != nil {

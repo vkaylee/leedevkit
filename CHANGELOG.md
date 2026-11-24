@@ -2,6 +2,19 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.11.10] - 2026-11-24
+
+### Fixed
+- Locate global rules and version correctly from the installed native binary when running `doctor`.
+- Show test usage for `leedevkit test --help` and `-h` without loading project configuration.
+
+### Added
+- Run configured TypeScript web tests and mixed Go/web targets with isolated Compose projects.
+- Emit `phase_started` events in JSONL test streams.
+
+### Verification
+- Web dispatch is covered by isolated fixtures; real Compose execution in representative consumer projects remains unverified.
+
 ## [0.11.9] - 2026-11-23
 
 ### Fixed

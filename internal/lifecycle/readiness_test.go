@@ -16,9 +16,9 @@ func TestReadinessWaitsForHealthyServices(t *testing.T) {
 			t.Fatalf("request = %#v", request)
 		}
 		if calls < 2 {
-			return process.Result{ExitCode: 1}
+			return process.Result{ExitCode: 0, Stdout: []byte(`[]`)}
 		}
-		return process.Result{ExitCode: 0}
+		return process.Result{ExitCode: 0, Stdout: []byte(`[{"Service":"project-go-1","State":"running","Health":"healthy"}]`)}
 	}}
 	if err := checker.Wait(context.Background(), []string{"docker", "compose", "ps", "--status", "running"}, []string{"go"}, 250*time.Millisecond); err != nil {
 		t.Fatal(err)
@@ -28,8 +28,19 @@ func TestReadinessWaitsForHealthyServices(t *testing.T) {
 	}
 }
 
+func TestReadinessRejectsUnhealthyService(t *testing.T) {
+	checker := Readiness{Run: func(context.Context, process.Request) process.Result {
+		return process.Result{ExitCode: 0, Stdout: []byte(`[{"Service":"api-1","State":"running","Health":"unhealthy"}]`)}
+	}}
+	if err := checker.Wait(context.Background(), []string{"compose", "ps"}, []string{"api"}, 10*time.Millisecond); err == nil {
+		t.Fatal("unhealthy service reported ready")
+	}
+}
+
 func TestReadinessTimesOut(t *testing.T) {
-	checker := Readiness{Run: func(context.Context, process.Request) process.Result { return process.Result{ExitCode: 1} }}
+	checker := Readiness{Run: func(context.Context, process.Request) process.Result {
+		return process.Result{ExitCode: 0, Stdout: []byte(`[]`)}
+	}}
 	if err := checker.Wait(context.Background(), []string{"compose", "ps"}, []string{"go"}, 10*time.Millisecond); err == nil {
 		t.Fatal("expected readiness timeout")
 	}

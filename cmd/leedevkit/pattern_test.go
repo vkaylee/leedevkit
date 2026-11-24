@@ -40,7 +40,7 @@ func TestPatternGoGate(t *testing.T) {
 func TestPatternCLIThroughCompose(t *testing.T) {
 	root := t.TempDir()
 	engine := filepath.Join(root, "compose-fixture")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$ARGV_LOG\"\nfor arg do\n if [ \"$arg\" = exec ]; then printf '%s\\n' \"$TEST_EVENT\"; fi\ndone\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$ARGV_LOG\"\nfor arg do\n if [ \"$arg\" = ps ]; then printf '[{\"Service\":\"backend\",\"State\":\"running\"}]\\n'; exit; fi\n if [ \"$arg\" = exec ]; then printf '%s\\n' \"$TEST_EVENT\"; fi\ndone\n"
 	if err := os.WriteFile(engine, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

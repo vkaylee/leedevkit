@@ -14,11 +14,11 @@ func TestCustomGateQuietPreservesLog(t *testing.T) {
 		t.Run(flag, func(t *testing.T) {
 			root := t.TempDir()
 			engine := filepath.Join(root, "compose-fixture")
-			script := "#!/bin/sh\nfor arg do\n case \"$arg\" in version) printf 'tool 1.0\\n'; exit;; setup|custom|teardown) printf '%s stdout\\n' \"$arg\"; printf '%s stderr\\n' \"$arg\" >&2; if [ \"$arg\" = custom ] && [ \"${FAIL_GATE:-}\" = yes ]; then exit 7; fi; if [ \"$arg\" = custom ] && [ \"${FAIL_GATE:-}\" = timeout ]; then sleep 3; fi; exit;; esac\ndone\nprintf 'lifecycle stdout\\n'\nprintf 'lifecycle stderr\\n' >&2\n"
+			script := "#!/bin/sh\nfor arg do\n case \"$arg\" in ps) printf '[{\"Service\":\"backend\",\"State\":\"running\"}]\\n'; exit;; version) printf 'tool 1.0\\n'; exit;; setup|custom|teardown) printf '%s stdout\\n' \"$arg\"; printf '%s stderr\\n' \"$arg\" >&2; if [ \"$arg\" = custom ] && [ \"${FAIL_GATE:-}\" = yes ]; then exit 7; fi; if [ \"$arg\" = custom ] && [ \"${FAIL_GATE:-}\" = timeout ]; then sleep 3; fi; exit;; esac\ndone\nprintf 'lifecycle stdout\\n'\nprintf 'lifecycle stderr\\n' >&2\n"
 			if err := os.WriteFile(engine, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			config := "[container]\nprovider = 'fixture'\n[container.providers.fixture]\ncli = ['fixture-engine']\ncompose = ['" + engine + "']\n[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n[quality.gates.custom]\nphase = 'unit'\ncommand = ['custom']\nversion_command = ['version']\nexpected_version = 'tool 1.0'\nsetup_command = ['setup']\nteardown_command = ['teardown']\ntimeout = 0.2\nrequired = true\n[quality.go]\nunit = ['custom']\n"
+			config := "[container]\nprovider = 'fixture'\n[container.providers.fixture]\ncli = ['fixture-engine']\ncompose = ['" + engine + "']\n[services.backend]\nlang = 'go'\n[targets]\nall = ['go']\n[quality.gates.custom]\nphase = 'unit'\ncommand = ['custom']\nversion_command = ['version']\nexpected_version = 'tool 1.0'\nsetup_command = ['setup']\nteardown_command = ['teardown']\ntimeout = 0.2\nrequired = true\n[quality.go]\nunit = ['custom']\n[test]\nbuild_policy = 'once'\n"
 			if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte(config), 0o600); err != nil {
 				t.Fatal(err)
 			}

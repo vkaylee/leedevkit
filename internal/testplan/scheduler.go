@@ -5,6 +5,8 @@ import "fmt"
 type Flags struct {
 	Target      string
 	BuildPolicy string
+	Build       bool
+	JSON        bool
 	LintOnly    bool
 	UnitOnly    bool
 	E2EOnly     bool
