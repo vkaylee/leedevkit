@@ -19,7 +19,29 @@ services:
     environment:
       GOTMPDIR: /go-tmp
     tmpfs:
-      - /go-tmp:rw,nosuid,nodev,size=1g
+      - /go-tmp:rw,nosuid,nodev,exec,size=1g
+    command: ["sleep", "infinity"]
+    healthcheck:
+      test: ["CMD", "go", "version"]
+  infra:
+    profiles: ["infra"]
+    x-leedevkit-build-inputs:
+      - Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GO_VERSION: ${GO_VERSION:-1.26}
+    volumes:
+      - ${LEEDEVKIT_PROJECT_ROOT:?LEEDEVKIT_PROJECT_ROOT must be set}:/workspace:ro
+      - go-module-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    working_dir: /workspace
+    network_mode: "none"
+    environment:
+      GOTMPDIR: /go-tmp
+    tmpfs:
+      - /go-tmp:rw,nosuid,nodev,exec,size=1g
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "go", "version"]

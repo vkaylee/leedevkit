@@ -49,11 +49,11 @@ leedevkit run go test ./...
 
 Go `go test ./...` runs during unit phase. Integration phase skips duplicate package tests. Rust uses analogous `cargo fmt`, `cargo clippy`, `cargo nextest`, and `cargo llvm-cov` commands.
 
-Go-only and Rust-only projects use built-in single-service Compose files. Mixed projects need `.compose/docker-compose.test.yml` defining all required services; built-in language files cannot run mixed stacks.
+Go-only and Rust-only projects use built-in Compose files. Mixed projects need `.compose/docker-compose.test.yml` defining all required services; built-in language files cannot run mixed stacks. LeeDevKit infrastructure checks also run inside the built-in Go Compose service, and Go/Rust dependency and build caches use stable named volumes across test runs.
 
 ## Layout
 
-Both profiles mount project root at `/workspace`, persist dependency/build caches, and expose stable built-in service names: `rust` and `go`.
+Both profiles mount project root at `/workspace`, persist dependency/build caches in stable named volumes, and expose stable built-in service names: `rust` and `go`. LeeDevKit infrastructure checks all run through the Go Compose service, including shell syntax, installer acceptance, and skill utility checks.
 
 ```text
 project/

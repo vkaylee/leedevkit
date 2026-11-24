@@ -42,16 +42,49 @@ func TestInfraRunRequiresEveryCheckAndPropagatesFailure(t *testing.T) {
 	}
 }
 
-func TestInfraIncludesGoQualityGates(t *testing.T) {
+func TestInfraRunsGoQualityGatesThroughCompose(t *testing.T) {
 	var commands []string
 	runInfra(t.TempDir(), testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
 		commands = append(commands, strings.Join(request.Args, " "))
 		return process.Result{}
 	}, nil)
 	joined := strings.Join(commands, "\n")
-	for _, check := range []string{"gofmt", "go vet", "go test -cover"} {
+	for _, check := range []string{"go test ./...", "gofmt -l", "go vet ./...", "go test -coverpkg=./..."} {
 		if !strings.Contains(joined, check) {
 			t.Errorf("missing %s gate", check)
+		}
+	}
+	for _, command := range commands {
+		if strings.HasPrefix(command, "docker run ") {
+			t.Errorf("Go quality check bypasses Compose: %s", command)
+		}
+		if strings.Contains(command, "docker compose") && (!strings.Contains(command, "run --rm -T --no-deps --build --workdir /workspace infra") || !strings.Contains(command, "-f ")) {
+			t.Errorf("invalid Compose Go check invocation: %s", command)
+		}
+	}
+}
+
+func TestInfraComposeUsesProjectAndRoot(t *testing.T) {
+	root := t.TempDir()
+	got := infraComposeCommand(root, "leedevkit-infra-test", filepath.Join(root, "container", "go", "docker-compose.test.yml"), []string{"go", "test", "./..."})
+	joined := strings.Join(got, " ")
+	for _, want := range []string{"compose", "-p", "leedevkit-infra-test", filepath.Join(root, "container", "go", "docker-compose.test.yml"), "run --rm -T --no-deps --build --workdir /workspace infra go test ./..."} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("Compose command %q does not contain %q", joined, want)
+		}
+	}
+}
+
+func TestInfraAllChecksUseComposeService(t *testing.T) {
+	root := t.TempDir()
+	commands := runInfraCommands(root, "leedevkit-infra-test", filepath.Join(root, "container", "go", "docker-compose.test.yml"))
+	if len(commands) != 12 {
+		t.Fatalf("checks = %d, want 12", len(commands))
+	}
+	for _, command := range commands {
+		joined := strings.Join(command, " ")
+		if !strings.HasPrefix(joined, "docker compose ") || !strings.Contains(joined, "run --rm -T --no-deps --build --workdir /workspace infra") {
+			t.Errorf("check bypasses Compose infra service: %v", command)
 		}
 	}
 }
@@ -67,22 +100,6 @@ func TestInfraRejectsUnrecognizedFlags(t *testing.T) {
 			t.Errorf("rejected %s: %v", flag, err)
 		}
 	}
-}
-
-func TestInfraUsesReadOnlyDockerSourceMount(t *testing.T) {
-	root := t.TempDir()
-	runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
-		if len(request.Args) > 0 && request.Args[0] == "docker" {
-			found := false
-			for _, arg := range request.Args {
-				found = found || arg == root+":/workspace:ro"
-			}
-			if !found {
-				t.Errorf("docker source mount is not read-only: %v", request.Args)
-			}
-		}
-		return process.Result{}
-	}, nil)
 }
 
 func TestInfraRejectsOtherProjects(t *testing.T) {

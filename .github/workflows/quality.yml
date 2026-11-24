@@ -26,28 +26,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check Go core
+      - name: Build current-source CLI in Compose
+        env:
+          LEEDEVKIT_PROJECT_ROOT: ${{ github.workspace }}
         run: |
-          docker run --rm -v "$PWD":/workspace -w /workspace golang:1.26.11-bookworm go test ./... </dev/null
-
-      - name: Check shell syntax
-        run: |
-          for script in install.sh bootstrap.sh bin/leedevkit leedevkit tests/install-test.sh; do
-            bash -n "$script" </dev/null
-          done
-
-      - name: Test global installer
-        run: bash tests/install-test.sh </dev/null
-
-      - name: Smoke test agent skill utilities
-        run: |
-          bash -n scripts/test-skill-utilities.sh
-          scripts/test-skill-utilities.sh
+          mkdir -p .leedevkit-go-build
+          docker compose -p leedevkit-source-quality -f container/go/docker-compose.test.yml run --rm -T --no-deps --build go go build -buildvcs=false -o /workspace/.leedevkit-go-build/leedevkit-go ./cmd/leedevkit
 
       - name: Run configured full regression gate
+        env:
+          LEEDEVKIT_PROJECT_ROOT: ${{ github.workspace }}
         run: |
-          docker run --rm -v "$PWD":/workspace:ro -v "$RUNNER_TEMP":/output -w /workspace golang:1.26.11-bookworm go build -buildvcs=false -o /output/leedevkit ./cmd/leedevkit
-          "$RUNNER_TEMP/leedevkit" test all --json </dev/null
+          docker compose -p leedevkit-source-quality -f container/go/docker-compose.test.yml run --rm -T --no-deps go /workspace/.leedevkit-go-build/leedevkit-go test all --json </dev/null
 
       - name: Upload quality and supply-chain evidence
         if: always()

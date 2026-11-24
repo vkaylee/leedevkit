@@ -37,20 +37,14 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 	if compact {
 		flags.JSONStream = false
 	}
-	checks := [][]string{
-		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "test", "./..."},
-		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
-		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "go", "vet", "./..."},
-		{"docker", "run", "--rm", "-v", root + ":/workspace:ro", "-w", "/workspace", "golang:1.26.11-bookworm", "sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`},
-		{"bash", "-n", "install.sh"},
-		{"bash", "-n", "bootstrap.sh"},
-		{"bash", "-n", "bin/leedevkit"},
-		{"bash", "-n", "leedevkit"},
-		{"bash", "-n", "tests/install-test.sh"},
-		{"bash", "-n", "scripts/test-skill-utilities.sh"},
-		{"bash", "tests/install-test.sh"},
-		{"bash", "scripts/test-skill-utilities.sh"},
+	project := fmt.Sprintf("leedevkit-infra-%x-%x", fnv32a(root), os.Getpid())
+	composeFile := filepath.Join(root, "container", "go", "docker-compose.test.yml")
+	if !fileExists(composeFile) {
+		if assetRoot, err := runtimeAssetRoot(); err == nil {
+			composeFile = filepath.Join(assetRoot, "container", "go", "docker-compose.test.yml")
+		}
 	}
+	checks := runInfraCommands(root, project, composeFile)
 	flags.Target = "infra"
 	var failureLogs []string
 	result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
@@ -76,7 +70,7 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 				live = &infraPrefixWriter{writer: stream, prefix: fmt.Sprintf("[infra-%02d] ", index+1)}
 			}
 			output := &infraOutputWriter{log: logFile, live: live}
-			child := run(context.Background(), process.Request{Args: command, Dir: root, Env: os.Environ(), Stdout: output, Stderr: output, Timeout: infraChildTimeout})
+			child := run(context.Background(), process.Request{Args: command, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output, Timeout: infraChildTimeout})
 			if err := output.Close(); err != nil {
 				return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
 			}
@@ -100,6 +94,33 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		collectFailureDetails(root, result, failureOutput)
 	})
 	return result
+}
+
+func runInfraCommands(root, project, composeFile string) [][]string {
+	checks := [][]string{
+		{"go", "test", "./..."},
+		{"sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
+		{"go", "vet", "./..."},
+		{"sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`},
+		{"bash", "-n", "install.sh"},
+		{"bash", "-n", "bootstrap.sh"},
+		{"bash", "-n", "bin/leedevkit"},
+		{"bash", "-n", "leedevkit"},
+		{"bash", "-n", "tests/install-test.sh"},
+		{"bash", "-n", "scripts/test-skill-utilities.sh"},
+		{"bash", "tests/install-test.sh"},
+		{"bash", "scripts/test-skill-utilities.sh"},
+	}
+	commands := make([][]string, len(checks))
+	for index, check := range checks {
+		commands[index] = infraComposeCommand(root, project, composeFile, check)
+	}
+	return commands
+}
+
+func infraComposeCommand(root, project, composeFile string, command []string) []string {
+	args := []string{"docker", "compose", "-p", project, "-f", composeFile, "run", "--rm", "-T", "--no-deps", "--build", "--workdir", "/workspace", "infra"}
+	return append(args, command...)
 }
 
 const infraChildTimeout = 30 * time.Minute

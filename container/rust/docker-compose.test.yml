@@ -38,4 +38,6 @@ services:
 
 volumes:
   cargo-registry:
+    name: leedevkit_cargo-registry
   cargo-target:
+    name: leedevkit_cargo-target
