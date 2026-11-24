@@ -2,6 +2,13 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.12.2] - 2026-11-24
+
+### Changed
+- Run Go infrastructure checks and CI source verification through Docker Compose test services instead of ad hoc containers.
+- Persist Rust Cargo registry and build caches with stable named volumes across test runs.
+- Use the globally installed CLI as the documented repository command; clarify local launcher requirements.
+
 ## [0.12.1] - 2026-11-24
 
 ### Added
