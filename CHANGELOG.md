@@ -2,6 +2,12 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.12.3] - 2026-11-24
+
+### Fixed
+- Do not automatically inject compose services as targets when `[targets]` is defined in `leedevkit.toml`.
+- Filter targets without configured test phases from `leedevkit targets` output.
+
 ## [0.12.2] - 2026-11-24
 
 ### Changed
