@@ -19,11 +19,13 @@ func TestRunInfraLogsEveryCheckAndPrefixesLiveOutput(t *testing.T) {
 	var live strings.Builder
 	var seen int
 	result := runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
-		seen++
 		if request.Timeout <= 0 {
 			t.Error("child check has no timeout")
 		}
-		_, _ = request.Stdout.Write([]byte("line one\nlast line"))
+		if hasArg(request.Args, "exec") {
+			seen++
+			_, _ = request.Stdout.Write([]byte("line one\nlast line"))
+		}
 		return process.Result{}
 	}, &live)
 	if seen != 12 {
@@ -108,6 +110,9 @@ func TestRunInfraFailureIncludesTaskLogAndContinuesAllChecks(t *testing.T) {
 	root := t.TempDir()
 	var calls int
 	result := runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
 		calls++
 		_, _ = request.Stderr.Write([]byte("check failed"))
 		if calls == 3 {
@@ -142,6 +147,9 @@ func TestRunInfraStreamIncludesParsedFailure(t *testing.T) {
 	var stream strings.Builder
 	calls := 0
 	runInfra(root, testplan.Flags{Target: "infra", JSONStream: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
 		calls++
 		if calls == 1 {
 			_, _ = request.Stdout.Write([]byte("--- FAIL: TestBroken (0.00s)\n    bad_test.go:9: broken\n"))
@@ -169,6 +177,9 @@ func TestRunInfraKeepsAllFailedCheckLogs(t *testing.T) {
 	root := t.TempDir()
 	calls := 0
 	result := runInfra(root, testplan.Flags{Target: "infra", Compact: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
 		calls++
 		_, _ = request.Stdout.Write([]byte("check output"))
 		if calls == 2 || calls == 4 {
@@ -178,6 +189,43 @@ func TestRunInfraKeepsAllFailedCheckLogs(t *testing.T) {
 	}, nil)
 	if len(result.FailureLogs) != 2 || !strings.HasSuffix(result.FailureLogs[0], "infra-02.log") || !strings.HasSuffix(result.FailureLogs[1], "infra-04.log") {
 		t.Fatalf("failed logs = %v", result.FailureLogs)
+	}
+}
+
+func TestRunInfraStartupFailureBlocksAndCleansUp(t *testing.T) {
+	root := t.TempDir()
+	var ops []string
+	result := runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+		switch {
+		case hasArg(request.Args, "up"):
+			ops = append(ops, "up")
+			return process.Result{ExitCode: 1, Stderr: []byte("daemon unavailable")}
+		case hasArg(request.Args, "down"):
+			ops = append(ops, "down")
+			return process.Result{}
+		default:
+			ops = append(ops, "exec")
+			return process.Result{}
+		}
+	}, nil)
+	if result.Status != "blocked" || result.ExitCode != 1 {
+		t.Fatalf("result = %#v, want blocked exit 1", result)
+	}
+	if strings.Join(ops, ",") != "up,down" {
+		t.Fatalf("ops = %v, want [up down]", ops)
+	}
+}
+
+func TestRunInfraTeardownFailureFailsPassingRun(t *testing.T) {
+	root := t.TempDir()
+	result := runInfra(root, testplan.Flags{Target: "infra"}, func(_ context.Context, request process.Request) process.Result {
+		if hasArg(request.Args, "down") {
+			return process.Result{ExitCode: 1, Stderr: []byte("down failed")}
+		}
+		return process.Result{}
+	}, nil)
+	if result.Status != "failed" || result.ExitCode != 1 || !strings.Contains(result.LifecycleError, "teardown") {
+		t.Fatalf("result = %#v, want teardown failure", result)
 	}
 }
 

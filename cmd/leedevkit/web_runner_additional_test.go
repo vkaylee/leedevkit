@@ -331,12 +331,12 @@ func TestBuildOnceStartsWithBuildThenSkipsBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasArg(firstArgs, "--build") || !hasArg(secondArgs, "--no-build") {
+	if !hasArg(firstArgs, "--build") || hasArg(secondArgs, "--build") || hasArg(secondArgs, "--no-build") {
 		t.Fatalf("first=%v second=%v", firstArgs, secondArgs)
 	}
 }
 
-func TestWebLifecycleBuildPolicyUsesNoBuildAfterFirst(t *testing.T) {
+func TestWebLifecycleBuildPolicyOmitsBuildAfterFirst(t *testing.T) {
 	project := config.Project{Services: map[string]config.Service{"webdashboard": {Language: "typescript"}}, Targets: map[string][]string{"web": {"webdashboard"}}, Dependencies: map[string][]string{"unit-web": {"bun_init", "webdashboard"}}}
 	providerConfig := provider.Provider{Name: "fixture", Compose: []string{"compose"}, Capabilities: []string{"compose", "config", "up", "down", "ps"}}
 	built, _, _, err := buildWebLifecyclePlan("/fixture", "fixture", providerConfig, project, "webdashboard", "Unit Tests", testplan.Flags{Build: true}, false)
@@ -344,7 +344,7 @@ func TestWebLifecycleBuildPolicyUsesNoBuildAfterFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	flags := testplan.Flags{Build: false}
-	noBuild, _, _, err := buildWebLifecyclePlan("/fixture", "fixture", providerConfig, project, "webdashboard", "Unit Tests", flags, false)
+	defaultPlan, _, _, err := buildWebLifecyclePlan("/fixture", "fixture", providerConfig, project, "webdashboard", "Unit Tests", flags, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,12 +352,12 @@ func TestWebLifecycleBuildPolicyUsesNoBuildAfterFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noBuildArgs, err := noBuild.Up()
+	defaultArgs, err := defaultPlan.Up()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasArg(builtArgs, "--build") || !hasArg(noBuildArgs, "--no-build") {
-		t.Fatalf("built=%v no-build=%v", builtArgs, noBuildArgs)
+	if !hasArg(builtArgs, "--build") || hasArg(defaultArgs, "--build") || hasArg(defaultArgs, "--no-build") {
+		t.Fatalf("built=%v default=%v", builtArgs, defaultArgs)
 	}
 }
 

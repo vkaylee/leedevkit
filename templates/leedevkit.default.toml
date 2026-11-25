@@ -53,7 +53,10 @@ web = ["webdashboard"]
 all = ["apiserver", "agent-main", "webdashboard"]
 
 # ── Test image build policy ────────────────────────────────────────────────
-# Build each image once per `leedevkit test` invocation, or once per phase.
+# Images build automatically only when missing. When `--build` is passed,
+# rebuild each image once per `leedevkit test` invocation, or once per phase.
+# Pin `image:` on services in `.compose/docker-compose.test.yml` to reuse images
+# across isolated test runs.
 [test]
 build_policy = "once"
 

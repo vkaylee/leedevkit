@@ -35,7 +35,7 @@ func TestUpNativeWaitUsesSingleComposeCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"docker", "compose", "-p", "leedevkit-test-abc", "-f", "compose.yml", "--profile", "go", "up", "-d", "--no-build", "--wait", "--wait-timeout", "120", "go", "postgres"}
+	want := []string{"docker", "compose", "-p", "leedevkit-test-abc", "-f", "compose.yml", "--profile", "go", "up", "-d", "--wait", "--wait-timeout", "120", "go", "postgres"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}

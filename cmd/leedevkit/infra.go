@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/testplan"
 )
@@ -24,12 +26,17 @@ func validateInfraProject(root string) error {
 
 func validateInfraFlags(args []string) error {
 	for _, flag := range args {
-		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" && flag != "--failed-only" && flag != "--compact" {
+		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" && flag != "--failed-only" && flag != "--compact" && flag != "--build" {
 			return fmt.Errorf("unsupported flag for infrastructure checks: %s", flag)
 		}
 	}
 	return nil
 }
+
+type infraWriteError struct{ err error }
+
+func (e *infraWriteError) Error() string { return e.err.Error() }
+func (e *infraWriteError) Unwrap() error { return e.err }
 
 func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer, quietMode ...bool) testplan.RunResult {
 	compact := flags.FailedOnly || flags.Compact
@@ -44,6 +51,8 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 			composeFile = filepath.Join(assetRoot, "container", "go", "docker-compose.test.yml")
 		}
 	}
+	upArgs := infraUpCommand(project, composeFile, flags.Build)
+	downArgs := infraDownCommand(project, composeFile)
 	checks := runInfraCommands(root, project, composeFile)
 	flags.Target = "infra"
 	var failureLogs []string
@@ -55,36 +64,82 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		if err != nil {
 			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "infrastructure task logging unavailable: " + process.RedactDiagnostic(err.Error())}
 		}
-		status, code := "passed", 0
-		var failures []string
-		var firstLog string
-		for index, command := range checks {
-			logName := infraLogName(index + 1)
-			logPath := filepath.Join(logDir, logName)
-			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-			if err != nil {
-				return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: fmt.Sprintf("infrastructure logging failed before task %02d (log: %s): %s", index+1, filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
-			}
-			var live io.Writer = io.Discard
-			if !quiet && stream != nil {
-				live = &infraPrefixWriter{writer: stream, prefix: fmt.Sprintf("[infra-%02d] ", index+1)}
-			}
-			output := &infraOutputWriter{log: logFile, live: live}
-			child := run(context.Background(), process.Request{Args: command, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output, Timeout: infraChildTimeout})
-			if err := output.Close(); err != nil {
-				return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), process.RedactDiagnostic(err.Error()))}
-			}
-			if child.ExitCode != 0 {
-				failureLogs = append(failureLogs, filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)))
-				if code == 0 {
-					code = child.ExitCode
-					firstLog = filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+		env := withProjectRoot(os.Environ(), root)
+		lifecycleLogName := "infra-lifecycle.log"
+		lifecycleRelLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), lifecycleLogName))
+		executor := lifecycle.Executor{
+			UpArgs:   upArgs,
+			DownArgs: downArgs,
+			Execute: func(ctx context.Context, args []string) error {
+				logFile, err := os.OpenFile(filepath.Join(logDir, lifecycleLogName), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+				if err != nil {
+					return err
 				}
-				status = "failed"
-				failures = append(failures, fmt.Sprintf("%s: %s (log: %s)", process.RedactDiagnostic(strings.Join(command, " ")), child.Diagnostic(), filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))))
-			}
+				var live io.Writer = io.Discard
+				if !quiet && stream != nil {
+					live = &infraPrefixWriter{writer: stream, prefix: "[infra] "}
+				}
+				output := &infraOutputWriter{log: logFile, live: live}
+				child := run(ctx, process.Request{Args: args, Dir: root, Env: env, Stdout: output, Stderr: output, Timeout: infraChildTimeout})
+				if err := output.Close(); err != nil {
+					return &infraWriteError{err: err}
+				}
+				if child.ExitCode != 0 {
+					return errors.New(child.Diagnostic())
+				}
+				return nil
+			},
 		}
-		return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(failures, "; "), Command: "source-quality checks", Log: firstLog}
+		var outcome testplan.PhaseResult
+		lifecycleErr := executor.Run(context.Background(), func() error {
+			status, code := "passed", 0
+			var failures []string
+			var firstLog string
+			for index, command := range checks {
+				logName := infraLogName(index + 1)
+				relLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+				logFile, err := os.OpenFile(filepath.Join(logDir, logName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+				if err != nil {
+					outcome = testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: fmt.Sprintf("infrastructure logging failed before task %02d (log: %s): %s", index+1, relLog, process.RedactDiagnostic(err.Error()))}
+					return errors.New(outcome.Diagnostic)
+				}
+				var live io.Writer = io.Discard
+				if !quiet && stream != nil {
+					live = &infraPrefixWriter{writer: stream, prefix: fmt.Sprintf("[infra-%02d] ", index+1)}
+				}
+				output := &infraOutputWriter{log: logFile, live: live}
+				child := run(context.Background(), process.Request{Args: command, Dir: root, Env: env, Stdout: output, Stderr: output, Timeout: infraChildTimeout})
+				if err := output.Close(); err != nil {
+					outcome = testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", relLog, process.RedactDiagnostic(err.Error()))}
+					return errors.New(outcome.Diagnostic)
+				}
+				if child.ExitCode != 0 {
+					failureLogs = append(failureLogs, relLog)
+					if code == 0 {
+						code = child.ExitCode
+						firstLog = relLog
+					}
+					status = "failed"
+					failures = append(failures, fmt.Sprintf("%s: %s (log: %s)", process.RedactDiagnostic(strings.Join(command, " ")), child.Diagnostic(), relLog))
+				}
+			}
+			outcome = testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(failures, "; "), Command: "source-quality checks", Log: firstLog}
+			if status != "passed" {
+				return errors.New(outcome.Diagnostic)
+			}
+			return nil
+		})
+		if lifecycleErr != nil && (outcome.Status == "" || outcome.Status == "passed") {
+			var writeErr *infraWriteError
+			if errors.As(lifecycleErr, &writeErr) {
+				return testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", lifecycleRelLog, process.RedactDiagnostic(writeErr.Error())), Log: lifecycleRelLog}
+			}
+			status, code := lifecycleFailureStatus(lifecycleErr)
+			diagnostic := process.RedactDiagnostic(lifecycleErr.Error())
+			failureLogs = append(failureLogs, lifecycleRelLog)
+			return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: diagnostic, LifecycleError: diagnostic, Command: strings.Join(process.RedactArgs(upArgs), " "), Log: lifecycleRelLog}
+		}
+		return outcome
 	}), stream, func(result *testplan.RunResult) {
 		result.FailureLogs = failureLogs
 		var failureOutput io.Writer
@@ -94,6 +149,18 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 		collectFailureDetails(root, result, failureOutput)
 	})
 	return result
+}
+
+func infraUpCommand(project, composeFile string, build bool) []string {
+	args := []string{"docker", "compose", "-p", project, "-f", composeFile, "--profile", "infra", "up", "-d"}
+	if build {
+		args = append(args, "--build")
+	}
+	return append(args, "--wait", "--wait-timeout", "120", "infra")
+}
+
+func infraDownCommand(project, composeFile string) []string {
+	return []string{"docker", "compose", "-p", project, "-f", composeFile, "down", "--remove-orphans", "--timeout", "1"}
 }
 
 func runInfraCommands(root, project, composeFile string) [][]string {
@@ -119,7 +186,7 @@ func runInfraCommands(root, project, composeFile string) [][]string {
 }
 
 func infraComposeCommand(root, project, composeFile string, command []string) []string {
-	args := []string{"docker", "compose", "-p", project, "-f", composeFile, "run", "--rm", "-T", "--no-deps", "--build", "--workdir", "/workspace", "infra"}
+	args := []string{"docker", "compose", "-p", project, "-f", composeFile, "exec", "-T", "-w", "/workspace", "infra"}
 	return append(args, command...)
 }
 

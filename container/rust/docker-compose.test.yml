@@ -13,8 +13,7 @@
 
 services:
   rust:
-    x-leedevkit-build-inputs:
-      - Dockerfile
+    image: leedevkit-rust:${RUST_VERSION:-1.85}
     build:
       context: .
       dockerfile: Dockerfile

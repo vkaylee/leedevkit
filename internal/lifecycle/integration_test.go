@@ -20,7 +20,7 @@ func TestPlanBuildsUpAndDownForComposeExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(up, []string{"docker", "compose", "-p", "leedevkit-test", "-f", "compose.yml", "--profile", "go", "up", "-d", "--no-build", "go"}) {
+	if !reflect.DeepEqual(up, []string{"docker", "compose", "-p", "leedevkit-test", "-f", "compose.yml", "--profile", "go", "up", "-d", "go"}) {
 		t.Fatalf("up = %#v", up)
 	}
 	if !reflect.DeepEqual(down, []string{"docker", "compose", "-p", "leedevkit-test", "-f", "compose.yml", "down", "--remove-orphans", "--timeout", "1"}) {

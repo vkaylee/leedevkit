@@ -486,7 +486,7 @@ func buildWebLifecyclePlan(root, project string, providerConfig provider.Provide
 	} else {
 		workdir = filepath.Join(workdir, target)
 	}
-	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseTarget}, Services: []string{serviceName}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild || !flags.Build, OwnsProject: true}, serviceName, workdir, nil
+	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseTarget}, Services: []string{serviceName}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild, OwnsProject: true}, serviceName, workdir, nil
 }
 
 func uniqueTestProject(root string) string {
@@ -904,10 +904,10 @@ func buildGoLifecyclePlanForPhase(root, project string, providerConfig provider.
 	phaseKey := phaseDependencyKey(projectConfig, phase, target)
 	dependencies := projectConfig.Dependencies[phaseKey]
 	service := dependencies[len(dependencies)-1]
-	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseKey}, Services: []string{service}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild || !flags.Build, NativeWait: hasCapability(providerConfig.Capabilities, "wait"), WaitTimeout: 120, OwnsProject: true}
+	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseKey}, Services: []string{service}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild, NativeWait: hasCapability(providerConfig.Capabilities, "wait"), WaitTimeout: 120, OwnsProject: true}
 }
 
-func buildTestLifecyclePlan(root, project, target string, providerConfig provider.Provider, projectConfig config.Project, skipBuild bool) (lifecycle.Plan, string, error) {
+func buildTestLifecyclePlan(root, project, target string, providerConfig provider.Provider, projectConfig config.Project, build, skipBuild bool) (lifecycle.Plan, string, error) {
 	service := configuredServiceName(projectConfig, "go")
 	files, err := testComposeFiles(root)
 	if err != nil {
@@ -920,6 +920,7 @@ func buildTestLifecyclePlan(root, project, target string, providerConfig provide
 		Profiles:     []string{"--profile", "go"},
 		Services:     []string{service},
 		Dependencies: testDependencies(projectConfig, target),
+		Build:        !skipBuild && build,
 		SkipBuild:    skipBuild,
 		OwnsProject:  true,
 	}, service, nil
@@ -1268,7 +1269,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 			fmt.Fprintln(stdout, `Usage: leedevkit test <target> [flags]
 
-Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet --failed-only --compact`)
+Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet --failed-only --compact`)
 			return 0
 		}
 		if len(args) < 2 {
@@ -1283,7 +1284,6 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 			return 2
 		}
 		flags.BuildPolicy = projectConfig.BuildPolicy
-		flags.Build = true
 		for index, flag := range args[2:] {
 			if flag == "--base-ref" {
 				if index+3 >= len(args) {
@@ -1306,6 +1306,8 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 		for index := 0; index < len(args[2:]); index++ {
 			flag := args[index+2]
 			switch flag {
+			case "--build":
+				flags.Build = true
 			case "--lint-only":
 				flags.LintOnly = true
 			case "--unit-only":
@@ -1417,7 +1419,7 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				return 2
 			}
 			composeTool = providerConfig.Compose
-			lifecyclePlan, goService, lifecyclePlanErr := buildTestLifecyclePlan(projectRootOrCWD(), project, flags.Target, providerConfig, projectConfig, flags.SkipBuild)
+			lifecyclePlan, goService, lifecyclePlanErr := buildTestLifecyclePlan(projectRootOrCWD(), project, flags.Target, providerConfig, projectConfig, flags.Build, flags.SkipBuild)
 			if lifecyclePlanErr != nil {
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v\n", lifecyclePlanErr)
 				return 2
@@ -1435,30 +1437,13 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				fmt.Fprintf(stderr, "test logging unavailable: %s\n", process.RedactDiagnostic(logErr.Error()))
 				return 2
 			}
-			buildLog, logErr := os.OpenFile(filepath.Join(logDir, "build.log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-			if logErr != nil {
-				fmt.Fprintf(stderr, "build logging unavailable: %s\n", process.RedactDiagnostic(logErr.Error()))
-				return 2
-			}
-			defer buildLog.Close()
-			var buildLive io.Writer = io.Discard
-			if !quiet && !flags.JSONStream {
-				buildLive = &infraPrefixWriter{writer: stderr, prefix: "[build] "}
-			}
-			buildOutput := &infraOutputWriter{log: buildLog, live: buildLive}
-			serviceConfig, _ := projectConfig.ServiceForLanguage("go")
-			buildCallback, _, buildErr := buildCallbackForService(projectRootOrCWD(), project, lifecyclePlan, serviceConfig, projectConfig.BuildPolicy, flags.SkipBuild, newBuildRunner(projectRootOrCWD(), project, buildOutput))
-			if buildErr != nil {
-				fmt.Fprintf(stderr, "invalid build plan: %v\n", buildErr)
-				return 2
-			}
-			if buildCallback != nil {
-				lifecyclePlan.Build = projectConfig.BuildPolicy == "phase"
-			}
 			upArgs, upErr := lifecyclePlan.Up()
+			nextPlan := lifecyclePlan
+			nextPlan.Build = false
+			nextUpArgs, nextUpErr := nextPlan.Up()
 			downArgs, downErr := lifecyclePlan.Down()
-			if upErr != nil || downErr != nil {
-				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v\n", upErr, downErr)
+			if upErr != nil || nextUpErr != nil || downErr != nil {
+				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v %v\n", upErr, nextUpErr, downErr)
 				return 2
 			}
 			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD())}
@@ -1492,62 +1477,63 @@ Flags: --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fi
 				},
 			}
 			gateIndex := 0
+			built := false
 			compact := flags.FailedOnly || flags.Compact
 			if compact {
 				flags.JSONStream = false
 				quiet = true
 			}
-			result := testplan.Run(flags, testplan.ComposePhaseExecutor{
-				Build: func(ctx context.Context, _ testplan.Phase) error {
-					if buildCallback == nil {
-						return nil
-					}
-					err := buildCallback(ctx)
-					if buildOutput.err != nil {
-						return buildOutput.err
-					}
-					return err
-				},
-				Lifecycle: lifecycleExecutor,
-				Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
-					gateIndex++
-					logName := fmt.Sprintf("gate-%02d.log", gateIndex)
-					logPath := filepath.Join(logDir, logName)
-					relativeLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
-					file, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-					if err != nil {
-						return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable: " + process.RedactDiagnostic(err.Error())}
-					}
-					var live io.Writer = io.Discard
-					if !quiet && !flags.JSONStream {
-						live = &infraPrefixWriter{writer: stdout, prefix: fmt.Sprintf("[gate-%02d] ", gateIndex)}
-					}
-					output := &infraOutputWriter{log: file, live: live}
-					runner := compose
-					runner.Output = output
-					runGate := func(ctx context.Context, args []string, environment []string) process.Result {
-						runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) == 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json" && args[3] == "./..."
-						result := runner.Run(ctx, args, environment)
-						if flags.Pattern != "" && result.ExitCode == 0 {
-							matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
-							if err != nil {
-								result.ExitCode, result.Err = 1, err
-							} else if !matched {
-								result.ExitCode, result.Err = 1, fmt.Errorf("no tests matched --pattern")
-							}
+			result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
+				phaseLifecycle := lifecycleExecutor
+				if projectConfig.BuildPolicy == "once" && built {
+					phaseLifecycle.UpArgs = nextUpArgs
+				}
+				phaseResult := (testplan.ComposePhaseExecutor{
+					Lifecycle: phaseLifecycle,
+					Gate: func(ctx context.Context, phase testplan.Phase) testplan.PhaseResult {
+						gateIndex++
+						logName := fmt.Sprintf("gate-%02d.log", gateIndex)
+						logPath := filepath.Join(logDir, logName)
+						relativeLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
+						file, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+						if err != nil {
+							return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable: " + process.RedactDiagnostic(err.Error())}
 						}
-						return result
-					}
-					outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
-					if err := output.Close(); err != nil {
-						return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
-					}
-					if outcome.Status != "passed" {
-						outcome.Log = relativeLog
-					}
-					return outcome
-				},
-			}, stdout, func(result *testplan.RunResult) {
+						var live io.Writer = io.Discard
+						if !quiet && !flags.JSONStream {
+							live = &infraPrefixWriter{writer: stdout, prefix: fmt.Sprintf("[gate-%02d] ", gateIndex)}
+						}
+						output := &infraOutputWriter{log: file, live: live}
+						runner := compose
+						runner.Output = output
+						runGate := func(ctx context.Context, args []string, environment []string) process.Result {
+							runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) == 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json" && args[3] == "./..."
+							result := runner.Run(ctx, args, environment)
+							if flags.Pattern != "" && result.ExitCode == 0 {
+								matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
+								if err != nil {
+									result.ExitCode, result.Err = 1, err
+								} else if !matched {
+									result.ExitCode, result.Err = 1, fmt.Errorf("no tests matched --pattern")
+								}
+							}
+							return result
+						}
+						outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
+						if err := output.Close(); err != nil {
+							return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
+						}
+						if outcome.Status != "passed" {
+							outcome.Log = relativeLog
+						}
+						return outcome
+					},
+				}).ExecuteContext(context.Background(), phase)
+				if phaseResult.Status == "passed" {
+					built = true
+				}
+				return phaseResult
+			}), stdout, func(result *testplan.RunResult) {
 				var failureOutput io.Writer
 				if compact {
 					failureOutput = stdout

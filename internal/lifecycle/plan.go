@@ -8,21 +8,20 @@ import (
 )
 
 type Plan struct {
-	Provider      provider.Provider `json:"provider"`
-	Project       string            `json:"project"`
-	Files         []string          `json:"files"`
-	Profiles      []string          `json:"profiles"`
-	Services      []string          `json:"services"`
-	Dependencies  []string          `json:"dependencies"`
-	Build         bool              `json:"build"`
-	SkipBuild     bool              `json:"skip_build"`
-	NativeWait    bool              `json:"native_wait"`
-	WaitTimeout   int               `json:"wait_timeout"`
-	OwnsProject   bool              `json:"owns_project"`
-	NoDeps        bool              `json:"no_deps"`
-	OverrideFile  string            `json:"override_file"`
-	BuildPolicy   BuildPolicy       `json:"build_policy"`
-	BuildMetadata BuildMetadata     `json:"build_metadata"`
+	Provider     provider.Provider `json:"provider"`
+	Project      string            `json:"project"`
+	Files        []string          `json:"files"`
+	Profiles     []string          `json:"profiles"`
+	Services     []string          `json:"services"`
+	Dependencies []string          `json:"dependencies"`
+	Build        bool              `json:"build"`
+	SkipBuild    bool              `json:"skip_build"`
+	NativeWait   bool              `json:"native_wait"`
+	WaitTimeout  int               `json:"wait_timeout"`
+	OwnsProject  bool              `json:"owns_project"`
+	NoDeps       bool              `json:"no_deps"`
+	OverrideFile string            `json:"override_file"`
+	BuildPolicy  BuildPolicy       `json:"build_policy"`
 }
 
 func (p Plan) Up() ([]string, error) {
@@ -32,13 +31,12 @@ func (p Plan) Up() ([]string, error) {
 	args := p.base()
 	args = append(args, p.Profiles...)
 	args = append(args, "up", "-d")
-	buildFlag := ""
-	if p.BuildPolicy == (BuildPolicy{}) && p.BuildMetadata.Expected == "" && p.BuildMetadata.Actual == "" {
-		buildFlag = BuildPolicy{Build: p.Build, SkipBuild: p.SkipBuild}.Flag()
-	} else {
-		buildFlag = BuildPolicy{Build: ShouldBuild(p.BuildPolicy, p.BuildMetadata), SkipBuild: p.SkipBuild}.Flag()
+	if buildFlag := (BuildPolicy{
+		Build:     p.Build || p.BuildPolicy.Build,
+		SkipBuild: p.SkipBuild || p.BuildPolicy.SkipBuild,
+	}).Flag(); buildFlag != "" {
+		args = append(args, buildFlag)
 	}
-	args = append(args, buildFlag)
 	if p.NativeWait {
 		if !has(p.Provider.Capabilities, "wait") {
 			return nil, fmt.Errorf("provider %q lacks required capability: wait", p.Provider.Name)
@@ -53,19 +51,6 @@ func (p Plan) Up() ([]string, error) {
 		services = append(services, p.Dependencies...)
 	}
 	return append(args, unique(services)...), nil
-}
-
-func (p Plan) BuildArgs() ([]string, error) {
-	if err := p.validate(); err != nil {
-		return nil, err
-	}
-	if !has(p.Provider.Capabilities, "build") {
-		return nil, fmt.Errorf("provider %q lacks required capability: build", p.Provider.Name)
-	}
-	args := p.base()
-	args = append(args, p.Profiles...)
-	args = append(args, "build")
-	return append(args, unique(append(append([]string{}, p.Services...), p.Dependencies...))...), nil
 }
 
 func (p Plan) Down() ([]string, error) {

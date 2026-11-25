@@ -6,8 +6,11 @@ type BuildPolicy struct {
 }
 
 func (p BuildPolicy) Flag() string {
-	if p.Build && !p.SkipBuild {
+	if p.SkipBuild {
+		return "--no-build"
+	}
+	if p.Build {
 		return "--build"
 	}
-	return "--no-build"
+	return ""
 }

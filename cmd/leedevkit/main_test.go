@@ -227,7 +227,7 @@ func TestBuildTestLifecyclePlanMatchesProjectComposeContract(t *testing.T) {
 		},
 		Dependencies: map[string][]string{"int-api": {"apiserver"}},
 	}
-	plan, service, err := buildTestLifecyclePlan(root, "leedevkit-test", "api", testProviderForMain(), projectConfig, true)
+	plan, service, err := buildTestLifecyclePlan(root, "leedevkit-test", "api", testProviderForMain(), projectConfig, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +241,24 @@ func TestBuildTestLifecyclePlanMatchesProjectComposeContract(t *testing.T) {
 	}
 	if !sameStrings(got, want) {
 		t.Fatalf("lifecycle args = %#v, want %#v", got, want)
+	}
+	defaultPlan, _, err := buildTestLifecyclePlan(root, "leedevkit-test", "api", testProviderForMain(), projectConfig, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDefault := []string{"docker", "compose", "-p", "leedevkit-test", "-f", composeFile, "--profile", "go", "up", "-d", "go", "apiserver"}
+	gotDefault, err := defaultPlan.Up()
+	if err != nil || !sameStrings(gotDefault, wantDefault) {
+		t.Fatalf("default lifecycle args = %#v, err = %v, want %#v", gotDefault, err, wantDefault)
+	}
+	buildPlan, _, err := buildTestLifecyclePlan(root, "leedevkit-test", "api", testProviderForMain(), projectConfig, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBuild := []string{"docker", "compose", "-p", "leedevkit-test", "-f", composeFile, "--profile", "go", "up", "-d", "--build", "go", "apiserver"}
+	gotBuild, err := buildPlan.Up()
+	if err != nil || !sameStrings(gotBuild, wantBuild) {
+		t.Fatalf("build lifecycle args = %#v, err = %v, want %#v", gotBuild, err, wantBuild)
 	}
 }
 

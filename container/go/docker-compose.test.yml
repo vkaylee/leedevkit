@@ -1,10 +1,7 @@
 services:
   go:
     profiles: ["go"]
-    # Dockerfile and GO_VERSION are the only inputs for this image; project
-    # source is mounted at runtime and is not copied during the build.
-    x-leedevkit-build-inputs:
-      - Dockerfile
+    image: leedevkit-go:${GO_VERSION:-1.26}
     build:
       context: .
       dockerfile: Dockerfile
@@ -23,10 +20,12 @@ services:
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "go", "version"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
   infra:
     profiles: ["infra"]
-    x-leedevkit-build-inputs:
-      - Dockerfile
+    image: leedevkit-go:${GO_VERSION:-1.26}
     build:
       context: .
       dockerfile: Dockerfile
@@ -45,6 +44,9 @@ services:
     command: ["sleep", "infinity"]
     healthcheck:
       test: ["CMD", "go", "version"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
 
 volumes:
   go-module-cache:

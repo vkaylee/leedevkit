@@ -14,8 +14,14 @@ func TestBuildPolicySkipsBuildWhenRequested(t *testing.T) {
 	}
 }
 
-func TestBuildPolicyDefaultsToNoBuild(t *testing.T) {
-	if got := (BuildPolicy{}).Flag(); got != "--no-build" {
-		t.Fatalf("flag = %q", got)
+func TestBuildPolicyDefaultsToBuildWhenMissing(t *testing.T) {
+	if got := (BuildPolicy{}).Flag(); got != "" {
+		t.Fatalf("flag = %q, want empty (build only when image missing)", got)
+	}
+}
+
+func TestBuildPolicySkipBuildOverridesBuild(t *testing.T) {
+	if got := (BuildPolicy{Build: true, SkipBuild: true}).Flag(); got != "--no-build" {
+		t.Fatalf("flag = %q, want --no-build", got)
 	}
 }
