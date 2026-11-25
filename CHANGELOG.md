@@ -2,6 +2,16 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.13.0] - 2026-11-25
+
+### Changed
+- Default `leedevkit test` builds container images only when missing instead of rebuilding on every run; pass `--build` to force an image rebuild (respecting `test.build_policy = "once" | "phase"`).
+- Run `leedevkit test infra` checks in a single reusable `infra` container (`up -d` -> 12 `exec -T` checks -> `down`) instead of 12 separate `compose run --build` invocations.
+- Pin explicit `image:` names and 1s healthcheck intervals on built-in Go and Rust Compose test services so images are reused across isolated test projects.
+
+### Removed
+- Removed source-hash image fingerprinting and local `build-metadata.json` tracking (`cmd/leedevkit/build.go` and fingerprint/metadata helpers in `internal/lifecycle`).
+
 ## [0.12.4] - 2026-11-24
 
 ### Fixed
