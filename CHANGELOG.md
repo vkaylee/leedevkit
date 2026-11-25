@@ -2,6 +2,21 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.13.1] - 2026-11-25
+
+### Fixed
+- Set `1s` healthcheck interval on built-in Rust Compose test service (`container/rust/docker-compose.test.yml`) to match Go test services and restore built-in Go/Rust Compose config validation tests.
+- Mark image build complete on successful Compose `up` rather than gate pass so `test.build_policy = "once"` with `--build` does not rebuild again in later phases after a failing early gate.
+- Report the actual failed lifecycle command (`downArgs` on teardown failure) in `leedevkit test infra` JSON/JSONL phase diagnostics.
+- Handle `SIGINT`/`SIGTERM` in `leedevkit test infra` so detached `infra` containers run `compose down` on interruption, use a non-canceled cleanup context on startup/readiness failures, and include stale unlocked `leedevkit-infra-*` projects in orphan sweep.
+
+### Changed
+- Allow `--build` in MCP `run_test` tool schema and flag allowlist.
+- Update `README.md`, `container/README.md`, `.agent/rules/devkit-internals.md`, and `templates/leedevkit.rust.toml` for build-when-missing, `--build`, and `image:` pinning (removing stale `x-leedevkit-build-inputs` and CLI `--skip-build` docs).
+
+### Removed
+- Removed unread `Service.Image`, `Service.ComposeFile`, and `ComposePhaseExecutor.{UpArgs,DownArgs}` fields while preserving tolerance for legacy `leedevkit.toml` keys.
+
 ## [0.13.0] - 2026-11-25
 
 ### Changed
