@@ -2,6 +2,24 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.14.0] - 2026-11-25
+
+### Added
+- Default Go integration gate (`go test -tags=integration ./...`, structured with `-json` in quiet/stream modes) automatically enabled when `[test.dependencies]` declares `int-*` for a Go service, plus explicit gate overrides via `[test.gates.<key>]` and `[services.<name>.test]`.
+- Hermetic non-test execution command `leedevkit exec [--dev] [-w|--workdir <dir>] <service> -- <cmd...>` replacing legacy `_orchestrator.py` proxy scripts.
+- Live Go dev workflow commands: `leedevkit dev restart <service>` (waits for Compose and HTTP `/health` readiness), `leedevkit dev watch [service]` (polls Go sources and auto-restarts), and `leedevkit dev migrate [up|status] [--check] [--baseline <file.sql>] [--dir <path>] [--db-service <svc>]` (incremental SQL migration tracking in `_leedevkit_migrations` with SHA-256 drift detection, custom `[dev.migrate]` runner, and optional `[dev].auto_migrate = true`).
+- `leedevkit upgrade` alias for `leedevkit update`.
+- Shadowing artifact checks (`./leedevkit`, `.leedevkit/`, `.leedevkit.bak/`), `CLAUDE.md` marker validation, and legacy `_orchestrator.py` proxy script detection in `leedevkit doctor` / `leedevkit update`, with automatic proxy migration and `CLAUDE.md` repair in `leedevkit doctor --fix`.
+
+### Changed
+- Unify Docker Compose project naming on `<namespace>-test` and `<namespace>-dev` from `[project].namespace` (honoring `LEEDEVKIT_TEST_PROJECT` / `LEEDEVKIT_DEV_PROJECT` overrides and falling back to hashed names only when `namespace` is unset) and export `LEEDEVKIT_TEST_PROJECT`, `COMPOSE_PROJECT_NAME`, and `LEEDEVKIT_PROJECT_NAMESPACE` to Compose and child hooks.
+- Make `CLAUDE.md` managed context injection idempotent using `<!-- leedevkit:start -->` / `<!-- leedevkit:end -->` markers, deduplicating legacy `<!-- leedevkit:begin -->` and unmarked duplicate blocks while preserving user content.
+- Update `templates/CLAUDE.base.md`, `templates/leedevkit.default.toml`, `templates/leedevkit.go.toml`, `README.md`, and `CLAUDE.md`.
+
+### Fixed
+- Fail closed instead of silently skipping Go integration tests (`no configured Go gates for integration`) when `[test.dependencies]` declares a phase with no resolvable gate, and never return exit code `0` or overall `passed` when a required phase is unexpectedly skipped or fails.
+- Fail Go `gofmt -l .` lint checks when unformatted files are printed on stdout (previously exited 0 as false-green).
+
 ## [0.13.2] - 2026-11-25
 
 ### Fixed
