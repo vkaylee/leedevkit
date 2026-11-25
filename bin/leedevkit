@@ -13,9 +13,10 @@ Usage: leedevkit <command> [args...]
 
 Commands:
   test     Run tests
+  exec     Run command in managed service container
   dev      Dev environment
   init     Initialize a project
-  update   Update the devkit
+  update   Update the devkit (alias: upgrade)
   doctor   System health check
   skills   Browse skills
   version  Show devkit version

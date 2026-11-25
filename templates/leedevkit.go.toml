@@ -8,7 +8,20 @@ languages = ["go"]
 [services.go]
 lang = "go"
 go = true
+# workdir = ""
+# ports = [8080]
+# health_check = "/health"
 # go_version = "1.24"
+
+# Optional per-service or per-phase gate overrides:
+# [services.go.test]
+# integration = ["go", "test", "-tags=integration", "./..."]
+#
+# [test.dependencies]
+# int-go = ["postgres", "redis", "go"]
+#
+# [test.gates.int-go]
+# command = ["go", "test", "-tags=integration", "-count=1", "./..."]
 
 [targets]
 go = ["go"]

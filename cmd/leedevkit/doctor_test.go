@@ -180,3 +180,81 @@ func TestSweepDoctorStaleProjectsReportsCleanedAndErrors(t *testing.T) {
 		t.Fatalf("errRes = %#v, stderr = %q", errRes, stderr.String())
 	}
 }
+
+func TestDoctorWarnsShadowingArtifactsLegacyOrchestratorAndFixMigrates(t *testing.T) {
+	root, assets := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(assets, ".agent", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assets, "VERSION"), []byte("0.13.3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `[project]
+namespace = "acme"
+[services.apiserver]
+lang = "go"
+[services.webdashboard]
+lang = "typescript"
+`
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".agent", "rules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "leedevkit"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".leedevkit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".leedevkit.bak"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dupClaude := "## LeeDevKit base context\n`templates/CLAUDE.base.md`.\n\n## LeeDevKit base context\n`templates/CLAUDE.base.md`.\n"
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte(dupClaude), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	npmProxy := filepath.Join(root, "scripts", "_npm.sh")
+	if err := os.WriteFile(npmProxy, []byte("#!/bin/sh\nexec python3 .leedevkit/scripts/_orchestrator.py npm \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	runDoctorWithAssets(root, assets, &bytes.Buffer{}, &stderr)
+	out := stderr.String()
+	for _, want := range []string{
+		"shadows global install",
+		"legacy local .leedevkit/ directory detected",
+		"legacy .leedevkit.bak/ artifact detected",
+		"CLAUDE.md has duplicate or legacy LeeDevKit context markers",
+		"legacy proxy script references removed _orchestrator.py",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+
+	// Now verify repairDoctorProjectArtifacts (--fix) migrates _npm.sh and fixes CLAUDE.md idempotently!
+	stderr.Reset()
+	if err := repairDoctorProjectArtifacts(root, &stderr); err != nil {
+		t.Fatalf("repairDoctorProjectArtifacts: %v", err)
+	}
+	migrated, err := os.ReadFile(npmProxy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(migrated), "_orchestrator.py") || !strings.Contains(string(migrated), "exec leedevkit exec webdashboard --") {
+		t.Fatalf("unexpected migrated _npm.sh:\n%s", migrated)
+	}
+	fixedClaude, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(fixedClaude), "<!-- leedevkit:start -->") != 1 || strings.Count(string(fixedClaude), "## LeeDevKit base context") != 1 {
+		t.Fatalf("unexpected repaired CLAUDE.md:\n%s", fixedClaude)
+	}
+}

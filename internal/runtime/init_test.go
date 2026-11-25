@@ -201,3 +201,64 @@ func TestInitPreservesLegacyProjectRuntime(t *testing.T) {
 		t.Fatalf("existing runtime changed: %q, err = %v", got, err)
 	}
 }
+
+func TestSyncClaudeMDIdempotentAndDeduplicatesLegacyBlocks(t *testing.T) {
+	root := t.TempDir()
+	duplicated := "## LeeDevKit base context\n\nThis repository uses LeeDevKit. Before making changes, read and apply:\n`templates/CLAUDE.base.md`.\n\nThe rules below add specific constraints. Apply both.\n\n## Project Policy\n\n- Custom rule 1\n\n<!-- leedevkit:begin -->\n## LeeDevKit base context\n\nThis repository uses LeeDevKit. Before making changes, read and apply:\n`templates/CLAUDE.base.md`.\n<!-- leedevkit:end -->\n"
+	claudePath := filepath.Join(root, "CLAUDE.md")
+	if err := os.WriteFile(claudePath, []byte(duplicated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasClaudeMDIssue(duplicated) {
+		t.Fatal("expected HasClaudeMDIssue=true for duplicated legacy CLAUDE.md")
+	}
+	for runIdx := 0; runIdx < 3; runIdx++ {
+		if err := SyncClaudeMD(root); err != nil {
+			t.Fatalf("run %d SyncClaudeMD failed: %v", runIdx, err)
+		}
+	}
+	gotBytes, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(gotBytes)
+	if HasClaudeMDIssue(got) {
+		t.Fatalf("HasClaudeMDIssue still true after SyncClaudeMD:\n%s", got)
+	}
+	if count := countSubstr(got, "## LeeDevKit base context"); count != 1 {
+		t.Fatalf("expected 1 base context heading, got %d:\n%s", count, got)
+	}
+	if count := countSubstr(got, ClaudeMarkerStart); count != 1 {
+		t.Fatalf("expected 1 start marker, got %d:\n%s", count, got)
+	}
+	if count := countSubstr(got, ClaudeMarkerEnd); count != 1 {
+		t.Fatalf("expected 1 end marker, got %d:\n%s", count, got)
+	}
+	if countSubstr(got, ClaudeMarkerLegacyBegin) != 0 {
+		t.Fatalf("legacy begin marker remained:\n%s", got)
+	}
+	if countSubstr(got, "- Custom rule 1") != 1 || countSubstr(got, "The rules below add specific constraints.") != 1 {
+		t.Fatalf("custom content lost:\n%s", got)
+	}
+}
+
+func countSubstr(s, sub string) int {
+	n := 0
+	for idx := 0; ; {
+		pos := indexOf(s[idx:], sub)
+		if pos < 0 {
+			return n
+		}
+		n++
+		idx += pos + len(sub)
+	}
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}

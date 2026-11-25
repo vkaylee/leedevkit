@@ -87,3 +87,30 @@ func TestRunFailureBecomesFailedSummary(t *testing.T) {
 		t.Fatal("summary omitted structured failures")
 	}
 }
+
+func TestRunUnexpectedSkipOnSelectedPhaseNeverPassesOrExitsZero(t *testing.T) {
+	result := Run(Flags{Target: "all"}, ExecutorFunc(func(phase Phase) PhaseResult {
+		if phase.Name == "Integration Tests" {
+			return PhaseResult{Status: "skipped", Diagnostic: "no configured Go gates for integration"}
+		}
+		return PhaseResult{Status: "passed"}
+	}), nil)
+	if result.Status == "passed" || result.FullRegression || result.ExitCode == 0 {
+		t.Fatalf("unexpected skip produced false-green result: %#v", result)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].Phase != "Integration Tests" {
+		t.Fatalf("expected failure record for unexpected skip, got %#v", result.Failures)
+	}
+}
+
+func TestRunFailedPhaseWithZeroExitCodeFallsBackToOne(t *testing.T) {
+	result := Run(Flags{Target: "all"}, ExecutorFunc(func(phase Phase) PhaseResult {
+		if phase.Name == "Linting" {
+			return PhaseResult{Status: "failed", ExitCode: 0, Diagnostic: "typecheck failed"}
+		}
+		return PhaseResult{Status: "passed"}
+	}), nil)
+	if result.Status != "failed" || result.ExitCode != 1 {
+		t.Fatalf("expected failed exit=1, got %#v", result)
+	}
+}

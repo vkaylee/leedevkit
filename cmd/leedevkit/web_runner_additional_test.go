@@ -46,8 +46,8 @@ func TestPhaseDependencyKeyPrefersDirectServiceOverSharedAlias(t *testing.T) {
 
 func TestLeeAttendManifestDefaultsAndPhases(t *testing.T) {
 	project := leeAttendFixture(t)
-	if hasPhaseGate(project.Gates, "integration") {
-		t.Fatal("expected LeeAttend config to omit Go integration gates")
+	if !hasPhaseGate(project.Gates, "integration") {
+		t.Fatal("expected LeeAttend config with int-api dependency to include default Go integration gate")
 	}
 	if got := phaseDependencyKey(project, "Integration Tests", "api"); got != "int-api" {
 		t.Fatalf("Go integration key = %q", got)
@@ -117,8 +117,8 @@ func TestLeeAttendConfigLoadRunsThroughAllAndE2EPlan(t *testing.T) {
 		t.Fatalf("services = %v", services)
 	}
 	goPhase := runGoPhase(t.TempDir(), "fixture", provider.Provider{}, project, "api", "Integration Tests", testplan.Flags{}, true, io.Discard, io.Discard)
-	if goPhase.Status != "skipped" {
-		t.Fatalf("missing Go integration gate result = %#v", goPhase)
+	if goPhase.Status == "skipped" || goPhase.Status == "passed" {
+		t.Fatalf("Go integration phase without valid provider must fail closed, got %#v", goPhase)
 	}
 	webPlan, _, _, err := buildWebLifecyclePlan("/fixture", "fixture", provider.Provider{Name: "fixture", Compose: []string{"compose"}, Capabilities: []string{"compose", "config", "up", "down", "ps"}}, project, "webdashboard", "Integration Tests", testplan.Flags{Build: true}, false)
 	if err != nil {

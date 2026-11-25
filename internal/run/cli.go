@@ -3,10 +3,11 @@ package run
 import (
 	"fmt"
 	"os"
-
-	"github.com/vkaylee/leedevkit/internal/ownership"
 	"path/filepath"
 	"strings"
+
+	"github.com/vkaylee/leedevkit/internal/config"
+	"github.com/vkaylee/leedevkit/internal/ownership"
 )
 
 // CLIRequest is the small normalized boundary needed by Go run execution.
@@ -50,18 +51,33 @@ func ParseCLI(args []string) (CLIRequest, error) {
 }
 
 func ResolveContext(request CLIRequest, environ map[string]string, cwd string) (Request, error) {
+	projectCfg, _ := config.Load(filepath.Join(cwd, "leedevkit.toml"))
 	project := request.Project
 	owned := false
 	dev := false
 	if project == "" {
-		generated, err := ownership.NewProjectName("leedevkit-test")
-		if err != nil {
-			return Request{}, err
+		if envProj := strings.TrimSpace(environ["LEEDEVKIT_TEST_PROJECT"]); envProj != "" {
+			project = envProj
+			owned = !ownership.IsLocked(project)
+		} else if projectCfg.Namespace != "" {
+			project = projectCfg.Namespace + "-test"
+			owned = !ownership.IsLocked(project)
+		} else {
+			generated, err := ownership.NewProjectName("leedevkit-test")
+			if err != nil {
+				return Request{}, err
+			}
+			project = generated
+			owned = true
 		}
-		project = generated
-		owned = true
 	} else if project == "dev" {
-		project = "leedevkit-dev"
+		if envDev := strings.TrimSpace(environ["LEEDEVKIT_DEV_PROJECT"]); envDev != "" {
+			project = envDev
+		} else if projectCfg.Namespace != "" {
+			project = projectCfg.Namespace + "-dev"
+		} else {
+			project = "leedevkit-dev"
+		}
 		dev = true
 	}
 	compose := splitArgv(environ["DOCKER_COMPOSE_TOOL"])
@@ -72,6 +88,14 @@ func ResolveContext(request CLIRequest, environ map[string]string, cwd string) (
 	if service == "" {
 		return Request{}, fmt.Errorf("unsupported run tool %q", request.Tool)
 	}
+	lang := map[string]string{"go": "go", "cargo": "rust", "diesel": "rust", "npm": "typescript"}[request.Tool]
+	workdir := ""
+	if svc, ok := projectCfg.ServiceForLanguage(lang); ok && svc.Name != "" {
+		service = svc.Name
+		if svc.Workdir != "" {
+			workdir = filepath.ToSlash(filepath.Join("/workspace", svc.Workdir))
+		}
+	}
 	mode := map[string]string{"go": "go", "cargo": "api", "diesel": "api", "npm": "web"}[request.Tool]
 	file := environ["LEEDEVKIT_COMPOSE_FILE_"+strings.ToUpper(mode)]
 	if file == "" {
@@ -79,7 +103,7 @@ func ResolveContext(request CLIRequest, environ map[string]string, cwd string) (
 	}
 	return Request{
 		Compose: compose, Project: project, Files: []string{file}, Tool: request.Tool,
-		Args: request.Args, Service: service, Dev: dev, Pooler: request.Pooler,
+		Args: request.Args, Service: service, Workdir: workdir, Dev: dev, Pooler: request.Pooler,
 		Running: false, Owned: owned,
 	}, nil
 }

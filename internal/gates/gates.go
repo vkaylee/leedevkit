@@ -10,6 +10,7 @@ import (
 type Gate struct {
 	Name            string   `json:"name" toml:"name"`
 	Phase           string   `json:"phase" toml:"phase"`
+	Target          string   `json:"target,omitempty" toml:"target"`
 	Command         []string `json:"command" toml:"command"`
 	Mode            string   `json:"mode" toml:"mode"`
 	WorkingDir      string   `json:"working_dir" toml:"working_dir"`
@@ -26,6 +27,10 @@ type Gate struct {
 	NewFindingsFlag []string `json:"new_findings_flag" toml:"new_findings_flag"`
 	SetupCommand    []string `json:"setup_command" toml:"setup_command"`
 	TeardownCommand []string `json:"teardown_command" toml:"teardown_command"`
+}
+
+func DefaultIntegration() Gate {
+	return defaultGate("go-integration", "integration", []string{"go", "test", "-tags=integration", "./..."}, "run")
 }
 
 var defaults = []Gate{

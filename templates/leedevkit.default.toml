@@ -6,8 +6,8 @@
 
 [project]
 name = "MyProject"               # display name
-namespace = "myproject"           # compose project prefix
-languages = ["rust", "typescript"] # Go projects use ["go"]
+namespace = "myproject"           # unified Compose prefix (<namespace>-test / <namespace>-dev; exported as LEEDEVKIT_TEST_PROJECT)
+languages = ["rust", "typescript"] # Go projects use ["go"] or ["go", "typescript"]
 
 # Container selection is explicit. This config declares commands only; runtime
 # adapters and capability checks must support the selected provider.
@@ -62,11 +62,39 @@ build_policy = "once"
 
 # ── Lifecycle dependencies ─────────────────────────────────────────────────
 # Compose services to start and health-check for each lifecycle mode.
-# Values must match service names in the project's Compose file.
+# Values must match service names in the project's Compose file; the last entry
+# is the target runner container. Declared phases fail closed if no gate/command resolves.
+# Go services with `int-*` dependencies default to `go test -tags=integration ./...`.
 
 [test.dependencies]
-# "int-go" = ["postgres"]
-# "int-api" = ["postgres", "redis"]
+# "int-go" = ["postgres", "go"]
+# "int-api" = ["postgres", "redis", "apiserver"]
+# "unit-web" = ["bun_init", "webdashboard"]
+# "e2e-web" = ["bun_init", "webdashboard"]
+# "lint-web" = ["bun_init", "webdashboard"]
+
+# ── Explicit test gate overrides (optional) ───────────────────────────────
+# Override phase commands per phase-key or per service (`[services.<name>.test]`):
+# [test.gates.int-api]
+# command = ["go", "test", "-tags=integration", "-count=1", "./..."]
+#
+# [services.apiserver.test]
+# integration = ["go", "test", "-tags=integration", "-race", "./..."]
+
+# ── Dev workflow & incremental migrations (optional) ──────────────────────
+# `leedevkit dev restart <service>` restarts and waits for `ports` + `health_check`.
+# `leedevkit dev watch [service]` watches Go files and auto-restarts on changes.
+# `leedevkit dev migrate [up|status]` applies pending SQL files with drift checks,
+# or runs a custom command when `[dev.migrate].command` is set.
+# [dev]
+# auto_migrate = false
+# [dev.migrate]
+# dir = "migrations"
+# db_service = "postgres"
+# # Or custom migration runner inside an app service:
+# # service = "apiserver"
+# # command = ["go", "run", "./cmd/migrate", "up"]
+# # status_command = ["go", "run", "./cmd/migrate", "status"]
 
 # ── Test phases ────────────────────────────────────────────────────────────
 # Custom test phases specific to this project.

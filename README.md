@@ -181,7 +181,15 @@ leedevkit test all --json-stream --quiet  # JSONL events; logs stay in .test_log
 
 Human mode streams parallel task output as `[task-name]` lines and tees it to `.test_logs/`. `--quiet` suppresses live task output but keeps complete task logs for failure diagnosis. JSONL streams emit `run_started`, `phase_started`, `phase_finished`, and `run_finished` events; skipped phases also emit start and finish events.
 
-For TypeScript services, configure phase dependencies such as `unit-web`, `e2e-web`, and `lint-web` in `[test.dependencies]` and corresponding Compose profiles. Web phases run `bun run test`, `bun run test:e2e`, and `bun run lint`, `bun run type-check`, `bun run check-i18n`. Mixed targets report partial regression when Go integration gates are not configured. Web targets reject `--pattern`, `--coverage`, `--fix`, and `--base-ref`.
+For TypeScript services, configure phase dependencies such as `unit-web`, `e2e-web`, and `lint-web` in `[test.dependencies]` and corresponding Compose profiles. Web phases run `bun run test`, `bun run test:e2e`, and `bun run lint`, `bun run type-check`, `bun run check-i18n`. Go services with `int-*` in `[test.dependencies]` run `go test -tags=integration ./...` by default (or explicit `[test.gates.<key>]` / `[services.<name>.test]` overrides), and fail closed if a declared phase cannot resolve a gate or if a required phase is unexpectedly skipped. Compose test runs unify on `<namespace>-test` from `[project].namespace` and export `LEEDEVKIT_TEST_PROJECT` and `COMPOSE_PROJECT_NAME`. Web targets reject `--pattern`, `--coverage`, `--fix`, and `--base-ref`.
+
+For hermetic non-test commands (codegen, typecheck, build, `go generate`), use `leedevkit exec`:
+
+```bash
+leedevkit exec webdashboard -- bun run gen-api
+leedevkit exec webdashboard -- bun run type-check
+leedevkit exec apiserver -- go generate ./...
+```
 
 ## Debug MCP
 
@@ -212,10 +220,13 @@ Debug MCP rejects shell execution, writes, migrations, arbitrary URLs/networks, 
 
 ```bash
 leedevkit dev up
+leedevkit dev restart apiserver   # restart & wait for Compose + /health readiness
+leedevkit dev watch apiserver     # watch Go files & auto-restart on changes
+leedevkit dev migrate             # apply pending SQL migrations & check checksum drift
+leedevkit dev migrate status      # inspect applied/pending/drifted migrations
 leedevkit dev down
-leedevkit doctor
-leedevkit --container-provider docker dev up
-CONTAINER_PROVIDER=kiri leedevkit test all
+leedevkit doctor                  # check config, shadowing artifacts, legacy wrappers
+leedevkit doctor --fix            # repair rules, CLAUDE.md markers, and _orchestrator.py wrappers
 ```
 
 See `leedevkit skills --help` for supported skill operations.
@@ -380,7 +391,7 @@ rules_dir = ".agent/rules"
 override_manifest = ".agent/overrides.yaml"
 
 ```
-Managed files use delimiter comments (`<!-- leedevkit:begin -->` ... `<!-- leedevkit:end -->`) so custom instructions outside the block survive re-sync. Pi and OMP skill directories contain managed relative symlinks; user files with conflicting names are preserved.
+Managed files use delimiter comments (`<!-- leedevkit:start -->` ... `<!-- leedevkit:end -->`) so custom instructions outside the block survive re-sync. Pi and OMP skill directories contain managed relative symlinks; user files with conflicting names are preserved.
 
 Context is split by responsibility: core safety and scope in the base context, executable facts in project configuration/CI, behavior verification in `development-workflow.md`, execution/coverage gates in `testing-standards.md`, and domain guidance loaded only for matching risks. Rulebooks do not override harness permissions or select an application's auth, database, or operational architecture.
 

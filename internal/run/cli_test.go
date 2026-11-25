@@ -1,6 +1,9 @@
 package run
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestParseCLIProjectPoolerAndSeparator(t *testing.T) {
 	request, err := ParseCLI([]string{"run", "--project", "dev", "--pooler", "cargo", "--", "test"})
@@ -29,5 +32,27 @@ func TestResolveContextExternalDevProject(t *testing.T) {
 	}
 	if request.Owned || !request.Dev || request.Project != "leedevkit-dev" {
 		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestResolveContextUsesManifestNamespace(t *testing.T) {
+	root := t.TempDir()
+	manifest := "[project]\nnamespace = 'acme'\n[services.apiserver]\nlang = 'go'\nworkdir = 'apiserver'\n"
+	if err := os.WriteFile(root+"/leedevkit.toml", []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testReq, err := ResolveContext(CLIRequest{Tool: "go", Args: []string{"generate", "./..."}}, nil, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testReq.Project != "acme-test" || testReq.Service != "apiserver" || testReq.Workdir != "/workspace/apiserver" {
+		t.Fatalf("testReq = %#v", testReq)
+	}
+	devReq, err := ResolveContext(CLIRequest{Tool: "go", Project: "dev", Args: []string{"version"}}, nil, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if devReq.Project != "acme-dev" || !devReq.Dev {
+		t.Fatalf("devReq = %#v", devReq)
 	}
 }

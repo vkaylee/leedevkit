@@ -122,10 +122,11 @@ Usage: leedevkit <command> [args...]
 
 Commands:
   test     Run tests       (leedevkit test all)
+  exec     Hermetic exec   (leedevkit exec <service> -- <cmd...>)
   targets  List configured targets, services, and phases
-  dev      Dev environment (leedevkit dev up|down)
+  dev      Dev environment (leedevkit dev up|down|restart|watch|migrate)
   init     Initialize a project with leedevkit
-  update   Update the devkit to the latest (or pinned) release
+  update   Update the devkit to the latest (or pinned) release (alias: upgrade)
   doctor   System health check
   skills   Browse and install community skills
   version  Show devkit version
@@ -355,6 +356,54 @@ func withProjectRoot(env []string, root string) []string {
 	return append(result, "LEEDEVKIT_PROJECT_ROOT="+root, "PROJECT_ROOT="+root)
 }
 
+func withTestProjectEnv(env []string, root, project, namespace string) []string {
+	result := make([]string, 0, len(env)+5)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_ROOT=") ||
+			strings.HasPrefix(entry, "PROJECT_ROOT=") ||
+			strings.HasPrefix(entry, "LEEDEVKIT_TEST_PROJECT=") ||
+			strings.HasPrefix(entry, "COMPOSE_PROJECT_NAME=") ||
+			strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_NAMESPACE=") {
+			continue
+		}
+		result = append(result, entry)
+	}
+	result = append(result,
+		"LEEDEVKIT_PROJECT_ROOT="+root,
+		"PROJECT_ROOT="+root,
+		"LEEDEVKIT_TEST_PROJECT="+project,
+		"COMPOSE_PROJECT_NAME="+project,
+	)
+	if namespace != "" {
+		result = append(result, "LEEDEVKIT_PROJECT_NAMESPACE="+namespace)
+	}
+	return result
+}
+
+func withDevProjectEnv(env []string, root, project, namespace string) []string {
+	result := make([]string, 0, len(env)+5)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_ROOT=") ||
+			strings.HasPrefix(entry, "PROJECT_ROOT=") ||
+			strings.HasPrefix(entry, "LEEDEVKIT_DEV_PROJECT=") ||
+			strings.HasPrefix(entry, "COMPOSE_PROJECT_NAME=") ||
+			strings.HasPrefix(entry, "LEEDEVKIT_PROJECT_NAMESPACE=") {
+			continue
+		}
+		result = append(result, entry)
+	}
+	result = append(result,
+		"LEEDEVKIT_PROJECT_ROOT="+root,
+		"PROJECT_ROOT="+root,
+		"LEEDEVKIT_DEV_PROJECT="+project,
+		"COMPOSE_PROJECT_NAME="+project,
+	)
+	if namespace != "" {
+		result = append(result, "LEEDEVKIT_PROJECT_NAMESPACE="+namespace)
+	}
+	return result
+}
+
 func hasCapability(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {
@@ -415,6 +464,19 @@ func phaseDependencyKey(project config.Project, phase, target string) string {
 	}
 	for _, key := range candidates {
 		if len(project.Dependencies[key]) > 0 {
+			return key
+		}
+	}
+	depKeys := make([]string, 0, len(project.Dependencies))
+	for key := range project.Dependencies {
+		if strings.HasPrefix(key, prefix) {
+			depKeys = append(depKeys, key)
+		}
+	}
+	sort.Strings(depKeys)
+	for _, key := range depKeys {
+		deps := project.Dependencies[key]
+		if len(deps) > 0 && deps[len(deps)-1] == target {
 			return key
 		}
 	}
@@ -504,11 +566,15 @@ func uniqueTestProject(root string) string {
 	return fmt.Sprintf("leedevkit-test-%x-%x-%x", fnv32a(root), os.Getpid(), nextProjectNonce())
 }
 
-func sweepStaleTestProjects(ctx context.Context, providerConfig provider.Provider) {
+func sweepStaleTestProjects(ctx context.Context, providerConfig provider.Provider, namespace ...string) {
 	if len(providerConfig.CLI) == 0 || !hasCapability(providerConfig.Capabilities, "ps") || !hasCapability(providerConfig.Capabilities, "rm") {
 		return
 	}
-	_ = ownership.SweepRuntime(ctx, ownership.RuntimeSweepOptions{CLI: providerConfig.CLI, MaxAge: time.Hour})
+	ns := ""
+	if len(namespace) > 0 {
+		ns = namespace[0]
+	}
+	_ = ownership.SweepRuntime(ctx, ownership.RuntimeSweepOptions{CLI: providerConfig.CLI, Namespace: ns, MaxAge: time.Hour})
 }
 
 func fnv32a(value string) uint32 {
@@ -519,8 +585,18 @@ func fnv32a(value string) uint32 {
 	return hash
 }
 
-func testProjectName(env map[string]string, root string) string {
+func resolveTestProjectName(env map[string]string, projectConfig config.Project, root string) string {
+	if explicit := strings.TrimSpace(env["LEEDEVKIT_TEST_PROJECT"]); explicit != "" {
+		return explicit
+	}
+	if projectConfig.Namespace != "" {
+		return projectConfig.Namespace + "-test"
+	}
 	return uniqueTestProject(root)
+}
+
+func testProjectName(env map[string]string, root string) string {
+	return resolveTestProjectName(env, config.Project{}, root)
 }
 
 func runWebPhase(root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
@@ -559,16 +635,17 @@ func runWebPhaseContext(ctx context.Context, root, project string, providerConfi
 		live = &infraPrefixWriter{writer: stdout, prefix: "[web] "}
 	}
 	output := &infraOutputWriter{log: file, live: live}
-	readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root)}
+	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
+	readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: testEnv}
 	readinessArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"), "ps", "--format", "json")
 	runner := lifecycle.Executor{UpArgs: upArgs, DownArgs: downArgs, ReadinessArgs: readinessArgs, Readiness: func(ctx context.Context) error {
 		return readiness.Wait(ctx, readinessArgs, []string{service}, 120*time.Second)
 	}, Execute: func(ctx context.Context, args []string) error {
-		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
+		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: testEnv, Stdout: output, Stderr: output}).Execute(ctx, args)
 	}}
 	var result testplan.PhaseResult
 	err = runner.Run(ctx, func() error {
-		compose := gates.ComposeRunner{Compose: providerConfig.Compose, Project: project, Service: service, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
+		compose := gates.ComposeRunner{Compose: providerConfig.Compose, Project: project, Service: service, Workdir: workdir, Dir: root, Env: testEnv, Execute: process.Run, Output: output}
 		compose.Compose = append(append([]string(nil), compose.Compose...), "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
 		for _, command := range webPhaseCommands(phase) {
 			if err := ctx.Err(); err != nil {
@@ -648,21 +725,18 @@ func runGoPhaseContext(ctx context.Context, root, project string, providerConfig
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "Go phase canceled: " + process.RedactDiagnostic(err.Error())}
 	}
 	name := map[string]string{"Unit Tests": "unit", "Integration Tests": "integration", "Linting": "lint"}[phase]
-	hasGate := false
-	for _, gate := range configProject.Gates {
-		if gate.Phase == name {
-			hasGate = true
-			break
+	phaseGates := configProject.GatesForService(target, name)
+	phaseKey := phaseDependencyKey(configProject, phase, target)
+	dependencies, declared := configProject.Dependencies[phaseKey]
+	if len(phaseGates) == 0 {
+		if declared {
+			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: fmt.Sprintf("test.dependencies declares %q with no configured Go gates for %s", phaseKey, name)}
 		}
-	}
-	if !hasGate && phase == "Integration Tests" {
-		return testplan.PhaseResult{Status: "skipped", Diagnostic: "no configured Go gates for integration"}
-	}
-	if !hasGate {
+		if phase == "Integration Tests" {
+			return testplan.PhaseResult{Status: "skipped", Diagnostic: "no configured Go gates for integration"}
+		}
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "no configured Go gates for " + name}
 	}
-	phaseKey := phaseDependencyKey(configProject, phase, target)
-	dependencies := configProject.Dependencies[phaseKey]
 	if len(dependencies) == 0 {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "Go test dependencies are not configured for " + phaseKey}
 	}
@@ -698,18 +772,22 @@ func runGoPhaseContext(ctx context.Context, root, project string, providerConfig
 		live = &infraPrefixWriter{writer: stdout, prefix: "[go] "}
 	}
 	output := &infraOutputWriter{log: file, live: live}
+	testEnv := withTestProjectEnv(os.Environ(), root, project, configProject.Namespace)
 	composeArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
-	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
+	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: testEnv, Execute: process.Run, Output: output}
 	gateResult, lifecycleResult := goPhaseWithCompose(ctx, func(ctx context.Context, args []string) error {
-		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
+		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: testEnv, Stdout: output, Stderr: output}).Execute(ctx, args)
 	}, up, down, func(ctx context.Context) gates.PhaseResult {
-		return gates.Executor{StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream), Run: func(ctx context.Context, request process.Request) process.Result {
+		return gates.Executor{StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream), Fix: flags.Fix, BaseRef: flags.BaseRef, Run: func(ctx context.Context, request process.Request) process.Result {
 			runner := compose
-			runner.AllowTruncatedCapture = configProject.DefaultGoGates && (quiet || flags.JSONStream) && name == "unit" && len(request.Args) == 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json" && request.Args[3] == "./..."
+			if request.Dir != "" && request.Dir != "." {
+				runner = runner.WithService("", filepath.ToSlash(filepath.Join("/workspace", request.Dir)))
+			}
+			runner.AllowTruncatedCapture = configProject.DefaultGoGates && (quiet || flags.JSONStream) && (name == "unit" || name == "integration") && len(request.Args) >= 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json"
 			return runner.Run(ctx, request.Args, request.Env)
-		}}.RunPhase(ctx, name, configProject.Gates)
+		}}.RunPhase(ctx, name, phaseGates)
 	}, func(ctx context.Context) error {
-		readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root)}
+		readiness := lifecycle.Readiness{Run: process.Run, Dir: root, Env: testEnv}
 		readinessArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"), "ps", "--format", "json")
 		return readiness.Wait(ctx, readinessArgs, []string{goService}, 120*time.Second)
 	})
@@ -796,20 +874,22 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 			return 2
 		}
 	}
-	if len(webTargets) == 0 {
+	if len(webTargets) == 0 && !hasGoPerPhaseComposeConfig(root, projectConfig, goTargets) {
 		return -1
 	}
 	if len(goTargets) > 1 {
 		fmt.Fprintln(stderr, "mixed test target supports at most one Go service")
 		return 2
 	}
-	if err := validateWebTestFlags(flags); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if err := validateWebLifecycle(projectConfig, webTargets, flags); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
+	if len(webTargets) > 0 {
+		if err := validateWebTestFlags(flags); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if err := validateWebLifecycle(projectConfig, webTargets, flags); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
 	}
 	env := environMap(os.Environ())
 	providerConfig, err := resolveProviderForProject(root, env)
@@ -817,13 +897,14 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 		fmt.Fprintf(stderr, "invalid provider: %v\n", err)
 		return 2
 	}
-	sweepStaleTestProjects(ctx, providerConfig)
-	project := testProjectName(env, root)
-	if session, err := ownership.Open(project, true); err == nil {
+	sweepStaleTestProjects(ctx, providerConfig, projectConfig.Namespace)
+	project := resolveTestProjectName(env, projectConfig, root)
+	ownedProject := !ownership.IsLocked(project)
+	if session, err := ownership.Open(project, ownedProject); err == nil {
 		defer session.Close(nil)
 	}
-	if env["COMPOSE_PROJECT_NAME"] != "" {
-		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using isolated test project %q\n", project)
+	if env["COMPOSE_PROJECT_NAME"] != "" && env["COMPOSE_PROJECT_NAME"] != project {
+		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using test project %q\n", project)
 	}
 	built := map[string]bool{}
 	result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
@@ -896,6 +977,21 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 	return result.ExitCode
 }
 
+func hasGoPerPhaseComposeConfig(root string, project config.Project, goTargets []string) bool {
+	if len(goTargets) == 0 || !fileExists(filepath.Join(root, ".compose", "docker-compose.test.yml")) {
+		return false
+	}
+	for _, target := range goTargets {
+		for _, phase := range []string{"Unit Tests", "Integration Tests", "Linting"} {
+			key := phaseDependencyKey(project, phase, target)
+			if key != "" && key != "int-go" && len(project.Dependencies[key]) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func collectFailureDetails(root string, result *testplan.RunResult, output io.Writer) {
 	result.Failures = []report.Failure{}
 	seen := map[string]bool{}
@@ -953,6 +1049,18 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 		}
 		if !found {
 			result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: report.StripANSI(phase.Diagnostic)})
+		}
+	}
+	for _, skipped := range result.Skipped {
+		if skipped.Required {
+			msg := report.StripANSI(skipped.Diagnostic)
+			if msg == "" {
+				msg = "required phase was unexpectedly skipped"
+			}
+			result.Failures = append(result.Failures, report.Failure{Phase: skipped.Phase, Message: msg})
+			if output != nil {
+				fmt.Fprintf(output, "[%s] %s\n", skipped.Phase, msg)
+			}
 		}
 	}
 }
@@ -1421,10 +1529,12 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 		}
 		testCtx, stopTest := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stopTest()
-		if !isInfraTarget(projectConfig, flags.Target) && !shouldUseGoTest(projectConfig, flags.Target) {
-			code := runMultiTargetTestContext(testCtx, projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
-			if code >= 0 {
-				return code
+		if !isInfraTarget(projectConfig, flags.Target) {
+			if !shouldUseGoTest(projectConfig, flags.Target) || (flags.Pattern == "" && !flags.Coverage && hasGoPerPhaseComposeConfig(projectRootOrCWD(), projectConfig, []string{flags.Target})) {
+				code := runMultiTargetTestContext(testCtx, projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
+				if code >= 0 {
+					return code
+				}
 			}
 		}
 		if isInfraTarget(projectConfig, flags.Target) {
@@ -1471,18 +1581,21 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 			if len(composeTool) == 0 {
 				composeTool = []string{"docker", "compose"}
 			}
-			project := env["COMPOSE_PROJECT_NAME"]
+			project := strings.TrimSpace(env["LEEDEVKIT_TEST_PROJECT"])
+			if project == "" {
+				project = strings.TrimSpace(env["COMPOSE_PROJECT_NAME"])
+			}
 			ownedProject := false
 			if project == "" {
-				project = uniqueTestProject(projectRootOrCWD())
-				ownedProject = true
+				project = resolveTestProjectName(env, projectConfig, projectRootOrCWD())
+				ownedProject = !ownership.IsLocked(project)
 			}
 			providerConfig, providerErr := resolveProviderForProject(projectRootOrCWD(), env)
 			if providerErr != nil {
 				fmt.Fprintf(stderr, "invalid provider: %v\n", providerErr)
 				return 2
 			}
-			sweepStaleTestProjects(testCtx, providerConfig)
+			sweepStaleTestProjects(testCtx, providerConfig, projectConfig.Namespace)
 			if ownedProject {
 				if session, err := ownership.Open(project, true); err == nil {
 					defer session.Close(nil)
@@ -1494,7 +1607,8 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v\n", lifecyclePlanErr)
 				return 2
 			}
-			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Execute: process.Run}
+			testEnv := withTestProjectEnv(os.Environ(), projectRootOrCWD(), project, projectConfig.Namespace)
+			compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: projectRootOrCWD(), Env: testEnv, Execute: process.Run}
 			if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 				workdir := "/workspace"
 				if service.Workdir != "" {
@@ -1516,7 +1630,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v %v\n", upErr, nextUpErr, downErr)
 				return 2
 			}
-			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD())}
+			readiness := lifecycle.Readiness{Run: process.Run, Dir: projectRootOrCWD(), Env: testEnv}
 			readinessArgs := append(append([]string(nil), composeTool...), "-p", project)
 			for _, file := range lifecyclePlan.Files {
 				readinessArgs = append(readinessArgs, "-f", file)
@@ -1534,7 +1648,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 						live = &infraPrefixWriter{writer: stdout, prefix: "[lifecycle] "}
 					}
 					output := &infraOutputWriter{log: file, live: live}
-					err = (lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: withProjectRoot(os.Environ(), projectRootOrCWD()), Stdout: output, Stderr: output}).Execute(ctx, args)
+					err = (lifecycle.ComposeExecutor{Run: process.Run, Dir: projectRootOrCWD(), Env: testEnv, Stdout: output, Stderr: output}).Execute(ctx, args)
 					if closeErr := output.Close(); closeErr != nil {
 						return closeErr
 					}
@@ -1560,6 +1674,26 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				if err := testCtx.Err(); err != nil {
 					return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "test run canceled: " + process.RedactDiagnostic(err.Error())}
 				}
+				gatePhase := map[string]string{"Unit Tests": "unit", "Integration Tests": "integration", "Linting": "lint", "Coverage": "coverage"}[phase.Name]
+				var phaseGates []gates.Gate
+				if flags.Pattern != "" {
+					for _, g := range goGates {
+						if g.Phase == gatePhase {
+							phaseGates = append(phaseGates, g)
+						}
+					}
+				} else {
+					phaseGates = projectConfig.GatesForService(flags.Target, gatePhase)
+				}
+				if len(phaseGates) == 0 {
+					if gatePhase == "integration" {
+						if len(testDependencies(projectConfig, flags.Target)) > 0 {
+							return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: fmt.Sprintf("test.dependencies declares integration dependencies for %q with no configured Go gates for integration", flags.Target)}
+						}
+						return testplan.PhaseResult{Status: "skipped", Diagnostic: "no configured Go gates for integration"}
+					}
+					return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "no configured Go gates for " + gatePhase}
+				}
 				phaseLifecycle := lifecycleExecutor
 				if projectConfig.BuildPolicy == "once" && built {
 					phaseLifecycle.UpArgs = nextUpArgs
@@ -1583,7 +1717,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 						runner := compose
 						runner.Output = output
 						runGate := func(ctx context.Context, args []string, environment []string) process.Result {
-							runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) == 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json" && args[3] == "./..."
+							runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) >= 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json"
 							result := runner.Run(ctx, args, environment)
 							if flags.Pattern != "" && result.ExitCode == 0 {
 								matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
@@ -1595,7 +1729,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 							}
 							return result
 						}
-						outcome := (testplan.GatePhaseExecutor{Definitions: goGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
+						outcome := (testplan.GatePhaseExecutor{Definitions: phaseGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
 						if err := output.Close(); err != nil {
 							return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
 						}
@@ -1625,6 +1759,8 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 
 		fmt.Fprintf(stderr, "unsupported Go test command: %s\n", strings.Join(args, " "))
 		return 2
+	case "exec":
+		return runExecCLI(args, projectRootOrCWD(), stdin, stdout, stderr)
 	case "doctor":
 		if len(args) > 1 && args[1] == "--fix" {
 			root := projectRootOrCWD()
@@ -1632,42 +1768,15 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
 				return 2
 			}
+			if err := repairDoctorProjectArtifacts(root, stderr); err != nil {
+				fmt.Fprintf(stderr, "doctor artifact repair failed: %v\n", err)
+				return 2
+			}
 			sweepDoctorStaleProjects(root, stderr)
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
 	case "dev":
-		if len(args) < 2 || (args[1] != "up" && args[1] != "down" && args[1] != "ps" && args[1] != "clean" && args[1] != "logs" && args[1] != "exec") {
-			fmt.Fprintln(stderr, "unsupported dev command")
-			return 2
-		}
-		providerConfig, err := resolveProviderForProject(projectRootOrCWD(), environMap(os.Environ()))
-		if err != nil {
-			fmt.Fprintf(stderr, "invalid provider: %v\n", err)
-			return 2
-		}
-		service := ""
-		var command []string
-		if args[1] == "logs" && len(args) > 2 {
-			service = args[2]
-		}
-		if args[1] == "exec" {
-			if len(args) < 3 {
-				fmt.Fprintln(stderr, "dev exec requires service")
-				return 2
-			}
-			service = args[2]
-			command = args[3:]
-		}
-		if args[1] == "up" || args[1] == "down" {
-			return runDev(args[1], providerConfig, projectRootOrCWD(), stdout, stderr, process.Run)
-		}
-		argv, err := devComposeArgsWithOptions(providerConfig.Compose, args[1], service, command)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		result := process.Run(context.Background(), process.Request{Args: argv, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
-		return result.ExitCode
+		return runDevCLI(args, projectRootOrCWD(), stdin, stdout, stderr)
 	case "skills":
 		if len(args) == 2 && args[1] == "list" {
 			return runSkillsList(projectRootOrCWD(), stdout, stderr)
@@ -1783,12 +1892,20 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 			return 2
 		}
 		env := environMap(os.Environ())
-		project := env["COMPOSE_PROJECT_NAME"]
+		projectConfig, loadErr := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		project := strings.TrimSpace(env["LEEDEVKIT_TEST_PROJECT"])
 		if project == "" {
-			project = "leedevkit-test"
+			project = strings.TrimSpace(env["COMPOSE_PROJECT_NAME"])
+		}
+		if project == "" {
+			if loadErr == nil && projectConfig.Namespace != "" {
+				project = projectConfig.Namespace + "-test"
+			} else {
+				project = "leedevkit-test"
+			}
 		}
 		service := "apiserver"
-		if projectConfig, loadErr := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml")); loadErr == nil {
+		if loadErr == nil {
 			service = configuredServiceName(projectConfig, "rust")
 		}
 		migrationArgs, err := buildMigrationCommand(projectRootOrCWD(), providerConfig, project, service, action)
@@ -1810,10 +1927,8 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 			return 2
 		}
 		env := environMap(os.Environ())
-		project := env["COMPOSE_PROJECT_NAME"]
-		if project == "" {
-			project = "leedevkit-dev"
-		}
+		projectConfig, _ := config.Load(filepath.Join(projectRootOrCWD(), "leedevkit.toml"))
+		project := devProjectName(env, projectConfig)
 		queryArgs, err := buildDatabaseQueryArgs(providerConfig, project, sql, asJSON)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
@@ -1875,20 +1990,22 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 		}
 		fmt.Fprintln(stderr, "Project initialized.")
 		return 0
-	case "update":
+	case "update", "upgrade":
 		if len(args) > 2 {
-			fmt.Fprintln(stderr, "usage: leedevkit update [version]")
+			fmt.Fprintf(stderr, "usage: leedevkit %s [version]\n", args[0])
 			return 2
 		}
 		target := ""
 		if len(args) == 2 {
 			target = args[1]
 		}
-		if err := runtimepkg.UpdateProject(projectRootOrCWD(), target, os.Getenv("DEVKIT_LOCAL_PATH")); err != nil {
+		root := projectRootOrCWD()
+		if err := runtimepkg.UpdateProject(root, target, os.Getenv("DEVKIT_LOCAL_PATH")); err != nil {
 			fmt.Fprintf(stderr, "update failed: %v\n", err)
 			return 2
 		}
 		fmt.Fprintln(stderr, "Global DevKit updated.")
+		warnLegacyProjectArtifacts(root, stderr)
 		return 0
 	default:
 		fmt.Fprintf(stderr, "Unknown command: %s\nRun 'leedevkit' without arguments for usage.\n", args[0])

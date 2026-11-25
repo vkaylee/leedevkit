@@ -92,7 +92,11 @@ func (r RunResult) Summary(target, runID string) report.Summary {
 	case "passed":
 		nextAction = "No further action required."
 	case "partial":
-		nextAction = "Run without focused or skip flags for full regression verification."
+		if r.ExitCode != 0 {
+			nextAction = "Configure gates or dependencies for skipped required phases, or pass explicit skip flags."
+		} else {
+			nextAction = "Run without focused or skip flags for full regression verification."
+		}
 	case "failed", "blocked":
 		nextAction = "Inspect failed phase logs and rerun the reported command."
 	}
@@ -129,6 +133,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...fun
 	}
 	result := RunResult{Failures: []report.Failure{}}
 	fullRegression := !flags.Coverage && !flags.LintOnly && !flags.UnitOnly && !flags.E2EOnly && !flags.SkipLint && !flags.SkipE2E && !flags.SkipBuild && flags.Pattern == "" && flags.BaseRef == ""
+	var unexpectedSkipped []report.Phase
 	for _, phase := range phases {
 		phaseStarted := time.Now().UTC()
 		record := report.Phase{Phase: phase.Name, Target: flags.Target, Status: phase.Status, Required: phase.Status == "selected", StartTime: phaseStarted.Format(time.RFC3339Nano)}
@@ -180,6 +185,9 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...fun
 		if record.Status == "skipped" {
 			result.Counts.Skipped++
 			result.Skipped = append(result.Skipped, record)
+			if record.Required {
+				unexpectedSkipped = append(unexpectedSkipped, record)
+			}
 		}
 		if stream != nil {
 			_ = stream.Emit("phase_finished", map[string]any{"phase": record.Phase, "status": record.Status})
@@ -192,6 +200,16 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...fun
 	case result.Counts.Blocked > 0:
 		result.Status = "blocked"
 		result.ExitCode = firstExit(result.Blocked)
+	case len(unexpectedSkipped) > 0:
+		result.Status = "partial"
+		result.ExitCode = 1
+		for _, skipped := range unexpectedSkipped {
+			message := skipped.Diagnostic
+			if message == "" {
+				message = "required phase was unexpectedly skipped"
+			}
+			result.Failures = append(result.Failures, report.Failure{Phase: skipped.Phase, Message: message})
+		}
 	case result.Counts.Skipped > 0 || !fullRegression:
 		result.Status = "partial"
 	default:
@@ -208,7 +226,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...fun
 }
 
 func firstExit(phases []report.Phase) int {
-	if len(phases) > 0 && phases[0].ExitCode != nil {
+	if len(phases) > 0 && phases[0].ExitCode != nil && *phases[0].ExitCode != 0 {
 		return *phases[0].ExitCode
 	}
 	return 1

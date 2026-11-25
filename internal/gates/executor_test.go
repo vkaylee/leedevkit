@@ -223,6 +223,28 @@ func TestValidateRejectsIncompleteVersionConfiguration(t *testing.T) {
 	}
 }
 
+func TestExecutorFailsGofmtCheckWhenUnformattedFilesReported(t *testing.T) {
+	executor := Executor{Run: func(_ context.Context, _ process.Request) process.Result {
+		return process.Result{ExitCode: 0, Stdout: []byte("cmd/main.go\n")}
+	}}
+	result := executor.RunPhase(context.Background(), "lint", Defaults())
+	if result.Status != "failed" || result.ExitCode != 1 || result.Gate != "gofmt" {
+		t.Fatalf("gofmt unformatted files must fail lint, got %#v", result)
+	}
+}
+
+func TestExecutorStructuredDefaultIntegrationGate(t *testing.T) {
+	var got []string
+	executor := Executor{StructuredDefaultGo: true, Run: func(_ context.Context, request process.Request) process.Result {
+		got = request.Args
+		return process.Result{}
+	}}
+	res := executor.RunPhase(context.Background(), "integration", []Gate{DefaultIntegration()})
+	if res.Status != "passed" || !sameStrings(got, []string{"go", "test", "-json", "-tags=integration", "./..."}) {
+		t.Fatalf("res=%#v argv=%v", res, got)
+	}
+}
+
 func sameStrings(left, right []string) bool {
 	if len(left) != len(right) {
 		return false

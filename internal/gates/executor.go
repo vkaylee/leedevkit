@@ -65,6 +65,9 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 			if e.StructuredDefaultGo && gate.Name == "go-test" && slicesEqual(command, []string{"go", "test", "./..."}) {
 				command = []string{"go", "test", "-json", "./..."}
 			}
+			if e.StructuredDefaultGo && gate.Name == "go-integration" && slicesEqual(command, []string{"go", "test", "-tags=integration", "./..."}) {
+				command = []string{"go", "test", "-json", "-tags=integration", "./..."}
+			}
 			if e.BaseRef != "" && len(gate.NewFindingsFlag) > 0 {
 				command = append(command, gate.NewFindingsFlag...)
 				command = append(command, e.BaseRef)
@@ -152,9 +155,23 @@ func runCommandWith(ctx context.Context, run func(context.Context, process.Reque
 		commandCtx, cancel = context.WithTimeout(ctx, time.Duration(*gate.Timeout*float64(time.Second)))
 	}
 	defer cancel()
-	result := run(commandCtx, process.Request{Args: command, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Timeout: timeoutDuration(gate.Timeout)})
+	var checkOut bytes.Buffer
+	request := process.Request{Args: command, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Timeout: timeoutDuration(gate.Timeout)}
+	if gate.Mode == "check" && gate.Name == "gofmt" {
+		request.Stdout = &checkOut
+	}
+	result := run(commandCtx, request)
 	if result.ExitCode != 0 {
 		return &commandResult{ExitCode: result.ExitCode, Diagnostic: errorText(result.Err)}
+	}
+	if gate.Mode == "check" && gate.Name == "gofmt" {
+		out := result.Stdout
+		if len(out) == 0 {
+			out = checkOut.Bytes()
+		}
+		if unformatted := strings.TrimSpace(string(out)); unformatted != "" {
+			return &commandResult{ExitCode: 1, Diagnostic: "unformatted Go files: " + unformatted}
+		}
 	}
 	return nil
 }

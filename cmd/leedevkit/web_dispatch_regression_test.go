@@ -39,7 +39,7 @@ func TestWebAndAllTargetsDispatchConfiguredServicesThroughAllPhases(t *testing.T
 				t.Fatalf("phases=%#v; want unit, integration, lint", summary.Phases)
 			}
 			for _, phase := range summary.Phases {
-				if phase.Status != "passed" && !(tc.name == "all" && phase.Phase == "Integration Tests" && phase.Status == "skipped") {
+				if phase.Status != "passed" {
 					t.Errorf("phase %q status=%q; want passed", phase.Phase, phase.Status)
 				}
 			}

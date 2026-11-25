@@ -13,7 +13,7 @@
 ## Project facts and execution
 Discover targets, environments, and budgets from project configuration, existing wrappers, and CI. Use applicable project wrappers when present; do not invent scripts or assume a language stack.
 
-Start with `leedevkit --help` and `leedevkit test --help`. Run applicable configured target; `leedevkit test all --json` runs configured suite, not every imaginable check. Focused flags are for iteration, not proof of full regression. `leedevkit` is installed globally; `leedevkit.toml` is the project manifest.
+Start with `leedevkit --help` and `leedevkit test --help`. Run applicable configured target; `leedevkit test all --json` runs configured suite and fails closed when a declared dependency phase lacks a gate or a required phase is unexpectedly skipped. Focused flags are for iteration, not proof of full regression. For hermetic non-test commands (codegen, type-check, build, `go generate`), use `leedevkit exec <service> -- <cmd...>`. For live dev workflows, use `leedevkit dev restart <service>`, `leedevkit dev watch [service]`, and `leedevkit dev migrate [up|status]`. Compose test stacks unify on `<namespace>-test` and export `LEEDEVKIT_TEST_PROJECT`. `leedevkit` is installed globally; `leedevkit.toml` is the project manifest.
 
 For human-readable parallel tests, task output streams live with `[task-name]` prefixes and is also written to `.test_logs/` (or `.test_logs/<compose-project>/`). Use `--quiet` or `--json-stream --quiet` for machine-readable runs: live task output is suppressed, but logs remain complete. Read failure `log` paths from JSON/JSONL reports instead of scraping terminal output.
 

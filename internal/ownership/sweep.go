@@ -27,22 +27,34 @@ type SweepResult struct {
 }
 
 type RuntimeSweepOptions struct {
-	CLI      []string
-	Now      time.Time
-	MaxAge   time.Duration
-	Run      func(context.Context, process.Request) process.Result
-	IsLocked func(string) bool
+	CLI       []string
+	Namespace string
+	Now       time.Time
+	MaxAge    time.Duration
+	Run       func(context.Context, process.Request) process.Result
+	IsLocked  func(string) bool
 }
 
 func isManagedSweepProject(name string) bool {
-	return strings.HasPrefix(name, "leedevkit-test-") || strings.HasPrefix(name, "leedevkit-infra-")
+	return isManagedSweepProjectForNamespace(name, "")
+}
+
+func isManagedSweepProjectForNamespace(name, namespace string) bool {
+	if strings.HasPrefix(name, "leedevkit-test-") || strings.HasPrefix(name, "leedevkit-infra-") {
+		return true
+	}
+	return namespace != "" && name == namespace+"-test"
 }
 
 // Sweep removes only old, identifiable, unlocked test and infra projects.
 func Sweep(projects []SweepProject, now time.Time, maxAge time.Duration, cleanup func(string) error) SweepResult {
+	return sweepWithNamespace(projects, "", now, maxAge, cleanup)
+}
+
+func sweepWithNamespace(projects []SweepProject, namespace string, now time.Time, maxAge time.Duration, cleanup func(string) error) SweepResult {
 	var result SweepResult
 	for _, project := range projects {
-		if !isManagedSweepProject(project.Name) || project.Locked || project.Created.IsZero() || now.Sub(project.Created) < maxAge {
+		if !isManagedSweepProjectForNamespace(project.Name, namespace) || project.Locked || project.Created.IsZero() || now.Sub(project.Created) < maxAge {
 			result.Kept++
 			continue
 		}
@@ -73,11 +85,11 @@ func SweepRuntime(ctx context.Context, options RuntimeSweepOptions) SweepResult 
 	if isLocked == nil {
 		isLocked = IsLocked
 	}
-	projects, err := discoverRuntimeProjects(ctx, options.CLI, run, isLocked)
+	projects, err := discoverRuntimeProjects(ctx, options.CLI, options.Namespace, run, isLocked)
 	if err != nil {
 		return SweepResult{Errors: []error{err}}
 	}
-	return Sweep(projects, now, options.MaxAge, func(project string) error {
+	return sweepWithNamespace(projects, options.Namespace, now, options.MaxAge, func(project string) error {
 		return cleanupRuntimeProject(ctx, options.CLI, project, run)
 	})
 }
@@ -94,7 +106,7 @@ func runCapture(ctx context.Context, run func(context.Context, process.Request) 
 	return string(result.Stdout), result
 }
 
-func discoverRuntimeProjects(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, isLocked func(string) bool) ([]SweepProject, error) {
+func discoverRuntimeProjects(ctx context.Context, cli []string, namespace string, run func(context.Context, process.Request) process.Result, isLocked func(string) bool) ([]SweepProject, error) {
 	args := append(append([]string(nil), cli...), "ps", "-a", "--filter", "label=com.docker.compose.project", "--format", `{{.Label "com.docker.compose.project"}}|{{.CreatedAt}}`)
 	output, result := runCapture(ctx, run, args, 10*time.Second)
 	if result.ExitCode != 0 {
@@ -108,7 +120,7 @@ func discoverRuntimeProjects(ctx context.Context, cli []string, run func(context
 		}
 		project = strings.TrimSpace(project)
 		created, ok := parseContainerTime(strings.TrimSpace(rawTime))
-		if !isManagedSweepProject(project) || !ok {
+		if !isManagedSweepProjectForNamespace(project, namespace) || !ok {
 			continue
 		}
 		if prev, exists := newest[project]; !exists || created.After(prev) {
