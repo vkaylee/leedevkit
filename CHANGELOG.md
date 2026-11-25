@@ -2,6 +2,17 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.15.0] - 2026-11-26
+
+### Added
+- Containerized Playwright MCP subcommand `leedevkit mcp playwright` (`--build`, `--build-only`, endpoint/network/viewport/accounts-doc/timeout flags) backed by a shared `container/playwright-mcp/Dockerfile` image (`leedevkit-playwright-mcp:0.0.84`).
+- `[mcp.playwright]` configuration section in `leedevkit.toml` (`endpoint`, `login_path`, `network`, `viewports`, `accounts_doc`, `image`, `startup_timeout`, `request_timeout`, `session_idle_timeout`, `extra_args`) with URL, path-traversal, and timeout bounds validation.
+- Go stdio lifecycle watchdog for Playwright MCP with separate startup (`15s`), pending-request (`45s`), and session-idle (`300s`) timeouts, `bufio.Reader` framing for large payloads, automatic `initialize.result.instructions` injection (login-first, `browser_close` role switching, `accounts_doc`, and viewport policy), and forced container cleanup (`rm -f`) on termination.
+- Exported `process.ConfigureProcessGroup` and `process.SignalProcessGroup` helpers in `internal/process`.
+
+### Changed
+- Update `templates/leedevkit.default.toml` and top-level `leedevkit --help` usage to document `leedevkit mcp playwright` and `[mcp.playwright]`.
+
 ## [0.14.0] - 2026-11-25
 
 ### Added
