@@ -16,7 +16,25 @@ import (
 
 const mcpMaxRequestBytes = 256 * 1024
 
+type projectMCPServer struct {
+	root    string
+	runCLI  func([]string, io.Reader, io.Writer, io.Writer) int
+	runProc func(context.Context, process.Request) process.Result
+}
+
+func defaultProjectMCPServer(root string) projectMCPServer {
+	return projectMCPServer{
+		root:    root,
+		runCLI:  run,
+		runProc: process.Run,
+	}
+}
+
 func serveProjectMCP(input io.Reader, output, diagnostics io.Writer, root string) error {
+	return defaultProjectMCPServer(root).serve(input, output, diagnostics)
+}
+
+func (s projectMCPServer) serve(input io.Reader, output, diagnostics io.Writer) error {
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), mcpMaxRequestBytes)
 	encoder := json.NewEncoder(output)
@@ -61,7 +79,7 @@ func serveProjectMCP(input io.Reader, output, diagnostics io.Writer, root string
 		case "tools/list":
 			result = map[string]any{"tools": projectMCPTools()}
 		case "tools/call":
-			result, rpcErr = callProjectMCPTool(request.Params, root, diagnostics)
+			result, rpcErr = s.callTool(request.Params, diagnostics)
 		default:
 			rpcErr = map[string]any{"code": -32601, "message": "Method not found"}
 		}
@@ -115,6 +133,19 @@ func mcpToolResult(value any, isError bool) map[string]any {
 }
 
 func callProjectMCPTool(raw json.RawMessage, root string, diagnostics io.Writer) (any, map[string]any) {
+	return defaultProjectMCPServer(root).callTool(raw, diagnostics)
+}
+
+func (s projectMCPServer) callTool(raw json.RawMessage, diagnostics io.Writer) (any, map[string]any) {
+	root := s.root
+	runCLI := s.runCLI
+	if runCLI == nil {
+		runCLI = run
+	}
+	runProc := s.runProc
+	if runProc == nil {
+		runProc = process.Run
+	}
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -153,7 +184,7 @@ func callProjectMCPTool(raw json.RawMessage, root string, diagnostics io.Writer)
 		var stdout, stderr bytes.Buffer
 		cliArgs := append([]string{"test", args.Target}, args.Flags...)
 		cliArgs = append(cliArgs, "--json", "--quiet")
-		code := run(cliArgs, strings.NewReader(""), &stdout, &stderr)
+		code := runCLI(cliArgs, strings.NewReader(""), &stdout, &stderr)
 		if stderr.Len() > 0 {
 			_, _ = io.WriteString(diagnostics, process.RedactDiagnostic(stderr.String()))
 		}
@@ -167,7 +198,7 @@ func callProjectMCPTool(raw json.RawMessage, root string, diagnostics io.Writer)
 			return nil, map[string]any{"code": -32602, "message": "arguments must be an empty object"}
 		}
 		var stdout, stderr bytes.Buffer
-		result := process.Run(context.Background(), process.Request{Args: []string{"git", "status", "--short", "--branch"}, Dir: root, Stdout: &stdout, Stderr: &stderr})
+		result := runProc(context.Background(), process.Request{Args: []string{"git", "status", "--short", "--branch"}, Dir: root, Stdout: &stdout, Stderr: &stderr})
 		status := "unavailable"
 		if result.ExitCode == 0 {
 			status = strings.TrimSpace(stdout.String())

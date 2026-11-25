@@ -3,40 +3,53 @@ package gates
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
 
 type Gate struct {
-	Name            string   `json:"name" toml:"name"`
-	Phase           string   `json:"phase" toml:"phase"`
-	Target          string   `json:"target,omitempty" toml:"target"`
-	Command         []string `json:"command" toml:"command"`
-	Mode            string   `json:"mode" toml:"mode"`
-	WorkingDir      string   `json:"working_dir" toml:"working_dir"`
-	Service         string   `json:"service" toml:"service"`
-	Timeout         *float64 `json:"timeout" toml:"timeout"`
-	Required        bool     `json:"required" toml:"required"`
-	Condition       string   `json:"condition" toml:"condition"`
-	FailurePolicy   string   `json:"failure_policy" toml:"failure_policy"`
-	Environment     []string `json:"environment" toml:"environment"`
-	Requires        []string `json:"requires" toml:"requires"`
-	ExpectedVersion *string  `json:"expected_version" toml:"expected_version"`
-	VersionCommand  []string `json:"version_command" toml:"version_command"`
-	FixCommand      []string `json:"fix_command" toml:"fix_command"`
-	NewFindingsFlag []string `json:"new_findings_flag" toml:"new_findings_flag"`
-	SetupCommand    []string `json:"setup_command" toml:"setup_command"`
-	TeardownCommand []string `json:"teardown_command" toml:"teardown_command"`
+	Name              string   `json:"name" toml:"name"`
+	Phase             string   `json:"phase" toml:"phase"`
+	Target            string   `json:"target,omitempty" toml:"target"`
+	Command           []string `json:"command" toml:"command"`
+	Mode              string   `json:"mode" toml:"mode"`
+	WorkingDir        string   `json:"working_dir" toml:"working_dir"`
+	Service           string   `json:"service" toml:"service"`
+	Timeout           *float64 `json:"timeout" toml:"timeout"`
+	Required          bool     `json:"required" toml:"required"`
+	Condition         string   `json:"condition" toml:"condition"`
+	FailurePolicy     string   `json:"failure_policy" toml:"failure_policy"`
+	Environment       []string `json:"environment" toml:"environment"`
+	Requires          []string `json:"requires" toml:"requires"`
+	ExpectedVersion   *string  `json:"expected_version" toml:"expected_version"`
+	VersionCommand    []string `json:"version_command" toml:"version_command"`
+	FixCommand        []string `json:"fix_command" toml:"fix_command"`
+	NewFindingsFlag   []string `json:"new_findings_flag" toml:"new_findings_flag"`
+	SetupCommand      []string `json:"setup_command" toml:"setup_command"`
+	TeardownCommand   []string `json:"teardown_command" toml:"teardown_command"`
+	FailOnOutput      bool     `json:"fail_on_output,omitempty" toml:"fail_on_output"`
+	StructuredCommand []string `json:"structured_command,omitempty" toml:"structured_command"`
 }
 
 func DefaultIntegration() Gate {
-	return defaultGate("go-integration", "integration", []string{"go", "test", "-tags=integration", "./..."}, "run")
+	g := defaultGate("go-integration", "integration", []string{"go", "test", "-tags=integration", "./..."}, "run")
+	g.StructuredCommand = []string{"go", "test", "-json", "-tags=integration", "./..."}
+	return g
 }
 
 var defaults = []Gate{
-	defaultGate("gofmt", "lint", []string{"gofmt", "-l", "."}, "check"),
+	func() Gate {
+		g := defaultGate("gofmt", "lint", []string{"gofmt", "-l", "."}, "check")
+		g.FailOnOutput = true
+		return g
+	}(),
 	defaultGate("go-vet", "lint", []string{"go", "vet", "./..."}, "run"),
-	defaultGate("go-test", "unit", []string{"go", "test", "./..."}, "run"),
+	func() Gate {
+		g := defaultGate("go-test", "unit", []string{"go", "test", "./..."}, "run")
+		g.StructuredCommand = []string{"go", "test", "-json", "./..."}
+		return g
+	}(),
 	defaultGate("go-coverage", "coverage", []string{"go", "test", "-coverprofile=/workspace/.test_logs/coverage-go.out", "./..."}, "run"),
 }
 
@@ -63,6 +76,9 @@ func Defaults() []Gate {
 	copy(result, defaults)
 	for i := range result {
 		result[i].Command = append([]string(nil), defaults[i].Command...)
+		if len(defaults[i].StructuredCommand) > 0 {
+			result[i].StructuredCommand = append([]string(nil), defaults[i].StructuredCommand...)
+		}
 	}
 	return result
 }
@@ -82,7 +98,7 @@ func Select(names []string, definitions map[string]Gate) ([]Gate, error) {
 		if !ok {
 			return nil, fmt.Errorf("quality gate %q is not defined", name)
 		}
-		gate = normalize(gate)
+		gate = Normalize(gate)
 		if err := Validate(gate); err != nil {
 			return nil, fmt.Errorf("quality gate %q is invalid: %w", name, err)
 		}
@@ -91,7 +107,8 @@ func Select(names []string, definitions map[string]Gate) ([]Gate, error) {
 	return result, nil
 }
 
-func normalize(gate Gate) Gate {
+// Normalize fills default Mode, Condition, FailurePolicy, Environment, and Requires fields on a gate.
+func Normalize(gate Gate) Gate {
 	if gate.Mode == "" {
 		gate.Mode = "run"
 	}
@@ -114,7 +131,7 @@ func Validate(gate Gate) error {
 	if strings.TrimSpace(gate.Name) == "" {
 		return fmt.Errorf("name must be non-empty")
 	}
-	if !contains([]string{"lint", "unit", "integration", "generated", "coverage"}, gate.Phase) {
+	if !slices.Contains([]string{"lint", "unit", "integration", "generated", "coverage"}, gate.Phase) {
 		return fmt.Errorf("phase must be supported")
 	}
 	if len(gate.Command) == 0 {
@@ -154,22 +171,8 @@ func Validate(gate Gate) error {
 	return nil
 }
 
-func contains(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
-}
-
 func slicesContain(path, wanted string) bool {
-	for _, part := range strings.Split(path, string(filepath.Separator)) {
-		if part == wanted {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(path, string(filepath.Separator)), wanted)
 }
 
 func Names(gates []Gate) []string {

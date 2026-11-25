@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -10,14 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -227,6 +222,24 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func resolveBoundedTimeout(defaultSecs, cfgSecs, cliSecs int, envKey string, env map[string]string, maxSecs int) (time.Duration, error) {
+	secs := defaultSecs
+	if cfgSecs > 0 {
+		secs = cfgSecs
+	}
+	if raw := strings.TrimSpace(env[envKey]); raw != "" {
+		n, err := parseBoundedInt(envKey, raw, 1, maxSecs)
+		if err != nil {
+			return 0, err
+		}
+		secs = n
+	}
+	if cliSecs > 0 {
+		secs = cliSecs
+	}
+	return time.Duration(secs) * time.Second, nil
+}
+
 func resolvePlaywrightMCPRuntime(root string, projectConfig config.Project, opts playwrightCLIOptions, env map[string]string) (playwrightRuntimeConfig, error) {
 	cfg := projectConfig.PlaywrightMCP
 	result := playwrightRuntimeConfig{
@@ -243,12 +256,9 @@ func resolvePlaywrightMCPRuntime(root string, projectConfig config.Project, opts
 	if endpoint == "" {
 		return result, errors.New("Playwright MCP endpoint is required (set [mcp.playwright].endpoint in leedevkit.toml or pass --endpoint)")
 	}
-	parsed, err := url.Parse(endpoint)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return result, fmt.Errorf("invalid Playwright endpoint %q: must be a valid http(s) URL", endpoint)
-	}
-	if parsed.User != nil {
-		return result, errors.New("Playwright endpoint must not include credentials")
+	parsed, err := config.ValidatePlaywrightEndpoint(endpoint)
+	if err != nil {
+		return result, fmt.Errorf("invalid Playwright endpoint %q: %w", endpoint, err)
 	}
 	result.Endpoint = strings.TrimRight(endpoint, "/")
 	result.AllowedHosts = parsed.Host
@@ -260,54 +270,15 @@ func resolvePlaywrightMCPRuntime(root string, projectConfig config.Project, opts
 	}
 	result.LoginURL = result.Endpoint + loginPath
 
-	startupSecs := defaultPlaywrightStartupTimeout
-	if cfg.StartupTimeout > 0 {
-		startupSecs = cfg.StartupTimeout
+	if result.StartupTimeout, err = resolveBoundedTimeout(defaultPlaywrightStartupTimeout, cfg.StartupTimeout, opts.StartupTimeout, "PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SECS", env, 300); err != nil {
+		return result, err
 	}
-	if raw := strings.TrimSpace(env["PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SECS"]); raw != "" {
-		n, err := parseBoundedInt("PLAYWRIGHT_MCP_STARTUP_TIMEOUT_SECS", raw, 1, 300)
-		if err != nil {
-			return result, err
-		}
-		startupSecs = n
+	if result.RequestTimeout, err = resolveBoundedTimeout(defaultPlaywrightRequestTimeout, cfg.RequestTimeout, opts.RequestTimeout, "PLAYWRIGHT_MCP_REQUEST_TIMEOUT_SECS", env, 600); err != nil {
+		return result, err
 	}
-	if opts.StartupTimeout > 0 {
-		startupSecs = opts.StartupTimeout
+	if result.SessionIdleTimeout, err = resolveBoundedTimeout(defaultPlaywrightSessionIdle, cfg.SessionIdleTimeout, opts.SessionIdleTimeout, "PLAYWRIGHT_MCP_SESSION_IDLE_TIMEOUT_SECS", env, 3600); err != nil {
+		return result, err
 	}
-
-	requestSecs := defaultPlaywrightRequestTimeout
-	if cfg.RequestTimeout > 0 {
-		requestSecs = cfg.RequestTimeout
-	}
-	if raw := strings.TrimSpace(env["PLAYWRIGHT_MCP_REQUEST_TIMEOUT_SECS"]); raw != "" {
-		n, err := parseBoundedInt("PLAYWRIGHT_MCP_REQUEST_TIMEOUT_SECS", raw, 1, 600)
-		if err != nil {
-			return result, err
-		}
-		requestSecs = n
-	}
-	if opts.RequestTimeout > 0 {
-		requestSecs = opts.RequestTimeout
-	}
-
-	idleSecs := defaultPlaywrightSessionIdle
-	if cfg.SessionIdleTimeout > 0 {
-		idleSecs = cfg.SessionIdleTimeout
-	}
-	if raw := strings.TrimSpace(env["PLAYWRIGHT_MCP_SESSION_IDLE_TIMEOUT_SECS"]); raw != "" {
-		n, err := parseBoundedInt("PLAYWRIGHT_MCP_SESSION_IDLE_TIMEOUT_SECS", raw, 1, 3600)
-		if err != nil {
-			return result, err
-		}
-		idleSecs = n
-	}
-	if opts.SessionIdleTimeout > 0 {
-		idleSecs = opts.SessionIdleTimeout
-	}
-
-	result.StartupTimeout = time.Duration(startupSecs) * time.Second
-	result.RequestTimeout = time.Duration(requestSecs) * time.Second
-	result.SessionIdleTimeout = time.Duration(idleSecs) * time.Second
 	result.Grace = 2 * time.Second
 	if result.StartupTimeout < result.Grace {
 		result.Grace = result.StartupTimeout
@@ -322,7 +293,7 @@ func resolvePlaywrightMCPRuntime(root string, projectConfig config.Project, opts
 	accountsDoc := firstNonEmpty(opts.AccountsDoc, env["PLAYWRIGHT_MCP_ACCOUNTS_DOC"], cfg.AccountsDoc)
 	if accountsDoc != "" {
 		cleanDoc := filepath.Clean(accountsDoc)
-		if filepath.IsAbs(cleanDoc) || cleanDoc == ".." || strings.HasPrefix(cleanDoc, ".."+string(filepath.Separator)) {
+		if !config.IsRelativeWithinRoot(accountsDoc) {
 			return result, fmt.Errorf("invalid Playwright accounts_doc %q: must be a repository-relative path", accountsDoc)
 		}
 		if !fileExists(filepath.Join(root, cleanDoc)) {
@@ -460,6 +431,13 @@ func buildPlaywrightContainerArgs(cli []string, containerName string, cfg playwr
 }
 
 func runPlaywrightMCP(args []string, stdin io.Reader, stdout, stderr io.Writer, root string) int {
+	return runPlaywrightMCPWithRunner(args, stdin, stdout, stderr, root, process.Run)
+}
+
+func runPlaywrightMCPWithRunner(args []string, stdin io.Reader, stdout, stderr io.Writer, root string, runner func(context.Context, process.Request) process.Result) int {
+	if runner == nil {
+		runner = process.Run
+	}
 	opts, err := parsePlaywrightMCPArgs(args)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -499,7 +477,7 @@ func runPlaywrightMCP(args []string, stdin io.Reader, stdout, stderr io.Writer, 
 			return 1
 		}
 		buildArgs := append(append([]string{}, cli...), "build", "-t", rtCfg.Image, assetDir)
-		res := process.Run(ctx, process.Request{
+		res := runner(ctx, process.Request{
 			Args:    buildArgs,
 			Dir:     root,
 			Stdout:  stderr,
@@ -514,7 +492,7 @@ func runPlaywrightMCP(args []string, stdin io.Reader, stdout, stderr io.Writer, 
 		}
 	} else {
 		inspectArgs := append(append([]string{}, cli...), "image", "inspect", rtCfg.Image)
-		res := process.Run(ctx, process.Request{
+		res := runner(ctx, process.Request{
 			Args:    inspectArgs,
 			Dir:     root,
 			Stdout:  io.Discard,
@@ -531,7 +509,7 @@ func runPlaywrightMCP(args []string, stdin io.Reader, stdout, stderr io.Writer, 
 	runArgs := buildPlaywrightContainerArgs(cli, containerName, rtCfg)
 	cleanup := func() {
 		rmArgs := append(append([]string{}, cli...), "rm", "-f", containerName)
-		_ = process.Run(context.Background(), process.Request{
+		_ = runner(context.Background(), process.Request{
 			Args:    rmArgs,
 			Dir:     root,
 			Stdout:  io.Discard,
@@ -552,415 +530,4 @@ func runPlaywrightMCP(args []string, stdin io.Reader, stdout, stderr io.Writer, 
 		Grace:              rtCfg.Grace,
 		CleanupContainer:   cleanup,
 	})
-}
-
-type playwrightProxyOptions struct {
-	Command            []string
-	Dir                string
-	Stdin              io.Reader
-	Stdout             io.Writer
-	Stderr             io.Writer
-	Instructions       string
-	StartupTimeout     time.Duration
-	RequestTimeout     time.Duration
-	SessionIdleTimeout time.Duration
-	Grace              time.Duration
-	CleanupContainer   func()
-}
-
-type stdioLine struct {
-	data []byte
-	eof  bool
-	err  error
-}
-
-func readLines(r io.Reader, ch chan<- stdioLine) {
-	defer close(ch)
-	reader := bufio.NewReaderSize(r, 64*1024)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			ch <- stdioLine{data: line}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				ch <- stdioLine{eof: true}
-			} else {
-				ch <- stdioLine{err: err}
-			}
-			return
-		}
-	}
-}
-
-func parseJSONRPCMessages(line []byte) ([]map[string]any, bool) {
-	trimmed := bytes.TrimSpace(line)
-	if len(trimmed) == 0 {
-		return nil, false
-	}
-	var single map[string]any
-	if err := json.Unmarshal(trimmed, &single); err == nil && single != nil {
-		return []map[string]any{single}, false
-	}
-	var batch []map[string]any
-	if err := json.Unmarshal(trimmed, &batch); err == nil && len(batch) > 0 {
-		return batch, true
-	}
-	return nil, false
-}
-
-func canonicalMessageID(msg map[string]any) (string, bool) {
-	raw, ok := msg["id"]
-	if !ok {
-		return "", false
-	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return "", false
-	}
-	return string(encoded), true
-}
-
-func stopTimer(t *time.Timer) {
-	if t == nil {
-		return
-	}
-	if !t.Stop() {
-		select {
-		case <-t.C:
-		default:
-		}
-	}
-}
-
-type lockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-func (l *lockedWriter) Write(p []byte) (int, error) {
-	if l.w == nil {
-		return len(p), nil
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.w.Write(p)
-}
-
-func servePlaywrightStdioProxy(ctx context.Context, opts playwrightProxyOptions) int {
-	safeStderr := &lockedWriter{w: opts.Stderr}
-	if len(opts.Command) == 0 {
-		fmt.Fprintln(safeStderr, "Playwright MCP command is empty")
-		return 1
-	}
-	grace := opts.Grace
-	if grace <= 0 {
-		grace = 2 * time.Second
-	}
-
-	childStdoutR, childStdoutW, err := os.Pipe()
-	if err != nil {
-		fmt.Fprintf(safeStderr, "Playwright MCP pipe error: %v\n", err)
-		return 1
-	}
-	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
-	cmd.Dir = opts.Dir
-	cmd.Stdout = childStdoutW
-	cmd.Stderr = safeStderr
-	process.ConfigureProcessGroup(cmd)
-
-	childStdin, err := cmd.StdinPipe()
-	if err != nil {
-		_ = childStdoutR.Close()
-		_ = childStdoutW.Close()
-		fmt.Fprintf(safeStderr, "Playwright MCP stdin pipe error: %v\n", err)
-		return 1
-	}
-	if err := cmd.Start(); err != nil {
-		_ = childStdin.Close()
-		_ = childStdoutR.Close()
-		_ = childStdoutW.Close()
-		fmt.Fprintf(safeStderr, "start Playwright MCP: %v\n", err)
-		return 127
-	}
-	_ = childStdoutW.Close()
-	defer childStdoutR.Close()
-
-	reqCh := make(chan stdioLine, 16)
-	respCh := make(chan stdioLine, 16)
-	waitCh := make(chan error, 1)
-	go readLines(opts.Stdin, reqCh)
-	go readLines(childStdoutR, respCh)
-	go func() { waitCh <- cmd.Wait() }()
-
-	var (
-		initialized   bool
-		terminating   bool
-		timedOut      bool
-		stdinClosed   bool
-		pending       = map[string]struct{}{}
-		initializeIDs = map[string]struct{}{}
-		toolIDs       = map[string]struct{}{}
-		startupTimer  *time.Timer
-		requestTimer  *time.Timer
-		idleTimer     *time.Timer
-		eofTimer      *time.Timer
-		killTimer     *time.Timer
-		startupCh     <-chan time.Time
-		requestCh     <-chan time.Time
-		idleCh        <-chan time.Time
-		eofCh         <-chan time.Time
-		killCh        <-chan time.Time
-		waitErr       error
-		exited        bool
-	)
-
-	closeChildStdin := func() {
-		if !stdinClosed {
-			stdinClosed = true
-			_ = childStdin.Close()
-		}
-	}
-
-	armStartup := func() {
-		if opts.StartupTimeout > 0 {
-			startupTimer = time.NewTimer(opts.StartupTimeout)
-			startupCh = startupTimer.C
-		}
-	}
-	armRequest := func() {
-		if opts.RequestTimeout <= 0 {
-			return
-		}
-		if requestTimer == nil {
-			requestTimer = time.NewTimer(opts.RequestTimeout)
-		} else {
-			stopTimer(requestTimer)
-			requestTimer.Reset(opts.RequestTimeout)
-		}
-		requestCh = requestTimer.C
-	}
-	disarmRequest := func() {
-		stopTimer(requestTimer)
-		requestCh = nil
-	}
-	armIdle := func() {
-		if opts.SessionIdleTimeout <= 0 {
-			return
-		}
-		if idleTimer == nil {
-			idleTimer = time.NewTimer(opts.SessionIdleTimeout)
-		} else {
-			stopTimer(idleTimer)
-			idleTimer.Reset(opts.SessionIdleTimeout)
-		}
-		idleCh = idleTimer.C
-	}
-	terminate := func() {
-		if terminating {
-			return
-		}
-		terminating = true
-		closeChildStdin()
-		stopTimer(startupTimer)
-		startupCh = nil
-		disarmRequest()
-		stopTimer(idleTimer)
-		idleCh = nil
-		stopTimer(eofTimer)
-		eofCh = nil
-		_ = process.SignalProcessGroup(cmd.Process, false)
-		killTimer = time.NewTimer(grace)
-		killCh = killTimer.C
-	}
-
-	defer func() {
-		stopTimer(startupTimer)
-		stopTimer(requestTimer)
-		stopTimer(idleTimer)
-		stopTimer(eofTimer)
-		stopTimer(killTimer)
-		closeChildStdin()
-	}()
-
-	armStartup()
-
-	handleResponseLine := func(raw []byte) {
-		msgs, isBatch := parseJSONRPCMessages(raw)
-		modified := false
-		for _, msg := range msgs {
-			id, hasID := canonicalMessageID(msg)
-			if !hasID {
-				continue
-			}
-			if _, hasMethod := msg["method"]; hasMethod {
-				continue
-			}
-			if _, ok := pending[id]; !ok {
-				continue
-			}
-			delete(pending, id)
-			if _, isTool := toolIDs[id]; isTool {
-				delete(toolIDs, id)
-				if initialized {
-					armIdle()
-				}
-			}
-			if _, isInit := initializeIDs[id]; !isInit {
-				continue
-			}
-			delete(initializeIDs, id)
-			resMap, ok := msg["result"].(map[string]any)
-			if !ok {
-				continue
-			}
-			initialized = true
-			stopTimer(startupTimer)
-			startupCh = nil
-			armIdle()
-			if opts.Instructions != "" {
-				resMap["instructions"] = opts.Instructions
-				modified = true
-			}
-		}
-
-		outgoing := raw
-		if modified {
-			var payload any = msgs[0]
-			if isBatch {
-				payload = msgs
-			}
-			if encoded, encErr := json.Marshal(payload); encErr == nil {
-				outgoing = append(encoded, '\n')
-			}
-		}
-		_, _ = opts.Stdout.Write(outgoing)
-
-		if initialized {
-			if len(pending) == 0 {
-				disarmRequest()
-			} else {
-				armRequest()
-			}
-		}
-	}
-
-	cleanupRan := false
-	runCleanup := func() {
-		if cleanupRan || opts.CleanupContainer == nil {
-			return
-		}
-		cleanupRan = true
-		opts.CleanupContainer()
-	}
-
-	for !exited {
-		select {
-		case waitErr = <-waitCh:
-			exited = true
-		case <-ctx.Done():
-			terminate()
-		case ev, ok := <-reqCh:
-			if !ok || ev.eof || ev.err != nil {
-				reqCh = nil
-				closeChildStdin()
-				if !terminating && eofTimer == nil {
-					eofTimer = time.NewTimer(grace)
-					eofCh = eofTimer.C
-				}
-				continue
-			}
-			if terminating {
-				continue
-			}
-			if _, wErr := childStdin.Write(ev.data); wErr != nil {
-				terminate()
-				continue
-			}
-			msgs, _ := parseJSONRPCMessages(ev.data)
-			for _, msg := range msgs {
-				id, hasID := canonicalMessageID(msg)
-				method, hasMethod := msg["method"].(string)
-				if !hasID || !hasMethod {
-					continue
-				}
-				if initialized && len(pending) == 0 {
-					armRequest()
-				}
-				switch method {
-				case "initialize":
-					initializeIDs[id] = struct{}{}
-				case "tools/call":
-					toolIDs[id] = struct{}{}
-				}
-				pending[id] = struct{}{}
-			}
-		case ev, ok := <-respCh:
-			if !ok || ev.eof || ev.err != nil {
-				respCh = nil
-				if !terminating {
-					terminate()
-				}
-				continue
-			}
-			handleResponseLine(ev.data)
-		case <-startupCh:
-			startupCh = nil
-			if !initialized {
-				timedOut = true
-				fmt.Fprintf(safeStderr, "Playwright MCP startup timed out after %s; sent TERM with %s cleanup grace.\n", opts.StartupTimeout, grace)
-				terminate()
-			}
-		case <-requestCh:
-			requestCh = nil
-			if len(pending) > 0 {
-				timedOut = true
-				fmt.Fprintf(safeStderr, "Playwright MCP request timed out after %s; sent TERM with %s cleanup grace.\n", opts.RequestTimeout, grace)
-				terminate()
-			}
-		case <-idleCh:
-			idleCh = nil
-			if initialized && len(pending) == 0 {
-				timedOut = true
-				fmt.Fprintf(safeStderr, "Playwright MCP session idle for %s; sent TERM with %s cleanup grace.\n", opts.SessionIdleTimeout, grace)
-				terminate()
-			}
-		case <-eofCh:
-			eofCh = nil
-			terminate()
-		case <-killCh:
-			killCh = nil
-			_ = process.SignalProcessGroup(cmd.Process, true)
-			runCleanup()
-			waitErr = <-waitCh
-			exited = true
-		}
-	}
-
-	// Drain any buffered response lines flushed before the child exited.
-	if respCh != nil {
-		for ev := range respCh {
-			if len(ev.data) > 0 {
-				handleResponseLine(ev.data)
-			}
-		}
-	}
-	if terminating || timedOut {
-		_ = process.SignalProcessGroup(cmd.Process, true)
-		runCleanup()
-	}
-
-	if timedOut {
-		return playwrightTimeoutExitStatus
-	}
-	if waitErr == nil {
-		return 0
-	}
-	var exitErr *exec.ExitError
-	if errors.As(waitErr, &exitErr) {
-		if code := exitErr.ExitCode(); code >= 0 {
-			return code
-		}
-	}
-	return 1
 }

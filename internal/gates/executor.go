@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -59,14 +60,8 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 			command := append([]string(nil), gate.Command...)
 			if e.Fix && len(gate.FixCommand) > 0 {
 				command = append([]string(nil), gate.FixCommand...)
-			} else if gate.Mode == "check" && gate.Name == "gofmt" {
-				command = []string{"gofmt", "-l", "."}
-			}
-			if e.StructuredDefaultGo && gate.Name == "go-test" && slicesEqual(command, []string{"go", "test", "./..."}) {
-				command = []string{"go", "test", "-json", "./..."}
-			}
-			if e.StructuredDefaultGo && gate.Name == "go-integration" && slicesEqual(command, []string{"go", "test", "-tags=integration", "./..."}) {
-				command = []string{"go", "test", "-json", "-tags=integration", "./..."}
+			} else if e.StructuredDefaultGo && len(gate.StructuredCommand) > 0 {
+				command = append([]string(nil), gate.StructuredCommand...)
 			}
 			if e.BaseRef != "" && len(gate.NewFindingsFlag) > 0 {
 				command = append(command, gate.NewFindingsFlag...)
@@ -123,22 +118,10 @@ func checkVersion(ctx context.Context, run func(context.Context, process.Request
 	}
 	actual := strings.Fields(string(output))
 	expected := strings.Fields(*gate.ExpectedVersion)
-	if len(expected) == 0 || len(actual) < len(expected) || !slicesEqual(actual[:len(expected)], expected) {
+	if len(expected) == 0 || len(actual) < len(expected) || !slices.Equal(actual[:len(expected)], expected) {
 		return &commandResult{ExitCode: 1, Diagnostic: fmt.Sprintf("expected %q, got %q", *gate.ExpectedVersion, strings.TrimSpace(string(output)))}
 	}
 	return nil
-}
-
-func slicesEqual(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func runCommand(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string) *commandResult {
@@ -157,14 +140,15 @@ func runCommandWith(ctx context.Context, run func(context.Context, process.Reque
 	defer cancel()
 	var checkOut bytes.Buffer
 	request := process.Request{Args: command, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Timeout: timeoutDuration(gate.Timeout)}
-	if gate.Mode == "check" && gate.Name == "gofmt" {
+	failOnOutput := gate.FailOnOutput || (gate.Mode == "check" && gate.Name == "gofmt")
+	if failOnOutput {
 		request.Stdout = &checkOut
 	}
 	result := run(commandCtx, request)
 	if result.ExitCode != 0 {
 		return &commandResult{ExitCode: result.ExitCode, Diagnostic: errorText(result.Err)}
 	}
-	if gate.Mode == "check" && gate.Name == "gofmt" {
+	if failOnOutput {
 		out := result.Stdout
 		if len(out) == 0 {
 			out = checkOut.Bytes()

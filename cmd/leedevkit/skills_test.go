@@ -44,8 +44,13 @@ func TestRunSkillsListShowsDirectoriesOnly(t *testing.T) {
 
 func TestGlobalSkillsRootUsesExecutableLocation(t *testing.T) {
 	executable := filepath.Join("", "opt", "leedevkit", "current", "bin", "leedevkit")
-	if got, want := globalSkillsRootFromExecutable(executable), filepath.Join("", "opt", "leedevkit", "current", ".agent", "skills"); got != want {
+	want := filepath.Join("", "opt", "leedevkit", "current", ".agent", "skills")
+	if got := globalSkillsRootFromExecutable(executable); got != want {
 		t.Fatalf("globalSkillsRootFromExecutable() = %q, want %q", got, want)
+	}
+	goBinary := filepath.Join("", "opt", "leedevkit", "current", "bin", "go", "leedevkit-go")
+	if got := globalSkillsRootFromExecutable(goBinary); got != want {
+		t.Fatalf("globalSkillsRootFromExecutable(bin/go) = %q, want %q", got, want)
 	}
 }
 

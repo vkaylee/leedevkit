@@ -84,20 +84,19 @@ func ResolveContext(request CLIRequest, environ map[string]string, cwd string) (
 	if len(compose) == 0 {
 		compose = []string{"docker", "compose"}
 	}
-	service := map[string]string{"go": "go", "cargo": "apiserver", "diesel": "apiserver", "npm": "webdashboard"}[request.Tool]
-	if service == "" {
+	spec, ok := toolSpecs[request.Tool]
+	if !ok {
 		return Request{}, fmt.Errorf("unsupported run tool %q", request.Tool)
 	}
-	lang := map[string]string{"go": "go", "cargo": "rust", "diesel": "rust", "npm": "typescript"}[request.Tool]
+	service := spec.DefaultService
 	workdir := ""
-	if svc, ok := projectCfg.ServiceForLanguage(lang); ok && svc.Name != "" {
+	if svc, ok := projectCfg.ServiceForLanguage(spec.Language); ok && svc.Name != "" {
 		service = svc.Name
 		if svc.Workdir != "" {
 			workdir = filepath.ToSlash(filepath.Join("/workspace", svc.Workdir))
 		}
 	}
-	mode := map[string]string{"go": "go", "cargo": "api", "diesel": "api", "npm": "web"}[request.Tool]
-	file := environ["LEEDEVKIT_COMPOSE_FILE_"+strings.ToUpper(mode)]
+	file := environ["LEEDEVKIT_COMPOSE_FILE_"+strings.ToUpper(spec.Mode)]
 	if file == "" {
 		file = filepath.Join(cwd, ".compose", "docker-compose.test.yml")
 	}

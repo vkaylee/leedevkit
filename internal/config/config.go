@@ -141,6 +141,57 @@ type rawTestGate struct {
 	TeardownCommand []string `toml:"teardown_command"`
 }
 
+type rawServiceConfig struct {
+	Lang        string `toml:"lang"`
+	Workdir     string `toml:"workdir"`
+	Dockerfile  string `toml:"dockerfile"`
+	Ports       []int  `toml:"ports"`
+	HealthCheck string `toml:"health_check"`
+	Go          bool   `toml:"go"`
+	DevReload   string `toml:"dev_reload"`
+	Test        struct {
+		Lint        any `toml:"lint"`
+		Unit        any `toml:"unit"`
+		Integration any `toml:"integration"`
+		Coverage    any `toml:"coverage"`
+	} `toml:"test"`
+}
+
+type rawProjectConfig struct {
+	Languages []string `toml:"languages"`
+	Project   struct {
+		Name      string   `toml:"name"`
+		Namespace string   `toml:"namespace"`
+		Languages []string `toml:"languages"`
+	} `toml:"project"`
+	Services map[string]rawServiceConfig `toml:"services"`
+	Targets  map[string][]string         `toml:"targets"`
+	Test     struct {
+		BuildPolicy  string                 `toml:"build_policy"`
+		Dependencies map[string][]string    `toml:"dependencies"`
+		Gates        map[string]rawTestGate `toml:"gates"`
+	} `toml:"test"`
+	Dev struct {
+		AutoMigrate bool       `toml:"auto_migrate"`
+		Migrate     DevMigrate `toml:"migrate"`
+	} `toml:"dev"`
+	AI struct {
+		Harnesses []string `toml:"harnesses"`
+	} `toml:"ai"`
+	MCP struct {
+		Playwright PlaywrightMCP `toml:"playwright"`
+	} `toml:"mcp"`
+	Quality struct {
+		Gates map[string]gates.Gate `toml:"gates"`
+		Go    struct {
+			Lint        []string `toml:"lint"`
+			Unit        []string `toml:"unit"`
+			Integration []string `toml:"integration"`
+			Generated   []string `toml:"generated"`
+		} `toml:"go"`
+	} `toml:"quality"`
+}
+
 func Load(path string) (Project, error) {
 	project := Project{
 		Services:       map[string]Service{},
@@ -157,54 +208,7 @@ func Load(path string) (Project, error) {
 		}
 		return project, err
 	}
-	var raw struct {
-		Languages []string `toml:"languages"`
-		Project   struct {
-			Name      string   `toml:"name"`
-			Namespace string   `toml:"namespace"`
-			Languages []string `toml:"languages"`
-		} `toml:"project"`
-		Services map[string]struct {
-			Lang        string `toml:"lang"`
-			Workdir     string `toml:"workdir"`
-			Dockerfile  string `toml:"dockerfile"`
-			Ports       []int  `toml:"ports"`
-			HealthCheck string `toml:"health_check"`
-			Go          bool   `toml:"go"`
-			DevReload   string `toml:"dev_reload"`
-			Test        struct {
-				Lint        any `toml:"lint"`
-				Unit        any `toml:"unit"`
-				Integration any `toml:"integration"`
-				Coverage    any `toml:"coverage"`
-			} `toml:"test"`
-		} `toml:"services"`
-		Targets map[string][]string `toml:"targets"`
-		Test    struct {
-			BuildPolicy  string                 `toml:"build_policy"`
-			Dependencies map[string][]string    `toml:"dependencies"`
-			Gates        map[string]rawTestGate `toml:"gates"`
-		} `toml:"test"`
-		Dev struct {
-			AutoMigrate bool       `toml:"auto_migrate"`
-			Migrate     DevMigrate `toml:"migrate"`
-		} `toml:"dev"`
-		AI struct {
-			Harnesses []string `toml:"harnesses"`
-		} `toml:"ai"`
-		MCP struct {
-			Playwright PlaywrightMCP `toml:"playwright"`
-		} `toml:"mcp"`
-		Quality struct {
-			Gates map[string]gates.Gate `toml:"gates"`
-			Go    struct {
-				Lint        []string `toml:"lint"`
-				Unit        []string `toml:"unit"`
-				Integration []string `toml:"integration"`
-				Generated   []string `toml:"generated"`
-			} `toml:"go"`
-		} `toml:"quality"`
-	}
+	var raw rawProjectConfig
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return project, err
 	}
@@ -216,24 +220,66 @@ func Load(path string) (Project, error) {
 	project.AutoMigrate = raw.Dev.AutoMigrate
 	project.DevMigrate = raw.Dev.Migrate
 	project.Harnesses = append([]string(nil), raw.AI.Harnesses...)
-	if err := validatePlaywrightMCP(raw.MCP.Playwright); err != nil {
+	if err := loadPlaywrightConfig(&project, raw.MCP.Playwright); err != nil {
 		return project, err
 	}
-	project.PlaywrightMCP = raw.MCP.Playwright
-	project.PlaywrightMCP.Endpoint = strings.TrimSpace(project.PlaywrightMCP.Endpoint)
-	project.PlaywrightMCP.LoginPath = strings.TrimSpace(project.PlaywrightMCP.LoginPath)
-	project.PlaywrightMCP.Network = strings.TrimSpace(project.PlaywrightMCP.Network)
-	project.PlaywrightMCP.Viewports = strings.TrimSpace(project.PlaywrightMCP.Viewports)
-	project.PlaywrightMCP.AccountsDoc = strings.TrimSpace(project.PlaywrightMCP.AccountsDoc)
-	project.PlaywrightMCP.Image = strings.TrimSpace(project.PlaywrightMCP.Image)
-	project.PlaywrightMCP.ExtraArgs = append([]string(nil), raw.MCP.Playwright.ExtraArgs...)
-	serviceNames := make([]string, 0, len(raw.Services))
-	for name := range raw.Services {
+	serviceNames := loadServices(&project, raw.Services)
+	project.Languages = append([]string(nil), raw.Project.Languages...)
+	if len(project.Languages) == 0 {
+		project.Languages = append([]string(nil), raw.Languages...)
+	}
+	if raw.Targets != nil {
+		project.Targets = raw.Targets
+	}
+	if err := loadDependencies(&project, raw.Test.Dependencies); err != nil {
+		return project, err
+	}
+	if err := loadQualityGates(&project, &raw); err != nil {
+		return project, err
+	}
+	if err := loadServiceTestGates(&project, serviceNames, raw.Services); err != nil {
+		return project, err
+	}
+	if err := loadExplicitTestGates(&project, raw.Test.Gates); err != nil {
+		return project, err
+	}
+	// Automatically enable default Go integration gate when default Go gates are active
+	// and [test.dependencies] declares a Go integration phase without an existing global integration gate.
+	if project.DefaultGoGates && project.hasGoIntegrationDependency() && !hasGlobalPhaseGate(project.Gates, "integration") {
+		project.Gates = append(project.Gates, gates.DefaultIntegration())
+	}
+	if raw.Test.BuildPolicy != "" {
+		if raw.Test.BuildPolicy != "once" && raw.Test.BuildPolicy != "phase" {
+			return project, errors.New("test.build_policy must be once or phase")
+		}
+		project.BuildPolicy = raw.Test.BuildPolicy
+	}
+	return project, nil
+}
+
+func loadPlaywrightConfig(project *Project, cfg PlaywrightMCP) error {
+	if err := ValidatePlaywrightMCP(cfg); err != nil {
+		return err
+	}
+	project.PlaywrightMCP = cfg
+	project.PlaywrightMCP.Endpoint = strings.TrimSpace(cfg.Endpoint)
+	project.PlaywrightMCP.LoginPath = strings.TrimSpace(cfg.LoginPath)
+	project.PlaywrightMCP.Network = strings.TrimSpace(cfg.Network)
+	project.PlaywrightMCP.Viewports = strings.TrimSpace(cfg.Viewports)
+	project.PlaywrightMCP.AccountsDoc = strings.TrimSpace(cfg.AccountsDoc)
+	project.PlaywrightMCP.Image = strings.TrimSpace(cfg.Image)
+	project.PlaywrightMCP.ExtraArgs = append([]string(nil), cfg.ExtraArgs...)
+	return nil
+}
+
+func loadServices(project *Project, rawServices map[string]rawServiceConfig) []string {
+	serviceNames := make([]string, 0, len(rawServices))
+	for name := range rawServices {
 		serviceNames = append(serviceNames, name)
 	}
 	sort.Strings(serviceNames)
 	for _, name := range serviceNames {
-		service := raw.Services[name]
+		service := rawServices[name]
 		lang := service.Lang
 		if lang == "" && service.Go {
 			lang = "go"
@@ -249,72 +295,63 @@ func Load(path string) (Project, error) {
 			DevReload:   service.DevReload,
 		}
 	}
-	project.Languages = append([]string(nil), raw.Project.Languages...)
-	if len(project.Languages) == 0 {
-		project.Languages = append([]string(nil), raw.Languages...)
+	return serviceNames
+}
+
+func loadDependencies(project *Project, depsMap map[string][]string) error {
+	if depsMap == nil {
+		return nil
 	}
-	if raw.Targets != nil {
-		project.Targets = raw.Targets
-	}
-	if raw.Test.Dependencies != nil {
-		for key, deps := range raw.Test.Dependencies {
-			if len(deps) == 0 {
-				return project, fmt.Errorf("test.dependencies.%s must list at least one compose service", key)
-			}
-			for _, dep := range deps {
-				if strings.TrimSpace(dep) == "" {
-					return project, fmt.Errorf("test.dependencies.%s must not contain empty service names", key)
-				}
+	for key, deps := range depsMap {
+		if len(deps) == 0 {
+			return fmt.Errorf("test.dependencies.%s must list at least one compose service", key)
+		}
+		for _, dep := range deps {
+			if strings.TrimSpace(dep) == "" {
+				return fmt.Errorf("test.dependencies.%s must not contain empty service names", key)
 			}
 		}
-		project.Dependencies = raw.Test.Dependencies
 	}
+	project.Dependencies = depsMap
+	return nil
+}
+
+func loadQualityGates(project *Project, raw *rawProjectConfig) error {
 	selected := append([]string{}, raw.Quality.Go.Lint...)
 	selected = append(selected, raw.Quality.Go.Unit...)
 	selected = append(selected, raw.Quality.Go.Integration...)
 	selected = append(selected, raw.Quality.Go.Generated...)
-	if len(selected) > 0 {
-		project.DefaultGoGates = false
-		project.Gates = make([]gates.Gate, 0, len(selected))
-		seen := map[string]bool{}
-		for _, name := range selected {
-			if seen[name] {
-				continue
-			}
-			gate, ok := raw.Quality.Gates[name]
-			if !ok {
-				return project, fmt.Errorf("quality gate %q is not defined", name)
-			}
-			gate.Name = name
-			if gate.Mode == "" {
-				gate.Mode = "run"
-			}
-			if gate.Condition == "" {
-				gate.Condition = "always"
-			}
-			if gate.FailurePolicy == "" {
-				gate.FailurePolicy = "required"
-				if !gate.Required {
-					gate.FailurePolicy = "optional"
-				}
-			}
-			if gate.Environment == nil {
-				gate.Environment = []string{}
-			}
-			if gate.Requires == nil {
-				gate.Requires = []string{}
-			}
-			if err := gates.Validate(gate); err != nil {
-				return project, fmt.Errorf("quality gate %q is invalid: %w", name, err)
-			}
-			seen[name] = true
-			project.Gates = append(project.Gates, gate)
-		}
+	if len(selected) == 0 {
+		return nil
 	}
+	project.DefaultGoGates = false
+	project.Gates = make([]gates.Gate, 0, len(selected))
+	seen := map[string]bool{}
+	for _, name := range selected {
+		if seen[name] {
+			continue
+		}
+		gate, ok := raw.Quality.Gates[name]
+		if !ok {
+			return fmt.Errorf("quality gate %q is not defined", name)
+		}
+		gate.Name = name
+		if gate.FailurePolicy == "" && !gate.Required {
+			gate.FailurePolicy = "optional"
+		}
+		gate = gates.Normalize(gate)
+		if err := gates.Validate(gate); err != nil {
+			return fmt.Errorf("quality gate %q is invalid: %w", name, err)
+		}
+		seen[name] = true
+		project.Gates = append(project.Gates, gate)
+	}
+	return nil
+}
 
-	// Explicit [services.<name>.test] phase command overrides.
+func loadServiceTestGates(project *Project, serviceNames []string, rawServices map[string]rawServiceConfig) error {
 	for _, svcName := range serviceNames {
-		svc := raw.Services[svcName]
+		svc := rawServices[svcName]
 		for _, spec := range []struct {
 			phase string
 			raw   any
@@ -326,135 +363,113 @@ func Load(path string) (Project, error) {
 		} {
 			commands, err := parseServiceTestCommands(spec.raw)
 			if err != nil {
-				return project, fmt.Errorf("services.%s.test.%s: %w", svcName, spec.phase, err)
+				return fmt.Errorf("services.%s.test.%s: %w", svcName, spec.phase, err)
 			}
 			for idx, cmd := range commands {
 				gateName := fmt.Sprintf("service-%s-%s", svcName, spec.phase)
 				if len(commands) > 1 {
 					gateName = fmt.Sprintf("%s-%d", gateName, idx+1)
 				}
-				gate := gates.Gate{
-					Name:          gateName,
-					Phase:         spec.phase,
-					Target:        svcName,
-					Service:       svcName,
-					Command:       cmd,
-					Mode:          "run",
-					Required:      true,
-					Condition:     "always",
-					FailurePolicy: "required",
-					Environment:   []string{},
-					Requires:      []string{},
-				}
+				gate := gates.Normalize(gates.Gate{
+					Name:     gateName,
+					Phase:    spec.phase,
+					Target:   svcName,
+					Service:  svcName,
+					Command:  cmd,
+					Required: true,
+				})
 				if err := gates.Validate(gate); err != nil {
-					return project, fmt.Errorf("services.%s.test.%s is invalid: %w", svcName, spec.phase, err)
+					return fmt.Errorf("services.%s.test.%s is invalid: %w", svcName, spec.phase, err)
 				}
 				project.Gates = append(project.Gates, gate)
 			}
 		}
 	}
+	return nil
+}
 
-	// Explicit [test.gates.<key>] phase command overrides.
-	testGateKeys := make([]string, 0, len(raw.Test.Gates))
-	for key := range raw.Test.Gates {
+func loadExplicitTestGates(project *Project, rawGates map[string]rawTestGate) error {
+	testGateKeys := make([]string, 0, len(rawGates))
+	for key := range rawGates {
 		testGateKeys = append(testGateKeys, key)
 	}
 	sort.Strings(testGateKeys)
 	for _, key := range testGateKeys {
-		rawGate := raw.Test.Gates[key]
+		rawGate := rawGates[key]
 		phase, targetHint, err := inferTestGatePhaseAndTarget(key, rawGate.Phase)
 		if err != nil {
-			return project, err
+			return err
 		}
 		required := true
 		if rawGate.Required != nil {
 			required = *rawGate.Required
 		}
 		failurePolicy := rawGate.FailurePolicy
-		if failurePolicy == "" {
-			if required {
-				failurePolicy = "required"
-			} else {
-				failurePolicy = "optional"
-			}
+		if failurePolicy == "" && !required {
+			failurePolicy = "optional"
 		}
-		mode := rawGate.Mode
-		if mode == "" {
-			mode = "run"
-		}
-		condition := rawGate.Condition
-		if condition == "" {
-			condition = "always"
-		}
-		env := rawGate.Environment
-		if env == nil {
-			env = []string{}
-		}
-		reqs := rawGate.Requires
-		if reqs == nil {
-			reqs = []string{}
-		}
-		gate := gates.Gate{
+		gate := gates.Normalize(gates.Gate{
 			Name:            key,
 			Phase:           phase,
 			Target:          targetHint,
 			Command:         append([]string(nil), rawGate.Command...),
-			Mode:            mode,
+			Mode:            rawGate.Mode,
 			WorkingDir:      rawGate.WorkingDir,
 			Service:         rawGate.Service,
 			Timeout:         rawGate.Timeout,
 			Required:        required,
-			Condition:       condition,
+			Condition:       rawGate.Condition,
 			FailurePolicy:   failurePolicy,
-			Environment:     env,
-			Requires:        reqs,
+			Environment:     rawGate.Environment,
+			Requires:        rawGate.Requires,
 			ExpectedVersion: rawGate.ExpectedVersion,
 			VersionCommand:  rawGate.VersionCommand,
 			FixCommand:      rawGate.FixCommand,
 			NewFindingsFlag: rawGate.NewFindingsFlag,
 			SetupCommand:    rawGate.SetupCommand,
 			TeardownCommand: rawGate.TeardownCommand,
-		}
+		})
 		if err := gates.Validate(gate); err != nil {
-			return project, fmt.Errorf("test gate %q is invalid: %w", key, err)
+			return fmt.Errorf("test gate %q is invalid: %w", key, err)
 		}
 		if gate.Target == "" {
 			project.Gates = removeGlobalPhaseGates(project.Gates, gate.Phase)
 		}
 		project.Gates = append(project.Gates, gate)
 	}
-
-	// Automatically enable default Go integration gate when default Go gates are active
-	// and [test.dependencies] declares a Go integration phase without an existing global integration gate.
-	if project.DefaultGoGates && project.hasGoIntegrationDependency() && !hasGlobalPhaseGate(project.Gates, "integration") {
-		project.Gates = append(project.Gates, gates.DefaultIntegration())
-	}
-
-	if raw.Test.BuildPolicy != "" {
-		if raw.Test.BuildPolicy != "once" && raw.Test.BuildPolicy != "phase" {
-			return project, errors.New("test.build_policy must be once or phase")
-		}
-		project.BuildPolicy = raw.Test.BuildPolicy
-	}
-	return project, nil
+	return nil
 }
 
-func validatePlaywrightMCP(cfg PlaywrightMCP) error {
+// IsRelativeWithinRoot reports whether path is a relative path that does not traverse above the project root.
+func IsRelativeWithinRoot(path string) bool {
+	clean := filepath.Clean(path)
+	return !filepath.IsAbs(clean) && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+// ValidatePlaywrightEndpoint parses and validates a Playwright MCP HTTP(S) endpoint URL without credentials.
+func ValidatePlaywrightEndpoint(endpoint string) (*url.URL, error) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, fmt.Errorf("must be a valid http(s) URL")
+	}
+	if parsed.User != nil {
+		return nil, errors.New("must not include credentials")
+	}
+	return parsed, nil
+}
+
+// ValidatePlaywrightMCP validates optional [mcp.playwright] project configuration fields.
+func ValidatePlaywrightMCP(cfg PlaywrightMCP) error {
 	if ep := strings.TrimSpace(cfg.Endpoint); ep != "" {
-		parsed, err := url.Parse(ep)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return fmt.Errorf("mcp.playwright.endpoint %q must be a valid http(s) URL", cfg.Endpoint)
-		}
-		if parsed.User != nil {
-			return errors.New("mcp.playwright.endpoint must not include credentials")
+		if _, err := ValidatePlaywrightEndpoint(ep); err != nil {
+			return fmt.Errorf("mcp.playwright.endpoint %q %w", cfg.Endpoint, err)
 		}
 	}
 	if lp := strings.TrimSpace(cfg.LoginPath); lp != "" && !strings.HasPrefix(lp, "/") {
 		return fmt.Errorf("mcp.playwright.login_path %q must start with /", cfg.LoginPath)
 	}
 	if ad := strings.TrimSpace(cfg.AccountsDoc); ad != "" {
-		clean := filepath.Clean(ad)
-		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		if !IsRelativeWithinRoot(ad) {
 			return fmt.Errorf("mcp.playwright.accounts_doc %q must be a repository-relative path", cfg.AccountsDoc)
 		}
 	}

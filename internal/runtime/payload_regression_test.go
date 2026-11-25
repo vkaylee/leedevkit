@@ -35,7 +35,7 @@ func TestSyncRulesRejectsSymlinkAndPreservesExistingFiles(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, ".agent", "rules")); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncRules(root, source); err == nil || !strings.Contains(err.Error(), "symlinked rules") {
+	if err := SyncRules(root, source); err == nil || !strings.Contains(err.Error(), "symlinked rules") {
 		t.Fatalf("sync error = %v", err)
 	}
 	entries, err := os.ReadDir(outside)

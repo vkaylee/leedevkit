@@ -59,3 +59,16 @@ func TestComposePhaseExecutorReportsLifecycleFailureDetails(t *testing.T) {
 		t.Fatalf("lifecycle error = %q", result.LifecycleError)
 	}
 }
+
+func TestRunContextPropagatesContextToExecutor(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var sawCanceled bool
+	result := RunContext(ctx, Flags{Target: "go", UnitOnly: true}, ContextExecutorFunc(func(phaseCtx context.Context, _ Phase) PhaseResult {
+		sawCanceled = phaseCtx.Err() != nil
+		return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "canceled"}
+	}), nil)
+	if !sawCanceled || result.Status != "blocked" {
+		t.Fatalf("sawCanceled=%v result=%#v", sawCanceled, result)
+	}
+}

@@ -1,25 +1,19 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/config"
-	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/provider"
 )
@@ -37,8 +31,6 @@ Subcommands:
   watch [service]            Watch Go source changes and auto-restart service
   migrate [up|status]        Run incremental migrations or check drift on dev DB
 `
-
-var safeMigrationName = regexp.MustCompile(`^[A-Za-z0-9_.-]+\.sql$`)
 
 func devProjectName(env map[string]string, projectConfig config.Project) string {
 	if value := strings.TrimSpace(env["LEEDEVKIT_DEV_PROJECT"]); value != "" {
@@ -78,14 +70,10 @@ func devComposeArgsForProject(compose []string, project string, files []string, 
 	if len(files) == 0 {
 		files = []string{"docker-compose.yml", ".compose/docker-compose.dev.yml"}
 	}
-	args := append([]string{}, compose...)
+	args := composeBaseArgs(compose, project, files)
 	composeOperation := operation
 	if operation == "clean" {
 		composeOperation = "down"
-	}
-	args = append(args, "-p", project)
-	for _, file := range files {
-		args = append(args, "-f", file)
 	}
 	args = append(args, composeOperation)
 	switch operation {
@@ -266,13 +254,7 @@ func runDevRestartContext(ctx context.Context, args []string, providerCfg provid
 		return 0
 	}
 
-	psArgs := append([]string{}, providerCfg.Compose...)
-	psArgs = append(psArgs, "-p", project)
-	for _, file := range files {
-		psArgs = append(psArgs, "-f", file)
-	}
-	psArgs = append(psArgs, "ps", "--format", "json")
-	if err := (lifecycle.Readiness{Run: runner, Dir: root, Env: childEnv}).Wait(ctx, psArgs, []string{serviceName}, timeout); err != nil {
+	if err := waitComposeServiceReady(ctx, runner, providerCfg.Compose, project, files, serviceName, root, childEnv, timeout); err != nil {
 		fmt.Fprintf(stderr, "dev restart readiness failed: %v\n", err)
 		return 1
 	}
@@ -372,384 +354,6 @@ func runDevWatchContext(ctx context.Context, args []string, providerCfg provider
 			}
 		}
 	}
-}
-
-type devMigrateOptions struct {
-	Action    string
-	Check     bool
-	Baseline  string
-	Dir       string
-	DBService string
-	Help      bool
-}
-
-func parseDevMigrateArgs(args []string) (devMigrateOptions, error) {
-	opts := devMigrateOptions{Action: "up"}
-	actionSet := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--help", "-h":
-			opts.Help = true
-			return opts, nil
-		case "up", "status":
-			if actionSet {
-				return devMigrateOptions{}, fmt.Errorf("multiple dev migrate actions specified")
-			}
-			opts.Action = args[i]
-			actionSet = true
-		case "--check":
-			opts.Check = true
-			if !actionSet {
-				opts.Action = "status"
-			}
-		case "--baseline":
-			if i+1 >= len(args) {
-				return devMigrateOptions{}, fmt.Errorf("--baseline requires a migration filename")
-			}
-			opts.Baseline = args[i+1]
-			i++
-		case "--dir":
-			if i+1 >= len(args) {
-				return devMigrateOptions{}, fmt.Errorf("--dir requires a directory path")
-			}
-			opts.Dir = args[i+1]
-			i++
-		case "--db-service":
-			if i+1 >= len(args) {
-				return devMigrateOptions{}, fmt.Errorf("--db-service requires a compose service name")
-			}
-			opts.DBService = args[i+1]
-			i++
-		default:
-			return devMigrateOptions{}, fmt.Errorf("unsupported dev migrate argument %q", args[i])
-		}
-	}
-	return opts, nil
-}
-
-type sqlMigration struct {
-	Version  string
-	Path     string
-	Checksum string
-}
-
-func discoverMigrationsDir(root string, projectCfg config.Project, explicitDir string) (string, error) {
-	if explicitDir != "" {
-		cleaned := filepath.Clean(explicitDir)
-		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-			return "", fmt.Errorf("migrations dir %q must stay inside project", explicitDir)
-		}
-		full := filepath.Join(root, cleaned)
-		if info, err := os.Stat(full); err != nil || !info.IsDir() {
-			return "", fmt.Errorf("migrations directory not found: %s", explicitDir)
-		}
-		return full, nil
-	}
-	candidates := []string{}
-	if projectCfg.DevMigrate.Dir != "" {
-		candidates = append(candidates, projectCfg.DevMigrate.Dir)
-	}
-	candidates = append(candidates, "migrations")
-	if goSvc, ok := projectCfg.ServiceForLanguage("go"); ok && goSvc.Workdir != "" {
-		candidates = append(candidates, filepath.Join(goSvc.Workdir, "migrations"), filepath.Join(goSvc.Workdir, "db", "migrations"))
-	}
-	candidates = append(candidates, filepath.Join("db", "migrations"), filepath.Join("sql", "migrations"))
-	for _, rel := range candidates {
-		cleaned := filepath.Clean(rel)
-		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-			continue
-		}
-		full := filepath.Join(root, cleaned)
-		if info, err := os.Stat(full); err == nil && info.IsDir() {
-			return full, nil
-		}
-	}
-	return "", fmt.Errorf("no migrations directory found (configure [dev.migrate] in leedevkit.toml or pass --dir)")
-}
-
-func loadSQLMigrations(dir string) ([]sqlMigration, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var migrations []sqlMigration
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		lower := strings.ToLower(name)
-		if !strings.HasSuffix(lower, ".sql") || strings.HasSuffix(lower, ".down.sql") || strings.HasSuffix(lower, "_down.sql") {
-			continue
-		}
-		if !safeMigrationName.MatchString(name) {
-			return nil, fmt.Errorf("unsafe migration filename %q", name)
-		}
-		fullPath := filepath.Join(dir, name)
-		info, err := os.Lstat(fullPath)
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("migration %q must be a regular file", name)
-		}
-		data, err := os.ReadFile(fullPath)
-		if err != nil {
-			return nil, err
-		}
-		sum := sha256.Sum256(data)
-		migrations = append(migrations, sqlMigration{
-			Version:  name,
-			Path:     fullPath,
-			Checksum: hex.EncodeToString(sum[:]),
-		})
-	}
-	sort.Slice(migrations, func(i, j int) bool {
-		return migrations[i].Version < migrations[j].Version
-	})
-	return migrations, nil
-}
-
-func buildDevPsqlArgs(compose []string, project string, files []string, dbService, dbUser, dbName string, extraPsqlArgs ...string) []string {
-	args := append([]string{}, compose...)
-	args = append(args, "-p", project)
-	for _, file := range files {
-		args = append(args, "-f", file)
-	}
-	script := `user="${LEEDEVKIT_DB_USER:-${POSTGRES_USER:-postgres}}"; db="${LEEDEVKIT_DB_NAME:-${POSTGRES_DB:-$user}}"; exec psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$db" "$@"`
-	args = append(args, "exec", "-T")
-	if dbUser != "" {
-		args = append(args, "-e", "LEEDEVKIT_DB_USER="+dbUser)
-	}
-	if dbName != "" {
-		args = append(args, "-e", "LEEDEVKIT_DB_NAME="+dbName)
-	}
-	args = append(args, dbService, "sh", "-c", script, "psql")
-	args = append(args, extraPsqlArgs...)
-	return args
-}
-
-func resolveDevDBService(ctx context.Context, compose []string, project string, files []string, root string, env []string, configured string, runner func(context.Context, process.Request) process.Result) string {
-	if configured != "" {
-		return configured
-	}
-	for _, candidate := range []string{"postgres", "db"} {
-		if isComposeServiceReady(ctx, compose, project, files, candidate, root, env, runner) {
-			return candidate
-		}
-	}
-	return "postgres"
-}
-
-func runDevMigrateContext(ctx context.Context, args []string, providerCfg provider.Provider, projectCfg config.Project, root string, rawEnv []string, stdout, stderr io.Writer, runner func(context.Context, process.Request) process.Result) int {
-	opts, err := parseDevMigrateArgs(args)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if opts.Help {
-		fmt.Fprintln(stdout, "Usage: leedevkit dev migrate [up|status] [--check] [--baseline <file.sql>] [--dir <path>] [--db-service <svc>]")
-		return 0
-	}
-	if runner == nil {
-		runner = process.Run
-	}
-	project := devProjectName(environMap(rawEnv), projectCfg)
-	files := devComposeFiles(root)
-	childEnv := withDevProjectEnv(rawEnv, root, project, projectCfg.Namespace)
-
-	// Custom migration command configured in [dev.migrate].
-	if len(projectCfg.DevMigrate.Command) > 0 || len(projectCfg.DevMigrate.StatusCommand) > 0 {
-		svcName := projectCfg.DevMigrate.Service
-		if svcName == "" {
-			svcName = configuredServiceName(projectCfg, "go")
-		}
-		resolvedName, svc := resolveDevService(projectCfg, svcName)
-		workdir, err := resolveServiceWorkdir(root, resolvedName, svc, "")
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 2
-		}
-		cmd := projectCfg.DevMigrate.Command
-		if opts.Action == "status" {
-			cmd = projectCfg.DevMigrate.StatusCommand
-			if len(cmd) == 0 {
-				fmt.Fprintln(stderr, "dev.migrate.status_command is not configured in leedevkit.toml")
-				return 2
-			}
-		} else if len(cmd) == 0 {
-			fmt.Fprintln(stderr, "dev.migrate.command is not configured in leedevkit.toml")
-			return 2
-		}
-		execArgs := append([]string{}, providerCfg.Compose...)
-		execArgs = append(execArgs, "-p", project)
-		for _, file := range files {
-			execArgs = append(execArgs, "-f", file)
-		}
-		execArgs = append(execArgs, "exec", "-T", "-w", workdir, resolvedName)
-		execArgs = append(execArgs, cmd...)
-		res := runner(ctx, process.Request{Args: execArgs, Dir: root, Env: childEnv, Stdout: stdout, Stderr: stderr})
-		return res.ExitCode
-	}
-
-	// Built-in incremental SQL migration & drift check against dev Postgres.
-	migrationsDir, err := discoverMigrationsDir(root, projectCfg, opts.Dir)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	migrations, err := loadSQLMigrations(migrationsDir)
-	if err != nil {
-		fmt.Fprintf(stderr, "load migrations: %v\n", err)
-		return 2
-	}
-	dbServiceCfg := opts.DBService
-	if dbServiceCfg == "" {
-		dbServiceCfg = projectCfg.DevMigrate.DBService
-	}
-	dbService := resolveDevDBService(ctx, providerCfg.Compose, project, files, root, childEnv, dbServiceCfg, runner)
-	dbUser := projectCfg.DevMigrate.DBUser
-	dbName := projectCfg.DevMigrate.DBName
-
-	initSQL := `CREATE TABLE IF NOT EXISTS _leedevkit_migrations (version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()); SELECT version || '|' || checksum FROM _leedevkit_migrations ORDER BY version;`
-	var queryOut, queryErr bytes.Buffer
-	queryArgs := buildDevPsqlArgs(providerCfg.Compose, project, files, dbService, dbUser, dbName, "-t", "-A", "-c", initSQL)
-	queryRes := runner(ctx, process.Request{Args: queryArgs, Dir: root, Env: childEnv, Stdout: &queryOut, Stderr: &queryErr})
-	if queryRes.ExitCode != 0 {
-		errMsg := strings.TrimSpace(queryErr.String())
-		if errMsg == "" {
-			errMsg = queryRes.Diagnostic()
-		}
-		fmt.Fprintf(stderr, "dev migrate failed to query dev database (%s): %s\n", dbService, process.RedactDiagnostic(errMsg))
-		return 1
-	}
-	rawOut := queryRes.Stdout
-	if len(rawOut) == 0 {
-		rawOut = queryOut.Bytes()
-	}
-	applied := map[string]string{}
-	for _, line := range strings.Split(string(rawOut), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "CREATE TABLE") {
-			continue
-		}
-		ver, sum, ok := strings.Cut(line, "|")
-		if ok {
-			applied[strings.TrimSpace(ver)] = strings.TrimSpace(sum)
-		}
-	}
-
-	if opts.Baseline != "" {
-		foundBaseline := false
-		var baselineSQL strings.Builder
-		for _, m := range migrations {
-			if m.Version <= opts.Baseline {
-				if m.Version == opts.Baseline {
-					foundBaseline = true
-				}
-				if _, exists := applied[m.Version]; !exists {
-					fmt.Fprintf(&baselineSQL, "INSERT INTO _leedevkit_migrations (version, checksum) VALUES ('%s', '%s') ON CONFLICT (version) DO NOTHING;\n", m.Version, m.Checksum)
-					applied[m.Version] = m.Checksum
-				}
-			}
-		}
-		if !foundBaseline {
-			fmt.Fprintf(stderr, "baseline migration %q not found in %s\n", opts.Baseline, migrationsDir)
-			return 2
-		}
-		if baselineSQL.Len() > 0 {
-			baseArgs := buildDevPsqlArgs(providerCfg.Compose, project, files, dbService, dbUser, dbName, "-q", "-c", baselineSQL.String())
-			baseRes := runner(ctx, process.Request{Args: baseArgs, Dir: root, Env: childEnv, Stdout: stdout, Stderr: stderr})
-			if baseRes.ExitCode != 0 {
-				return 1
-			}
-		}
-	}
-
-	diskMap := make(map[string]sqlMigration, len(migrations))
-	for _, m := range migrations {
-		diskMap[m.Version] = m
-	}
-	var driftErrors []string
-	appliedNames := make([]string, 0, len(applied))
-	for ver := range applied {
-		appliedNames = append(appliedNames, ver)
-	}
-	sort.Strings(appliedNames)
-	for _, ver := range appliedNames {
-		disk, ok := diskMap[ver]
-		if !ok {
-			driftErrors = append(driftErrors, fmt.Sprintf("drift: applied migration %q is missing on disk", ver))
-			continue
-		}
-		if disk.Checksum != applied[ver] {
-			driftErrors = append(driftErrors, fmt.Sprintf("drift: migration %q checksum changed (db=%s disk=%s)", ver, applied[ver][:12], disk.Checksum[:12]))
-		}
-	}
-	if len(driftErrors) > 0 {
-		for _, d := range driftErrors {
-			fmt.Fprintln(stderr, d)
-		}
-		return 1
-	}
-
-	var pending []sqlMigration
-	for _, m := range migrations {
-		if _, ok := applied[m.Version]; !ok {
-			pending = append(pending, m)
-		}
-	}
-
-	if opts.Action == "status" {
-		for _, m := range migrations {
-			state := "pending"
-			if _, ok := applied[m.Version]; ok {
-				state = "applied"
-			}
-			fmt.Fprintf(stdout, "%s\t%s\n", state, m.Version)
-		}
-		fmt.Fprintf(stderr, "Migrations: %d applied, %d pending, 0 drifted.\n", len(applied), len(pending))
-		if opts.Check && len(pending) > 0 {
-			return 1
-		}
-		return 0
-	}
-
-	if len(pending) == 0 {
-		fmt.Fprintf(stderr, "Dev database up to date (%d applied, 0 pending).\n", len(applied))
-		return 0
-	}
-
-	for _, m := range pending {
-		sqlBytes, readErr := os.ReadFile(m.Path)
-		if readErr != nil {
-			fmt.Fprintf(stderr, "read migration %s: %v\n", m.Version, readErr)
-			return 1
-		}
-		applyArgs := buildDevPsqlArgs(providerCfg.Compose, project, files, dbService, dbUser, dbName)
-		applyRes := runner(ctx, process.Request{
-			Args:   applyArgs,
-			Dir:    root,
-			Env:    childEnv,
-			Stdin:  bytes.NewReader(sqlBytes),
-			Stdout: stdout,
-			Stderr: stderr,
-		})
-		if applyRes.ExitCode != 0 {
-			fmt.Fprintf(stderr, "migration %s failed\n", m.Version)
-			return applyRes.ExitCode
-		}
-		recordSQL := fmt.Sprintf("INSERT INTO _leedevkit_migrations (version, checksum) VALUES ('%s', '%s');", m.Version, m.Checksum)
-		recArgs := buildDevPsqlArgs(providerCfg.Compose, project, files, dbService, dbUser, dbName, "-q", "-c", recordSQL)
-		recRes := runner(ctx, process.Request{Args: recArgs, Dir: root, Env: childEnv, Stdout: io.Discard, Stderr: stderr})
-		if recRes.ExitCode != 0 {
-			fmt.Fprintf(stderr, "failed to record migration %s\n", m.Version)
-			return 1
-		}
-		fmt.Fprintf(stderr, "Applied migration %s\n", m.Version)
-	}
-	fmt.Fprintf(stderr, "Applied %d incremental migration(s).\n", len(pending))
-	return 0
 }
 
 func runDevCLI(args []string, root string, stdin io.Reader, stdout, stderr io.Writer) int {

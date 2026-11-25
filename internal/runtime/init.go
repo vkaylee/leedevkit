@@ -35,7 +35,7 @@ func Init(root, source string, _ bool) error {
 	} else if err != nil {
 		return err
 	}
-	if err := syncRules(root, rulesSource); err != nil {
+	if err := SyncRules(root, rulesSource); err != nil {
 		return err
 	}
 	return syncClaudeContextIfEnabled(root)
@@ -243,6 +243,34 @@ func collapseExtraBlankLines(text string) string {
 	return strings.Join(out, "\n")
 }
 
+// AtomicWriteFile writes data to a temporary sibling file, sets perm, and atomically renames it to target.
+func AtomicWriteFile(target string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".leedevkit-atomic-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
 // SyncClaudeMD updates CLAUDE.md in root idempotently using atomic write.
 func SyncClaudeMD(root string) error {
 	root = filepath.Clean(root)
@@ -264,30 +292,7 @@ func SyncClaudeMD(root string) error {
 	if existing == rendered {
 		return nil
 	}
-	tmp, err := os.CreateTemp(root, ".claude-md-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := io.WriteString(tmp, rendered); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, target); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return AtomicWriteFile(target, []byte(rendered), 0o644)
 }
 
 func createProjectConfig(path, templates, projectRoot string) error {
@@ -387,20 +392,24 @@ func copyPath(source, target string) error {
 	return output.Close()
 }
 
-func syncRules(root, source string) error {
+// SyncRules copies missing markdown rulebooks from source into <root>/.agent/rules without overwriting user rules.
+func SyncRules(root, source string) error {
 	project := filepath.Join(root, ".agent", "rules")
 	if info, err := os.Lstat(project); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("refusing to modify symlinked rules directory: %s", project)
 	}
+	if info, err := os.Stat(source); err != nil || !info.IsDir() {
+		if err != nil {
+			return fmt.Errorf("global rules unavailable: %w", err)
+		}
+		return fmt.Errorf("global rules path is not a directory: %s", source)
+	}
 	if err := os.MkdirAll(project, 0o755); err != nil {
-		return err
+		return fmt.Errorf("create project rules directory: %w", err)
 	}
 	entries, err := os.ReadDir(source)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
 	if err != nil {
-		return err
+		return fmt.Errorf("read global rules directory: %w", err)
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
@@ -410,7 +419,7 @@ func syncRules(root, source string) error {
 		if _, err := os.Lstat(target); err == nil {
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
+			return fmt.Errorf("inspect project rule %s: %w", entry.Name(), err)
 		}
 		if err := copyPath(filepath.Join(source, entry.Name()), target); err != nil {
 			return err

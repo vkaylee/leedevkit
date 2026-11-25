@@ -3,6 +3,7 @@ package gates
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/vkaylee/leedevkit/internal/process"
@@ -32,7 +33,7 @@ func TestExecutorStructuredDefaultGoIsOptIn(t *testing.T) {
 		if structured {
 			want = []string{"go", "test", "-json", "./..."}
 		}
-		if !slicesEqual(got, want) {
+		if !slices.Equal(got, want) {
 			t.Fatalf("structured=%t: argv=%v want=%v", structured, got, want)
 		}
 	}

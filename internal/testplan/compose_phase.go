@@ -2,6 +2,7 @@ package testplan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -36,7 +37,8 @@ func (e ComposePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) (
 	if err != nil && (result.Status == "" || result.Status == "passed") {
 		command := e.Lifecycle.UpArgs
 		lifecycleError := process.RedactDiagnostic(err.Error())
-		if failure, ok := err.(*lifecycle.Failure); ok {
+		var failure *lifecycle.Failure
+		if errors.As(err, &failure) {
 			command = failure.Args
 			lifecycleError = process.RedactDiagnostic(failure.Err.Error())
 		}

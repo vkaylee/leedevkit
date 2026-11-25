@@ -51,14 +51,37 @@ func InitProject(root, localSource string, force bool) error {
 	return Init(root, source, force)
 }
 
-func releaseRootFromExecutable() (string, error) {
+// CurrentExecutablePath returns the symlink-resolved absolute path of the running binary.
+func CurrentExecutablePath() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("resolve executable: %w", err)
+		return "", fmt.Errorf("locate leedevkit executable: %w", err)
 	}
-	executable, err = filepath.EvalSymlinks(executable)
+	resolved, err := filepath.EvalSymlinks(executable)
 	if err != nil {
-		return "", fmt.Errorf("resolve executable symlink: %w", err)
+		return "", fmt.Errorf("resolve leedevkit executable: %w", err)
+	}
+	absolute, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve leedevkit executable path: %w", err)
+	}
+	return absolute, nil
+}
+
+// AssetRootFromExecutable derives the DevKit root directory from an executable path
+// (handling both <root>/bin/leedevkit and <root>/bin/go/<binary>).
+func AssetRootFromExecutable(executable string) string {
+	dir := filepath.Dir(executable)
+	if filepath.Base(dir) == "go" && filepath.Base(filepath.Dir(dir)) == "bin" {
+		dir = filepath.Dir(dir)
+	}
+	return filepath.Dir(dir)
+}
+
+func releaseRootFromExecutable() (string, error) {
+	executable, err := CurrentExecutablePath()
+	if err != nil {
+		return "", err
 	}
 	for candidate := filepath.Dir(executable); ; candidate = filepath.Dir(candidate) {
 		if exists(filepath.Join(candidate, "VERSION")) && directoryExists(filepath.Join(candidate, ".agent", "rules")) {
@@ -301,10 +324,34 @@ func acquireRelease(root, localSource, version string, globalOnly bool) (Release
 	return Download(version)
 }
 
+// ReleaseClient fetches and verifies DevKit release archives using injectable HTTP client and base URL.
+type ReleaseClient struct {
+	HTTPClient *http.Client
+	BaseURL    string
+}
+
+func defaultReleaseClient() ReleaseClient {
+	return ReleaseClient{
+		HTTPClient: &http.Client{Timeout: releaseTimeout()},
+		BaseURL:    os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"),
+	}
+}
+
+func (c ReleaseClient) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: releaseTimeout()}
+}
+
 func Download(version string) (Release, error) {
+	return defaultReleaseClient().Download(version)
+}
+
+func (c ReleaseClient) Download(version string) (Release, error) {
 	if version == "" || version == "latest" {
 		var err error
-		version, err = latestVersion()
+		version, err = c.LatestVersion()
 		if err != nil {
 			return Release{}, err
 		}
@@ -313,12 +360,12 @@ func Download(version string) (Release, error) {
 	if !validReleaseVersion(version) || version == "latest" {
 		return Release{}, fmt.Errorf("invalid release version %q", version)
 	}
-	base := strings.TrimRight(os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"), "/")
+	base := strings.TrimRight(c.BaseURL, "/")
 	if base == "" {
 		base = defaultReleaseBase
 	}
 	url := fmt.Sprintf("%s/download/v%s/leedevkit-%s.tar.gz", base, version, version)
-	client := &http.Client{Timeout: releaseTimeout()}
+	client := c.httpClient()
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return Release{}, err
@@ -412,14 +459,18 @@ func latestReleaseAPI(base string) string {
 }
 
 func latestVersion() (string, error) {
-	api := latestReleaseAPI(os.Getenv("LEEDEVKIT_RELEASE_BASE_URL"))
+	return defaultReleaseClient().LatestVersion()
+}
+
+func (c ReleaseClient) LatestVersion() (string, error) {
+	api := latestReleaseAPI(c.BaseURL)
 	request, err := http.NewRequest(http.MethodGet, api, nil)
 	if err != nil {
 		return "", err
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "leedevkit-go")
-	response, err := (&http.Client{Timeout: releaseTimeout()}).Do(request)
+	response, err := c.httpClient().Do(request)
 	if err != nil {
 		return "", fmt.Errorf("resolve latest release: %w", err)
 	}

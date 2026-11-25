@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/vkaylee/leedevkit/internal/provider"
@@ -38,7 +39,7 @@ func (p Plan) Up() ([]string, error) {
 		args = append(args, buildFlag)
 	}
 	if p.NativeWait {
-		if !has(p.Provider.Capabilities, "wait") {
+		if !slices.Contains(p.Provider.Capabilities, "wait") {
 			return nil, fmt.Errorf("provider %q lacks required capability: wait", p.Provider.Name)
 		}
 		args = append(args, "--wait", "--wait-timeout", strconv.Itoa(p.WaitTimeout))
@@ -95,7 +96,7 @@ func (p Plan) base() []string {
 
 func (p Plan) validate() error {
 	for _, capability := range []string{"compose", "config", "up", "down", "ps"} {
-		if !has(p.Provider.Capabilities, capability) {
+		if !slices.Contains(p.Provider.Capabilities, capability) {
 			return fmt.Errorf("provider %q lacks required capability: %s", p.Provider.Name, capability)
 		}
 	}
@@ -109,15 +110,6 @@ func (p Plan) validate() error {
 		return fmt.Errorf("external project cannot run lifecycle startup")
 	}
 	return nil
-}
-
-func has(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
 }
 
 func unique(values []string) []string {

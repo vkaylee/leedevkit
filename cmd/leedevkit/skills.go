@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	runtimepkg "github.com/vkaylee/leedevkit/internal/runtime"
 )
 
 func runSkillsList(root string, stdout, stderr io.Writer) int {
@@ -36,19 +38,15 @@ func runSkillsListWithBuiltinRoot(root, builtin string, stderr io.Writer) int {
 }
 
 func globalSkillsRoot() string {
-	executable, err := os.Executable()
+	resolved, err := runtimepkg.CurrentExecutablePath()
 	if err != nil {
 		return ""
-	}
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		resolved = executable
 	}
 	return globalSkillsRootFromExecutable(resolved)
 }
 
 func globalSkillsRootFromExecutable(executable string) string {
-	return filepath.Join(filepath.Dir(filepath.Dir(executable)), ".agent", "skills")
+	return filepath.Join(runtimepkg.AssetRootFromExecutable(executable), ".agent", "skills")
 }
 
 func listSkillNames(root string, output io.Writer, label string) int {

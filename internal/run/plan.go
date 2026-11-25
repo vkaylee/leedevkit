@@ -22,11 +22,119 @@ type Request struct {
 	Owned    bool     `json:"owned"`
 }
 
-var supportedTools = map[string]bool{
-	"cargo":  true,
-	"diesel": true,
-	"go":     true,
-	"npm":    true,
+type toolSpec struct {
+	DefaultService  string
+	Language        string
+	Mode            string
+	DefaultProfiles func(toolArgs []string, pooler bool) []string
+	AppendToolArgs  func(args []string, request Request) []string
+}
+
+var toolSpecs = map[string]toolSpec{
+	"go": {
+		DefaultService: "go",
+		Language:       "go",
+		Mode:           "go",
+		DefaultProfiles: func(_ []string, _ bool) []string {
+			return []string{"--profile", "go"}
+		},
+		AppendToolArgs: func(args []string, request Request) []string {
+			if request.Running {
+				args = append(args, "exec", "-T", request.Service, "go")
+			} else {
+				args = append(args, "run", "-T", "--rm", "--no-deps", "--entrypoint", "go", request.Service)
+			}
+			return append(args, request.Args...)
+		},
+	},
+	"cargo": {
+		DefaultService: "apiserver",
+		Language:       "rust",
+		Mode:           "api",
+		DefaultProfiles: func(toolArgs []string, pooler bool) []string {
+			profiles := []string{"--profile", "int-api"}
+			if cargoNeedsDB(toolArgs) {
+				profiles = append(profiles, "--profile", "infra-db", "--profile", "infra-redis")
+				if pooler {
+					profiles = append(profiles, "--profile", "infra-pooler")
+				}
+			}
+			return profiles
+		},
+		AppendToolArgs: func(args []string, request Request) []string {
+			needsDB := cargoNeedsDB(request.Args)
+			if request.Running {
+				args = append(args, "exec", "-T")
+			} else {
+				args = append(args, "run", "-T", "--rm")
+				if !needsDB {
+					args = append(args, "--no-deps")
+				}
+			}
+			if request.Workdir != "" {
+				args = append(args, "--workdir", request.Workdir)
+			}
+			if request.Running {
+				args = append(args, request.Service, "cargo")
+			} else {
+				args = append(args, "--entrypoint", "cargo", request.Service)
+			}
+			toolArgs := append([]string(nil), request.Args...)
+			if len(toolArgs) > 0 && toolArgs[0] == "test" {
+				toolArgs = append([]string{"nextest", "run", "--test-threads", "4"}, toolArgs[1:]...)
+			}
+			return append(args, toolArgs...)
+		},
+	},
+	"npm": {
+		DefaultService: "webdashboard",
+		Language:       "typescript",
+		Mode:           "web",
+		DefaultProfiles: func(_ []string, _ bool) []string {
+			return []string{"--profile", "frontend"}
+		},
+		AppendToolArgs: func(args []string, request Request) []string {
+			toolArgs := append([]string(nil), request.Args...)
+			if len(toolArgs) >= 2 && toolArgs[0] == "run" && toolArgs[1] == "typecheck" {
+				toolArgs[1] = "type-check"
+			}
+			executable := "bun"
+			if len(toolArgs) > 0 && (toolArgs[0] == "bun" || toolArgs[0] == "npm" || toolArgs[0] == "bash" || toolArgs[0] == "sh") {
+				executable, toolArgs = toolArgs[0], toolArgs[1:]
+			}
+			standalone := len(request.Args) > 0 && (request.Args[0] == "--version" || request.Args[0] == "--help" || request.Args[0] == "-v" || request.Args[0] == "-h")
+			if request.Running {
+				args = append(args, "exec", "-T", request.Service, executable)
+			} else {
+				args = append(args, "run", "-T", "--rm")
+				if standalone {
+					args = append(args, "--no-deps")
+				}
+				args = append(args, "--entrypoint", executable, request.Service)
+			}
+			return append(args, toolArgs...)
+		},
+	},
+	"diesel": {
+		DefaultService: "apiserver",
+		Language:       "rust",
+		Mode:           "api",
+		DefaultProfiles: func(_ []string, pooler bool) []string {
+			profiles := []string{"--profile", "int-api", "--profile", "infra-db", "--profile", "infra-redis"}
+			if pooler {
+				profiles = append(profiles, "--profile", "infra-pooler")
+			}
+			return profiles
+		},
+		AppendToolArgs: func(args []string, request Request) []string {
+			if request.Running {
+				args = append(args, "exec", "-T", request.Service, "diesel")
+			} else {
+				args = append(args, "run", "-T", "--rm", "--entrypoint", "diesel", request.Service)
+			}
+			return append(args, request.Args...)
+		},
+	},
 }
 
 // Plan builds Compose argv without executing Compose or a shell.
@@ -34,7 +142,8 @@ func Plan(request Request) ([]string, error) {
 	if len(request.Compose) == 0 || request.Project == "" || request.Service == "" {
 		return nil, fmt.Errorf("compose, project, and service are required")
 	}
-	if !supportedTools[request.Tool] {
+	spec, ok := toolSpecs[request.Tool]
+	if !ok {
 		return nil, fmt.Errorf("unsupported run tool %q", request.Tool)
 	}
 	if err := validateArgs(request.Args); err != nil {
@@ -48,67 +157,7 @@ func Plan(request Request) ([]string, error) {
 	for _, file := range request.Files {
 		args = append(args, "-f", file)
 	}
-
-	switch request.Tool {
-	case "go":
-		if request.Running {
-			args = append(args, "exec", "-T", request.Service, "go")
-		} else {
-			args = append(args, "run", "-T", "--rm", "--no-deps", "--entrypoint", "go", request.Service)
-		}
-		return append(args, request.Args...), nil
-	case "cargo":
-		needsDB := cargoNeedsDB(request.Args)
-		if request.Running {
-			args = append(args, "exec", "-T")
-		} else {
-			args = append(args, "run", "-T", "--rm")
-			if !needsDB {
-				args = append(args, "--no-deps")
-			}
-		}
-		if request.Workdir != "" {
-			args = append(args, "--workdir", request.Workdir)
-		}
-		if request.Running {
-			args = append(args, request.Service, "cargo")
-		} else {
-			args = append(args, "--entrypoint", "cargo", request.Service)
-		}
-		toolArgs := append([]string(nil), request.Args...)
-		if len(toolArgs) > 0 && toolArgs[0] == "test" {
-			toolArgs = append([]string{"nextest", "run", "--test-threads", "4"}, toolArgs[1:]...)
-		}
-		return append(args, toolArgs...), nil
-	case "npm":
-		toolArgs := append([]string(nil), request.Args...)
-		if len(toolArgs) >= 2 && toolArgs[0] == "run" && toolArgs[1] == "typecheck" {
-			toolArgs[1] = "type-check"
-		}
-		executable := "bun"
-		if len(toolArgs) > 0 && (toolArgs[0] == "bun" || toolArgs[0] == "npm" || toolArgs[0] == "bash" || toolArgs[0] == "sh") {
-			executable, toolArgs = toolArgs[0], toolArgs[1:]
-		}
-		standalone := len(request.Args) > 0 && (request.Args[0] == "--version" || request.Args[0] == "--help" || request.Args[0] == "-v" || request.Args[0] == "-h")
-		if request.Running {
-			args = append(args, "exec", "-T", request.Service, executable)
-		} else {
-			args = append(args, "run", "-T", "--rm")
-			if standalone {
-				args = append(args, "--no-deps")
-			}
-			args = append(args, "--entrypoint", executable, request.Service)
-		}
-		return append(args, toolArgs...), nil
-	case "diesel":
-		if request.Running {
-			args = append(args, "exec", "-T", request.Service, "diesel")
-		} else {
-			args = append(args, "run", "-T", "--rm", "--entrypoint", "diesel", request.Service)
-		}
-		return append(args, request.Args...), nil
-	}
-	panic("unreachable")
+	return spec.AppendToolArgs(args, request), nil
 }
 
 func resolvedProfiles(request Request) []string {
@@ -152,23 +201,10 @@ func CleanupBase(request Request) []string {
 }
 
 func defaultProfiles(tool string, toolArgs []string, pooler bool) []string {
-	switch tool {
-	case "go":
-		return []string{"--profile", "go"}
-	case "npm":
-		return []string{"--profile", "frontend"}
-	case "cargo", "diesel":
-		profiles := []string{"--profile", "int-api"}
-		if cargoNeedsDB(toolArgs) || tool == "diesel" {
-			profiles = append(profiles, "--profile", "infra-db", "--profile", "infra-redis")
-			if pooler {
-				profiles = append(profiles, "--profile", "infra-pooler")
-			}
-		}
-		return profiles
-	default:
-		return nil
+	if spec, ok := toolSpecs[tool]; ok {
+		return spec.DefaultProfiles(toolArgs, pooler)
 	}
+	return nil
 }
 
 func cargoNeedsDB(args []string) bool {

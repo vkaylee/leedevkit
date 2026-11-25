@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
 	"github.com/vkaylee/leedevkit/internal/config"
@@ -76,7 +77,7 @@ func describeTargets(project config.Project) targetsResponse {
 				languageSet[language] = true
 			}
 		}
-		if containsTarget(entry.Targets, "infra") {
+		if slices.Contains(entry.Targets, "infra") {
 			entry.Phases = append(entry.Phases, "infrastructure")
 		}
 		for _, phase := range configuredPhaseNames {
@@ -93,7 +94,7 @@ func describeTargets(project config.Project) targetsResponse {
 						continue
 					}
 					phaseTarget := key[len(phase.prefix):]
-					if phaseTarget == target || containsTarget(entry.Targets, phaseTarget) || containsTarget(entry.Services, phaseTarget) {
+					if phaseTarget == target || slices.Contains(entry.Targets, phaseTarget) || slices.Contains(entry.Services, phaseTarget) {
 						configured = true
 						break
 					}
@@ -101,7 +102,7 @@ func describeTargets(project config.Project) targetsResponse {
 			}
 			if !configured && !infraTarget {
 				for _, child := range entry.Targets {
-					if containsTarget(describeTargetPhases(project, child), phase.name) {
+					if slices.Contains(describeTargetPhases(project, child), phase.name) {
 						configured = true
 						break
 					}
@@ -153,15 +154,6 @@ func describeTargetPhases(project config.Project, target string) []string {
 		}
 	}
 	return phases
-}
-
-func containsTarget(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func sortedKeys(values map[string][]string) []string {

@@ -95,10 +95,10 @@ func resolveServiceWorkdir(root, serviceName string, service config.Service, ove
 			}
 			return cleaned, nil
 		}
-		cleaned := filepath.Clean(override)
-		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		if !config.IsRelativeWithinRoot(override) {
 			return "", fmt.Errorf("workdir %q must be relative to project root", override)
 		}
+		cleaned := filepath.Clean(override)
 		if cleaned == "." {
 			return "/workspace", nil
 		}
@@ -218,12 +218,7 @@ func resolveExecTarget(root string, projectConfig config.Project, requested stri
 }
 
 func isComposeServiceReady(ctx context.Context, compose []string, project string, files []string, service, root string, env []string, runner func(context.Context, process.Request) process.Result) bool {
-	args := append([]string{}, compose...)
-	args = append(args, "-p", project)
-	for _, file := range files {
-		args = append(args, "-f", file)
-	}
-	args = append(args, "ps", "--format", "json", service)
+	args := append(composePSJSONArgs(compose, project, files), service)
 	var stdout, stderr bytes.Buffer
 	res := runner(ctx, process.Request{Args: args, Dir: root, Env: env, Stdout: &stdout, Stderr: &stderr, Timeout: 10 * time.Second})
 	if res.ExitCode != 0 {
@@ -293,24 +288,13 @@ func runExecContext(ctx context.Context, args []string, root string, rawEnv []st
 	alreadyRunning := isComposeServiceReady(ctx, providerConfig.Compose, project, target.Files, target.ComposeService, root, childEnv, runner)
 	if !alreadyRunning {
 		if opts.Dev {
-			upArgs := append([]string{}, providerConfig.Compose...)
-			upArgs = append(upArgs, "-p", project)
-			for _, file := range target.Files {
-				upArgs = append(upArgs, "-f", file)
-			}
-			upArgs = append(upArgs, "up", "-d", target.ComposeService)
+			upArgs := append(composeBaseArgs(providerConfig.Compose, project, target.Files), "up", "-d", target.ComposeService)
 			upRes := runner(ctx, process.Request{Args: upArgs, Dir: root, Env: childEnv, Stdout: stderr, Stderr: stderr})
 			if upRes.ExitCode != 0 {
 				fmt.Fprintf(stderr, "exec dev startup failed: %s\n", upRes.Diagnostic())
 				return 1
 			}
-			psArgs := append([]string{}, providerConfig.Compose...)
-			psArgs = append(psArgs, "-p", project)
-			for _, file := range target.Files {
-				psArgs = append(psArgs, "-f", file)
-			}
-			psArgs = append(psArgs, "ps", "--format", "json")
-			if waitErr := (lifecycle.Readiness{Run: runner, Dir: root, Env: childEnv}).Wait(ctx, psArgs, []string{target.ComposeService}, 60*time.Second); waitErr != nil {
+			if waitErr := waitComposeServiceReady(ctx, runner, providerConfig.Compose, project, target.Files, target.ComposeService, root, childEnv, 60*time.Second); waitErr != nil {
 				fmt.Fprintf(stderr, "exec dev readiness failed: %v\n", waitErr)
 				return 1
 			}
@@ -342,24 +326,14 @@ func runExecContext(ctx context.Context, args []string, root string, rawEnv []st
 				fmt.Fprintf(stderr, "exec container startup failed: %s\n", process.RedactDiagnostic(execErr.Error()))
 				return 1
 			}
-			psArgs := append([]string{}, providerConfig.Compose...)
-			psArgs = append(psArgs, "-p", project)
-			for _, file := range target.Files {
-				psArgs = append(psArgs, "-f", file)
-			}
-			psArgs = append(psArgs, "ps", "--format", "json")
-			if waitErr := (lifecycle.Readiness{Run: runner, Dir: root, Env: childEnv}).Wait(ctx, psArgs, []string{target.ComposeService}, 120*time.Second); waitErr != nil {
+			if waitErr := waitComposeServiceReady(ctx, runner, providerConfig.Compose, project, target.Files, target.ComposeService, root, childEnv, 120*time.Second); waitErr != nil {
 				fmt.Fprintf(stderr, "exec container readiness failed: %v\n", waitErr)
 				return 1
 			}
 		}
 	}
 
-	execArgs := append([]string{}, providerConfig.Compose...)
-	execArgs = append(execArgs, "-p", project)
-	for _, file := range target.Files {
-		execArgs = append(execArgs, "-f", file)
-	}
+	execArgs := composeBaseArgs(providerConfig.Compose, project, target.Files)
 	execArgs = append(execArgs, "exec", "-T", "-w", target.Workdir, target.ComposeService)
 	execArgs = append(execArgs, opts.Command...)
 

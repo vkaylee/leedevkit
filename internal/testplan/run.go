@@ -30,6 +30,16 @@ type ContextExecutor interface {
 
 type ExecutorFunc func(Phase) PhaseResult
 
+type ContextExecutorFunc func(context.Context, Phase) PhaseResult
+
+func (f ContextExecutorFunc) Execute(phase Phase) PhaseResult {
+	return f(context.Background(), phase)
+}
+
+func (f ContextExecutorFunc) ExecuteContext(ctx context.Context, phase Phase) PhaseResult {
+	return f(ctx, phase)
+}
+
 type GatePhaseExecutor struct {
 	Definitions         []gates.Gate
 	Run                 func(context.Context, process.Request) process.Result
@@ -51,12 +61,13 @@ func (e GatePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) Phas
 			return e.ComposeRun(ctx, request.Args, request.Env)
 		}
 	}
-	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef, StructuredDefaultGo: e.StructuredDefaultGo}.RunPhase(ctx, phaseName(phase.Name), e.Definitions)
+	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef, StructuredDefaultGo: e.StructuredDefaultGo}.RunPhase(ctx, PhaseKey(phase.Name), e.Definitions)
 	return PhaseResult{Status: result.Status, ExitCode: result.ExitCode, Diagnostic: result.Diagnostic}
 }
 
-func phaseName(name string) string {
-	switch name {
+// PhaseKey maps a scheduled phase display name to its canonical gate phase key.
+func PhaseKey(displayName string) string {
+	switch displayName {
 	case "Unit Tests":
 		return "unit"
 	case "Integration Tests":
@@ -66,7 +77,24 @@ func phaseName(name string) string {
 	case "Coverage":
 		return "coverage"
 	default:
-		return name
+		return displayName
+	}
+}
+
+// PhaseDependencyPrefix maps a scheduled phase display name and service language to its [test.dependencies] key prefix.
+func PhaseDependencyPrefix(displayName, language string) string {
+	switch displayName {
+	case "Unit Tests":
+		return "unit-"
+	case "Integration Tests":
+		if language == "typescript" {
+			return "e2e-"
+		}
+		return "int-"
+	case "Linting":
+		return "lint-"
+	default:
+		return ""
 	}
 }
 
@@ -119,6 +147,13 @@ func (r RunResult) Summary(target, runID string) report.Summary {
 }
 
 func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...func(*RunResult)) RunResult {
+	return RunContext(context.Background(), flags, executor, streamWriter, finalize...)
+}
+
+func RunContext(ctx context.Context, flags Flags, executor Executor, streamWriter io.Writer, finalize ...func(*RunResult)) RunResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	started := time.Now()
 	phases, err := Schedule(flags)
 	if err != nil {
@@ -147,7 +182,7 @@ func Run(flags Flags, executor Executor, streamWriter io.Writer, finalize ...fun
 			} else {
 				var outcome PhaseResult
 				if contextual, ok := executor.(ContextExecutor); ok {
-					outcome = contextual.ExecuteContext(context.Background(), phase)
+					outcome = contextual.ExecuteContext(ctx, phase)
 				} else {
 					outcome = executor.Execute(phase)
 				}
