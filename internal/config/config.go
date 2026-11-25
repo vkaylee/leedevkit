@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,6 +35,19 @@ type DevMigrate struct {
 	DBService     string   `toml:"db_service"`
 	DBUser        string   `toml:"db_user"`
 	DBName        string   `toml:"db_name"`
+}
+
+type PlaywrightMCP struct {
+	Endpoint           string   `toml:"endpoint"`
+	LoginPath          string   `toml:"login_path"`
+	Network            string   `toml:"network"`
+	Viewports          string   `toml:"viewports"`
+	AccountsDoc        string   `toml:"accounts_doc"`
+	Image              string   `toml:"image"`
+	StartupTimeout     int      `toml:"startup_timeout"`
+	RequestTimeout     int      `toml:"request_timeout"`
+	SessionIdleTimeout int      `toml:"session_idle_timeout"`
+	ExtraArgs          []string `toml:"extra_args"`
 }
 
 func (p Project) ServiceForLanguage(language string) (Service, bool) {
@@ -104,6 +118,7 @@ type Project struct {
 	AutoMigrate    bool
 	DevMigrate     DevMigrate
 	Harnesses      []string
+	PlaywrightMCP  PlaywrightMCP
 }
 
 type rawTestGate struct {
@@ -177,6 +192,9 @@ func Load(path string) (Project, error) {
 		AI struct {
 			Harnesses []string `toml:"harnesses"`
 		} `toml:"ai"`
+		MCP struct {
+			Playwright PlaywrightMCP `toml:"playwright"`
+		} `toml:"mcp"`
 		Quality struct {
 			Gates map[string]gates.Gate `toml:"gates"`
 			Go    struct {
@@ -198,6 +216,17 @@ func Load(path string) (Project, error) {
 	project.AutoMigrate = raw.Dev.AutoMigrate
 	project.DevMigrate = raw.Dev.Migrate
 	project.Harnesses = append([]string(nil), raw.AI.Harnesses...)
+	if err := validatePlaywrightMCP(raw.MCP.Playwright); err != nil {
+		return project, err
+	}
+	project.PlaywrightMCP = raw.MCP.Playwright
+	project.PlaywrightMCP.Endpoint = strings.TrimSpace(project.PlaywrightMCP.Endpoint)
+	project.PlaywrightMCP.LoginPath = strings.TrimSpace(project.PlaywrightMCP.LoginPath)
+	project.PlaywrightMCP.Network = strings.TrimSpace(project.PlaywrightMCP.Network)
+	project.PlaywrightMCP.Viewports = strings.TrimSpace(project.PlaywrightMCP.Viewports)
+	project.PlaywrightMCP.AccountsDoc = strings.TrimSpace(project.PlaywrightMCP.AccountsDoc)
+	project.PlaywrightMCP.Image = strings.TrimSpace(project.PlaywrightMCP.Image)
+	project.PlaywrightMCP.ExtraArgs = append([]string(nil), raw.MCP.Playwright.ExtraArgs...)
 	serviceNames := make([]string, 0, len(raw.Services))
 	for name := range raw.Services {
 		serviceNames = append(serviceNames, name)
@@ -408,6 +437,37 @@ func Load(path string) (Project, error) {
 		project.BuildPolicy = raw.Test.BuildPolicy
 	}
 	return project, nil
+}
+
+func validatePlaywrightMCP(cfg PlaywrightMCP) error {
+	if ep := strings.TrimSpace(cfg.Endpoint); ep != "" {
+		parsed, err := url.Parse(ep)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return fmt.Errorf("mcp.playwright.endpoint %q must be a valid http(s) URL", cfg.Endpoint)
+		}
+		if parsed.User != nil {
+			return errors.New("mcp.playwright.endpoint must not include credentials")
+		}
+	}
+	if lp := strings.TrimSpace(cfg.LoginPath); lp != "" && !strings.HasPrefix(lp, "/") {
+		return fmt.Errorf("mcp.playwright.login_path %q must start with /", cfg.LoginPath)
+	}
+	if ad := strings.TrimSpace(cfg.AccountsDoc); ad != "" {
+		clean := filepath.Clean(ad)
+		if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("mcp.playwright.accounts_doc %q must be a repository-relative path", cfg.AccountsDoc)
+		}
+	}
+	if cfg.StartupTimeout < 0 || cfg.StartupTimeout > 300 {
+		return fmt.Errorf("mcp.playwright.startup_timeout must be between 1 and 300 seconds (got %d)", cfg.StartupTimeout)
+	}
+	if cfg.RequestTimeout < 0 || cfg.RequestTimeout > 600 {
+		return fmt.Errorf("mcp.playwright.request_timeout must be between 1 and 600 seconds (got %d)", cfg.RequestTimeout)
+	}
+	if cfg.SessionIdleTimeout < 0 || cfg.SessionIdleTimeout > 3600 {
+		return fmt.Errorf("mcp.playwright.session_idle_timeout must be between 1 and 3600 seconds (got %d)", cfg.SessionIdleTimeout)
+	}
+	return nil
 }
 
 func (p Project) hasGoIntegrationDependency() bool {

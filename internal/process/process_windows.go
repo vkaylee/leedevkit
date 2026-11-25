@@ -10,6 +10,8 @@ import (
 
 func processGroupAttributes() *syscall.SysProcAttr { return nil }
 
+func signalProcessGroup(process *os.Process, _ bool) error { return process.Kill() }
+
 func terminateProcess(process *os.Process) error { return process.Kill() }
 
 func resultStatus(err *exec.ExitError) (int, bool) {

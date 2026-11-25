@@ -96,6 +96,19 @@ build_policy = "once"
 # # command = ["go", "run", "./cmd/migrate", "up"]
 # # status_command = ["go", "run", "./cmd/migrate", "status"]
 
+# ── Playwright MCP (optional) ──────────────────────────────────────────────
+# `leedevkit mcp playwright` runs a hardened containerized Playwright MCP server
+# with a Go stdio lifecycle watchdog. Build shared image once with `--build-only`.
+# [mcp.playwright]
+# endpoint = "http://caddy"
+# login_path = "/login"
+# network = "leedevkit-dev_dev_frontend"
+# viewports = "config/ui-viewports.json"
+# accounts_doc = "docs/dev-accounts.md"
+# startup_timeout = 15
+# request_timeout = 45
+# session_idle_timeout = 300
+
 # ── Test phases ────────────────────────────────────────────────────────────
 # Custom test phases specific to this project.
 # `cargo test`, `bun test` are auto-detected from service.lang.

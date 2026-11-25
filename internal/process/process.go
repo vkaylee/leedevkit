@@ -144,3 +144,19 @@ func terminateProcessGroup(process *os.Process) error {
 	}
 	return terminateProcess(process)
 }
+
+// ConfigureProcessGroup puts cmd in its own process group so signals reach descendants.
+func ConfigureProcessGroup(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	cmd.SysProcAttr = processGroupAttributes()
+}
+
+// SignalProcessGroup sends SIGTERM (force=false) or SIGKILL (force=true) to the process group.
+func SignalProcessGroup(process *os.Process, force bool) error {
+	if process == nil {
+		return nil
+	}
+	return signalProcessGroup(process, force)
+}

@@ -125,6 +125,7 @@ Commands:
   exec     Hermetic exec   (leedevkit exec <service> -- <cmd...>)
   targets  List configured targets, services, and phases
   dev      Dev environment (leedevkit dev up|down|restart|watch|migrate)
+  mcp      MCP servers     (leedevkit mcp --stdio | leedevkit mcp playwright)
   init     Initialize a project with leedevkit
   update   Update the devkit to the latest (or pinned) release (alias: upgrade)
   doctor   System health check
@@ -1937,8 +1938,15 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 		result := process.Run(context.Background(), process.Request{Args: queryArgs, Dir: projectRootOrCWD(), Stdout: stdout, Stderr: stderr})
 		return result.ExitCode
 	case "mcp":
+		if len(args) >= 2 && (args[1] == "--help" || args[1] == "-h") {
+			fmt.Fprintln(stdout, "Usage: leedevkit mcp --stdio | leedevkit mcp playwright [flags]")
+			return 0
+		}
+		if len(args) >= 2 && args[1] == "playwright" {
+			return runPlaywrightMCP(args[2:], stdin, stdout, stderr, projectRootOrCWD())
+		}
 		if len(args) != 2 || args[1] != "--stdio" {
-			fmt.Fprintln(stderr, "usage: leedevkit mcp --stdio")
+			fmt.Fprintln(stderr, "usage: leedevkit mcp --stdio | leedevkit mcp playwright [flags]")
 			return 2
 		}
 		if err := serveProjectMCP(stdin, stdout, stderr, projectRootOrCWD()); err != nil {

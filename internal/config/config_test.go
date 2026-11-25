@@ -176,3 +176,52 @@ integration = ["go", "test", "-tags=integration", "-race", "./..."]
 		}
 	})
 }
+
+func TestLoadPlaywrightMCPConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "leedevkit.toml")
+	content := `[mcp.playwright]
+endpoint = "http://caddy"
+login_path = "/signin"
+network = "leedevkit-dev_dev_frontend"
+viewports = "config/ui-viewports.json"
+accounts_doc = "docs/dev-accounts.md"
+image = "custom/playwright:1"
+startup_timeout = 20
+request_timeout = 60
+session_idle_timeout = 600
+extra_args = ["--console-level=warning"]
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pw := got.PlaywrightMCP
+	if pw.Endpoint != "http://caddy" || pw.LoginPath != "/signin" || pw.Network != "leedevkit-dev_dev_frontend" ||
+		pw.Viewports != "config/ui-viewports.json" || pw.AccountsDoc != "docs/dev-accounts.md" || pw.Image != "custom/playwright:1" ||
+		pw.StartupTimeout != 20 || pw.RequestTimeout != 60 || pw.SessionIdleTimeout != 600 ||
+		!reflect.DeepEqual(pw.ExtraArgs, []string{"--console-level=warning"}) {
+		t.Fatalf("unexpected playwright config: %#v", pw)
+	}
+
+	for _, bad := range []string{
+		"[mcp.playwright]\nendpoint = 'ftp://caddy'\n",
+		"[mcp.playwright]\nendpoint = 'http://user:pass@caddy'\n",
+		"[mcp.playwright]\nlogin_path = 'login'\n",
+		"[mcp.playwright]\naccounts_doc = '../secrets.md'\n",
+		"[mcp.playwright]\naccounts_doc = '/etc/passwd'\n",
+		"[mcp.playwright]\nstartup_timeout = 999\n",
+		"[mcp.playwright]\nrequest_timeout = -1\n",
+		"[mcp.playwright]\nsession_idle_timeout = 9999\n",
+	} {
+		badPath := filepath.Join(t.TempDir(), "bad.toml")
+		if err := os.WriteFile(badPath, []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(badPath); err == nil {
+			t.Fatalf("expected validation error for:\n%s", bad)
+		}
+	}
+}
