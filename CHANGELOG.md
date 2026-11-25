@@ -2,6 +2,18 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.13.2] - 2026-11-25
+
+### Fixed
+- Include active `--profile` values and `--profile "*"` in `lifecycle.Plan.Down`, `infraDownCommand`, and `run.CleanupBase` so Compose `down` stops and removes profile-scoped test, dependency, and infra containers without removing volumes.
+- Handle `SIGINT`/`SIGTERM` via `signal.NotifyContext` across all `leedevkit test` (Go-only, multi-target/web, infra) and `leedevkit run` paths so interrupted runs tear down owned containers and stop scheduling subsequent phases.
+- Isolate Go-only test projects with unique `leedevkit-test-*` names by default and append a monotonic nonce to `leedevkit-infra-*` and `leedevkit-test-*` project names to avoid same-PID collisions in long-lived MCP sessions.
+- Pass full `-p`, `--profile`, and `-f` arguments in `leedevkit run` teardown instead of bare Compose base commands.
+
+### Added
+- Hold ownership locks (`ownership.Open` / `IsLocked`) during active `test` and `infra` runs and clean up lock files on close.
+- Wire stale project cleanup (`ownership.SweepRuntime`) into `leedevkit test` (best-effort for unlocked `leedevkit-test-*`/`leedevkit-infra-*` projects older than 1 hour) and `leedevkit doctor --fix` (all unlocked stale test/infra projects, never removing volumes or touching `leedevkit-dev`).
+
 ## [0.13.1] - 2026-11-25
 
 ### Fixed
