@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -730,6 +731,10 @@ func validateWebLifecycle(project config.Project, targets []string, flags testpl
 	return nil
 }
 
+func phaseStartupSucceeded(outcome testplan.PhaseResult) bool {
+	return !strings.HasPrefix(outcome.LifecycleError, "startup:") && (outcome.Status == "passed" || outcome.Status == "failed")
+}
+
 func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.Project, stdout, stderr io.Writer, quiet bool) int {
 	compact := flags.FailedOnly || flags.Compact
 	quiet = quiet || compact
@@ -789,7 +794,7 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 				phaseFlags.Build = false
 			}
 			outcome := runGoPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
-			if outcome.Status == "passed" && phaseFlags.BuildPolicy == "once" {
+			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
 				built[target] = true
 			}
 			if outcome.Status == "skipped" {
@@ -807,11 +812,11 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 				phaseFlags.Build = false
 			}
 			outcome := runWebPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
+				built[target] = true
+			}
 			if outcome.Status != "passed" {
 				return outcome
-			}
-			if phaseFlags.BuildPolicy == "once" {
-				built[target] = true
 			}
 		}
 		if partial != nil {
@@ -1452,6 +1457,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				readinessArgs = append(readinessArgs, "-f", file)
 			}
 			readinessArgs = append(readinessArgs, "ps", "--format", "json")
+			built := false
 			lifecycleExecutor := lifecycle.Executor{
 				UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
 					file, err := os.OpenFile(filepath.Join(logDir, "lifecycle.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -1467,6 +1473,9 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 					if closeErr := output.Close(); closeErr != nil {
 						return closeErr
 					}
+					if err == nil && slices.Equal(args, upArgs) {
+						built = true
+					}
 					return err
 				}, Readiness: func(ctx context.Context) error {
 					return readiness.Wait(ctx, readinessArgs, []string{compose.Service}, 120*time.Second)
@@ -1477,7 +1486,6 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				},
 			}
 			gateIndex := 0
-			built := false
 			compact := flags.FailedOnly || flags.Compact
 			if compact {
 				flags.JSONStream = false
@@ -1529,9 +1537,6 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 						return outcome
 					},
 				}).ExecuteContext(context.Background(), phase)
-				if phaseResult.Status == "passed" {
-					built = true
-				}
 				return phaseResult
 			}), stdout, func(result *testplan.RunResult) {
 				var failureOutput io.Writer

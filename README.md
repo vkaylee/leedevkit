@@ -279,7 +279,7 @@ service = "go"
 
 Check commands do not rewrite source. A separate `fix_command` must be declared before `--fix` can alter files.
 
-Test lifecycle startup builds each image once per `leedevkit test` invocation by default, then uses `compose up -d --no-build` for later phases. Set `[test].build_policy = "phase"` to build during every phase. Compose/BuildKit reuses unchanged image layers and invalidates layers when Dockerfiles, build context, or dependency manifests change; no forced `build --pull` runs. Frontend `bun_init` runs `bun install --frozen-lockfile` on every startup when provided by project Compose, with its healthcheck blocking tests on failure. `--skip-build` always uses `--no-build`, so missing or stale images fail instead of being silently rebuilt; result is partial/unverified.
+Test lifecycle startup omits `--build` by default so Compose builds images only when missing and reuses existing images across runs. Pass `--build` to force a rebuild: `[test].build_policy = "once"` (default) passes `--build` on the first phase startup per `leedevkit test` invocation, while `"phase"` passes `--build` on every phase. Pin explicit `image:` names on services in `.compose/docker-compose.test.yml` so isolated test projects reuse built images instead of creating per-run tags. Compose/BuildKit reuses unchanged image layers and no forced `build --pull` runs. Frontend `bun_init` runs `bun install --frozen-lockfile` on every startup when provided by project Compose, with its healthcheck blocking tests on failure.
 
 ### Lifecycle dependencies
 

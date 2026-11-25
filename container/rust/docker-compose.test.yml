@@ -31,9 +31,9 @@ services:
     stdin_open: true
     healthcheck:
       test: ["CMD", "rustc", "--version"]
-      interval: 5s
+      interval: 1s
       timeout: 3s
-      retries: 12
+      retries: 10
 
 volumes:
   cargo-registry:

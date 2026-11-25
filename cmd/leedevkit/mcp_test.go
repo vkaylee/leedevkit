@@ -103,3 +103,19 @@ func TestProjectMCPRejectsUnsafeFlagsAndArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectMCPRunTestAllowsBuildFlag(t *testing.T) {
+	tools := projectMCPTools()
+	schema := tools[0]["inputSchema"].(map[string]any)["properties"].(map[string]any)["flags"].(map[string]any)["items"].(map[string]any)["enum"].([]string)
+	if !contains(schema, "--build") {
+		t.Fatalf("run_test flag enum missing --build: %v", schema)
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(root+"/leedevkit.toml", []byte("[services.go]\nlang = 'go'\n[targets]\nall = ['go']\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, rpcErr := callProjectMCPTool(json.RawMessage(`{"name":"run_test","arguments":{"target":"missing","flags":["--build"]}}`), root, &bytes.Buffer{})
+	if result != nil || rpcErr == nil || rpcErr["message"] != "target is not configured" {
+		t.Fatalf("--build rejected before target validation: result=%#v rpcErr=%#v", result, rpcErr)
+	}
+}

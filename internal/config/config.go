@@ -12,12 +12,10 @@ import (
 )
 
 type Service struct {
-	Language    string
-	Workdir     string
-	Name        string
-	Image       string
-	Dockerfile  string
-	ComposeFile string
+	Language   string
+	Workdir    string
+	Name       string
+	Dockerfile string
 }
 
 func (p Project) ServiceForLanguage(language string) (Service, bool) {
@@ -69,11 +67,9 @@ func Load(path string) (Project, error) {
 			Languages []string `toml:"languages"`
 		} `toml:"project"`
 		Services map[string]struct {
-			Lang        string `toml:"lang"`
-			Workdir     string `toml:"workdir"`
-			Image       string `toml:"image"`
-			Dockerfile  string `toml:"dockerfile"`
-			ComposeFile string `toml:"compose_file"`
+			Lang       string `toml:"lang"`
+			Workdir    string `toml:"workdir"`
+			Dockerfile string `toml:"dockerfile"`
 		} `toml:"services"`
 		Targets map[string][]string `toml:"targets"`
 		Test    struct {
@@ -94,7 +90,7 @@ func Load(path string) (Project, error) {
 		return project, err
 	}
 	for name, service := range raw.Services {
-		project.Services[name] = Service{Name: name, Language: service.Lang, Workdir: service.Workdir, Image: service.Image, Dockerfile: service.Dockerfile, ComposeFile: service.ComposeFile}
+		project.Services[name] = Service{Name: name, Language: service.Lang, Workdir: service.Workdir, Dockerfile: service.Dockerfile}
 	}
 	project.Languages = append([]string(nil), raw.Project.Languages...)
 	if len(project.Languages) == 0 {

@@ -12,8 +12,6 @@ import (
 type ComposePhaseExecutor struct {
 	Lifecycle lifecycle.Executor
 	Gate      func(context.Context, Phase) PhaseResult
-	UpArgs    []string
-	DownArgs  []string
 }
 
 func (e ComposePhaseExecutor) Execute(phase Phase) PhaseResult {

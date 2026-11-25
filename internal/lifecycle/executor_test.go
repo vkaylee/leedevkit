@@ -80,3 +80,27 @@ func TestExecutorReturnsWorkErrorAndRunsDown(t *testing.T) {
 		t.Fatalf("calls = %#v", calls)
 	}
 }
+
+func TestExecutorUsesLiveContextForDownAfterCanceledStartup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	downCalls := 0
+	var downErr error
+	executor := Executor{
+		UpArgs: []string{"compose", "up"}, DownArgs: []string{"compose", "down"},
+		Execute: func(callCtx context.Context, args []string) error {
+			if args[1] == "up" {
+				cancel()
+				return context.Canceled
+			}
+			downCalls++
+			downErr = callCtx.Err()
+			return nil
+		},
+	}
+	if err := executor.Run(ctx, func() error { t.Fatal("work must not run"); return nil }); err == nil {
+		t.Fatal("expected startup error")
+	}
+	if downCalls != 1 || downErr != nil {
+		t.Fatalf("downCalls=%d downErr=%v", downCalls, downErr)
+	}
+}

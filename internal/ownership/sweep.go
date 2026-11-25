@@ -21,11 +21,11 @@ type SweepResult struct {
 	Errors  []error
 }
 
-// Sweep removes only old, identifiable, unlocked test projects.
+// Sweep removes only old, identifiable, unlocked test and infra projects.
 func Sweep(projects []SweepProject, now time.Time, maxAge time.Duration, cleanup func(string) error) SweepResult {
 	var result SweepResult
 	for _, project := range projects {
-		if !strings.HasPrefix(project.Name, "leedevkit-test-") || project.Locked || project.Created.IsZero() || now.Sub(project.Created) < maxAge {
+		if (!strings.HasPrefix(project.Name, "leedevkit-test-") && !strings.HasPrefix(project.Name, "leedevkit-infra-")) || project.Locked || project.Created.IsZero() || now.Sub(project.Created) < maxAge {
 			result.Kept++
 			continue
 		}

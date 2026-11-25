@@ -262,4 +262,28 @@ func TestGoTestBuildFlagControlsComposeBuildOnce(t *testing.T) {
 	if count := strings.Count(string(buildLog), "up -d --build"); count != 1 {
 		t.Fatalf("build_policy=once with --build ran `up -d --build` %d times, want 1:\n%s", count, buildLog)
 	}
+
+	failScript := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$COMPOSE_LOG\"\nfor arg do\n case \"$arg\" in ps) printf '[{\"Service\":\"backend\",\"State\":\"running\"}]\\n'; exit;; fail-unit) exit 1;; esac\ndone\n"
+	if err := os.WriteFile(engine, []byte(failScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	failCfg := strings.Replace(cfg, "command = ['ok']\nrequired = true\n[quality.gates.l]", "command = ['fail-unit']\nrequired = true\n[quality.gates.l]", 1)
+	if err := os.WriteFile(filepath.Join(root, "leedevkit.toml"), []byte(failCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"test", "all", "--skip-e2e", "--build", "--json"}, strings.NewReader(""), &stdout, &stderr); code == 0 {
+		t.Fatalf("failing phase 1 unexpectedly succeeded: stdout=%q", stdout.String())
+	}
+	failLog, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(failLog), "up -d --build"); count != 1 {
+		t.Fatalf("build_policy=once with failing phase 1 ran `up -d --build` %d times, want 1:\n%s", count, failLog)
+	}
 }

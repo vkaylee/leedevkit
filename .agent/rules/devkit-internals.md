@@ -33,7 +33,7 @@ Machine contract: parse JSON/JSONL, not human log text. Each phase carries `phas
 
 A dry-run constructs commands only. Its success flags are not execution evidence; report the invocation mode alongside the result.
 
-Focused flags, `--pattern`, `--skip-e2e`, and `--skip-build` produce partial/unverified results; they cannot replace `test all` for runtime/build/API/DB/config/dependency changes.
+Focused flags, `--pattern`, and `--skip-e2e` produce partial/unverified results; they cannot replace `test all` for runtime/build/API/DB/config/dependency changes. Pass `--build` after changing Dockerfiles or image build dependencies so cached images are rebuilt.
 
 ## Release Packaging Gate (MANDATORY for packaging changes)
 

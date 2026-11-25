@@ -227,6 +227,40 @@ func TestRunInfraTeardownFailureFailsPassingRun(t *testing.T) {
 	if result.Status != "failed" || result.ExitCode != 1 || !strings.Contains(result.LifecycleError, "teardown") {
 		t.Fatalf("result = %#v, want teardown failure", result)
 	}
+	if len(result.Failed) != 1 || !strings.Contains(result.Failed[0].Command, "down --remove-orphans") || strings.Contains(result.Failed[0].Command, "up -d") {
+		t.Fatalf("failed phase command = %#v, want down command", result.Failed)
+	}
+}
+
+func TestRunInfraCanceledContextStopsAndRunsDown(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	var ops []string
+	var downCtxErr error
+	result := runInfraContext(ctx, root, testplan.Flags{Target: "infra"}, func(callCtx context.Context, request process.Request) process.Result {
+		switch {
+		case hasArg(request.Args, "up"):
+			ops = append(ops, "up")
+			return process.Result{}
+		case hasArg(request.Args, "down"):
+			ops = append(ops, "down")
+			downCtxErr = callCtx.Err()
+			return process.Result{}
+		default:
+			ops = append(ops, "exec")
+			cancel()
+			return process.Result{ExitCode: 1, Err: context.Canceled}
+		}
+	}, nil)
+	if result.Status != "failed" || result.ExitCode != 1 {
+		t.Fatalf("result = %#v, want failed exit 1", result)
+	}
+	if strings.Join(ops, ",") != "up,exec,down" {
+		t.Fatalf("ops = %v, want [up exec down]", ops)
+	}
+	if downCtxErr != nil {
+		t.Fatalf("down context was canceled: %v", downCtxErr)
+	}
 }
 
 func TestRunInfraFailsClosedWhenLogRootIsSymlink(t *testing.T) {

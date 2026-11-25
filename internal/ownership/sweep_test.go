@@ -9,20 +9,23 @@ func TestSweepOnlyCleansOldUnlockedProjects(t *testing.T) {
 	now := time.Unix(1000, 0)
 	projects := []SweepProject{
 		{Name: "leedevkit-test-old", Created: now.Add(-2 * time.Hour)},
+		{Name: "leedevkit-infra-old", Created: now.Add(-2 * time.Hour)},
 		{Name: "leedevkit-test-young", Created: now.Add(-5 * time.Minute)},
+		{Name: "leedevkit-infra-young", Created: now.Add(-5 * time.Minute)},
 		{Name: "other-old", Created: now.Add(-2 * time.Hour)},
 		{Name: "leedevkit-test-unknown"},
 		{Name: "leedevkit-test-locked", Created: now.Add(-2 * time.Hour), Locked: true},
+		{Name: "leedevkit-infra-locked", Created: now.Add(-2 * time.Hour), Locked: true},
 	}
 	var cleaned []string
 	result := Sweep(projects, now, time.Hour, func(name string) error {
 		cleaned = append(cleaned, name)
 		return nil
 	})
-	if len(cleaned) != 1 || cleaned[0] != "leedevkit-test-old" {
+	if len(cleaned) != 2 || cleaned[0] != "leedevkit-test-old" || cleaned[1] != "leedevkit-infra-old" {
 		t.Fatalf("cleaned = %#v", cleaned)
 	}
-	if result.Kept != 4 || result.Cleaned != 1 {
+	if result.Kept != 6 || result.Cleaned != 2 {
 		t.Fatalf("result = %#v", result)
 	}
 }

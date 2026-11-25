@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -658,5 +659,90 @@ func TestRunRejectsUnsupportedTestWithoutFallback(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(stderr.String()), "fallback") {
 		t.Fatalf("test unexpectedly used fallback: %q", stderr.String())
+	}
+}
+
+func TestGlobalComposeAssetsConfigFromUnrelatedCWDWithSpacedProjectRoot(t *testing.T) {
+	compose, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("docker CLI unavailable")
+	}
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(sourceFile), "../.."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := t.TempDir()
+	projectRoot := filepath.Join(fixture, "project root")
+	cwd := filepath.Join(fixture, "unrelated cwd")
+	for _, path := range []string{projectRoot, cwd} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type composeServiceConfig struct {
+		Image string `json:"image"`
+		Build struct {
+			Context string `json:"context"`
+		} `json:"build"`
+		Healthcheck struct {
+			Interval string `json:"interval"`
+		} `json:"healthcheck"`
+		Volumes []struct {
+			Source string `json:"source"`
+		} `json:"volumes"`
+	}
+	cases := []struct {
+		asset       string
+		profile     string
+		service     string
+		imagePrefix string
+	}{
+		{"go", "go", "go", "leedevkit-go:"},
+		{"go", "infra", "infra", "leedevkit-go:"},
+		{"rust", "rust", "rust", "leedevkit-rust:"},
+	}
+	for _, tc := range cases {
+		composeFile := filepath.Join(repoRoot, "container", tc.asset, "docker-compose.test.yml")
+		command := exec.Command(compose, "compose", "--profile", tc.profile, "-f", composeFile, "config", "--format", "json")
+		command.Dir = cwd
+		command.Env = append(os.Environ(), "LEEDEVKIT_PROJECT_ROOT="+projectRoot)
+		output, err := command.Output()
+		if err != nil {
+			t.Fatalf("docker compose config for %s/%s: %v", tc.asset, tc.profile, err)
+		}
+		var parsed struct {
+			Services map[string]composeServiceConfig `json:"services"`
+		}
+		if err := json.Unmarshal(output, &parsed); err != nil {
+			t.Fatalf("parse compose config JSON for %s/%s: %v", tc.asset, tc.profile, err)
+		}
+		svc, ok := parsed.Services[tc.service]
+		if !ok {
+			t.Fatalf("service %q missing in %s/%s config", tc.service, tc.asset, tc.profile)
+		}
+		if !strings.HasPrefix(svc.Image, tc.imagePrefix) {
+			t.Errorf("%s/%s image = %q, want prefix %q", tc.asset, tc.profile, svc.Image, tc.imagePrefix)
+		}
+		if svc.Healthcheck.Interval != "1s" {
+			t.Errorf("%s/%s healthcheck interval = %q, want 1s", tc.asset, tc.profile, svc.Healthcheck.Interval)
+		}
+		wantContext := filepath.Join(repoRoot, "container", tc.asset)
+		if filepath.Clean(svc.Build.Context) != filepath.Clean(wantContext) {
+			t.Errorf("%s/%s build context = %q, want %q", tc.asset, tc.profile, svc.Build.Context, wantContext)
+		}
+		mounted := false
+		for _, volume := range svc.Volumes {
+			if filepath.Clean(volume.Source) == filepath.Clean(projectRoot) {
+				mounted = true
+				break
+			}
+		}
+		if !mounted {
+			t.Errorf("%s/%s volumes missing project mount %q: %#v", tc.asset, tc.profile, projectRoot, svc.Volumes)
+		}
 	}
 }

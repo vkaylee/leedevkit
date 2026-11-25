@@ -103,7 +103,7 @@ func mcpError(id any, code int, message string) map[string]any {
 
 func projectMCPTools() []map[string]any {
 	return []map[string]any{
-		{"name": "run_test", "description": "Run configured LeeDevKit tests for target with optional safe CLI flags", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"target": map[string]any{"type": "string"}, "flags": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"--lint-only", "--unit-only", "--e2e-only", "--coverage", "--skip-lint", "--skip-e2e", "--quiet", "--failed-only", "--compact"}}}}, "required": []string{"target"}, "additionalProperties": false}},
+		{"name": "run_test", "description": "Run configured LeeDevKit tests for target with optional safe CLI flags", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"target": map[string]any{"type": "string"}, "flags": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"--build", "--lint-only", "--unit-only", "--e2e-only", "--coverage", "--skip-lint", "--skip-e2e", "--quiet", "--failed-only", "--compact"}}}}, "required": []string{"target"}, "additionalProperties": false}},
 		{"name": "get_project_status", "description": "Get project root, manifest availability, and Git working-tree status", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
 		{"name": "list_targets", "description": "List targets configured in leedevkit.toml", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}},
 	}
@@ -131,7 +131,7 @@ func callProjectMCPTool(raw json.RawMessage, root string, diagnostics io.Writer)
 		if err := decodeMCPArguments(params.Arguments, &args); err != nil || strings.TrimSpace(args.Target) == "" || strings.HasPrefix(args.Target, "-") {
 			return nil, map[string]any{"code": -32602, "message": "target and valid flags are required"}
 		}
-		allowed := map[string]bool{"--lint-only": true, "--unit-only": true, "--e2e-only": true, "--coverage": true, "--skip-lint": true, "--skip-e2e": true, "--quiet": true, "--failed-only": true, "--compact": true}
+		allowed := map[string]bool{"--build": true, "--lint-only": true, "--unit-only": true, "--e2e-only": true, "--coverage": true, "--skip-lint": true, "--skip-e2e": true, "--quiet": true, "--failed-only": true, "--compact": true}
 		seen := make(map[string]bool, len(args.Flags))
 		for _, flag := range args.Flags {
 			if !allowed[flag] || seen[flag] {

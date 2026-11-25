@@ -29,13 +29,13 @@ func (e Executor) Run(ctx context.Context, work func() error) (result error) {
 	}
 	if err := e.Execute(ctx, e.UpArgs); err != nil {
 		e.report("startup", e.UpArgs, err)
-		_ = e.Execute(ctx, e.DownArgs)
+		_ = e.Execute(context.WithoutCancel(ctx), e.DownArgs)
 		return &Failure{Phase: "startup", Args: append([]string(nil), e.UpArgs...), Err: err}
 	}
 	if e.Readiness != nil {
 		if err := e.Readiness(ctx); err != nil {
 			e.report("readiness", e.ReadinessArgs, err)
-			_ = e.Execute(ctx, e.DownArgs)
+			_ = e.Execute(context.WithoutCancel(ctx), e.DownArgs)
 			return &Failure{Phase: "readiness", Args: append([]string(nil), e.ReadinessArgs...), Err: err}
 		}
 	}

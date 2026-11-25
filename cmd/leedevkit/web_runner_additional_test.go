@@ -435,3 +435,22 @@ func TestTestProjectNameIsolatedFromComposeEnvironment(t *testing.T) {
 		t.Fatalf("test project = %q", got)
 	}
 }
+
+func TestPhaseStartupSucceededTracksOnlyPostUpOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome testplan.PhaseResult
+		want    bool
+	}{
+		{"passed", testplan.PhaseResult{Status: "passed"}, true},
+		{"gate failed", testplan.PhaseResult{Status: "failed"}, true},
+		{"teardown failed", testplan.PhaseResult{Status: "failed", LifecycleError: "teardown: down failed"}, true},
+		{"skipped", testplan.PhaseResult{Status: "skipped"}, false},
+		{"blocked startup", testplan.PhaseResult{Status: "blocked", LifecycleError: "startup: build failed"}, false},
+		{"startup failed with write err", testplan.PhaseResult{Status: "failed", LifecycleError: "startup: build failed"}, false},
+	} {
+		if got := phaseStartupSucceeded(tc.outcome); got != tc.want {
+			t.Errorf("%s: phaseStartupSucceeded(%#v) = %v, want %v", tc.name, tc.outcome, got, tc.want)
+		}
+	}
+}

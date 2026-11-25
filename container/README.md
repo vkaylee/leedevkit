@@ -103,20 +103,16 @@ RUST_VERSION=1.85 leedevkit test all
 
 Create `.compose/docker-compose.test.yml` to add services or system dependencies. Project override always wins built-in defaults.
 
-Image freshness fingerprints hash full build context by default, while preserving `.dockerignore` rules. For a Dockerfile that intentionally reads only selected files, add Compose extension field `x-leedevkit-build-inputs` beside `build`:
+Default `leedevkit test` omits `--build` so Compose builds images only when missing. Pin explicit `image:` names on services with `build:` so isolated test projects reuse existing images across runs, and pass `leedevkit test <target> --build` after editing a `Dockerfile` or build-time dependency manifest:
 
 ```yaml
 services:
   toolchain:
-    x-leedevkit-build-inputs:
-      - Dockerfile
-      - scripts/install-tools.sh
+    image: myproject-toolchain:latest
     build:
       context: .
       dockerfile: Dockerfile
 ```
-
-Paths are relative to build context. Missing declared inputs invalidate image freshness. Do not use this field unless Dockerfile and build tooling do not read other context files; omitted field keeps safe full-context hashing.
 
 ## Debug MCP isolation
 

@@ -47,3 +47,23 @@ func TestLoadMissingProjectUsesDefaults(t *testing.T) {
 		t.Fatalf("build policy = %q", got.BuildPolicy)
 	}
 }
+
+func TestLoadIgnoresLegacyServiceImageAndComposeFileKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "leedevkit.toml")
+	content := `[services.go]
+lang = "go"
+dockerfile = "container/go/Dockerfile"
+compose_file = "container/go/docker-compose.test.yml"
+image = "project-go"
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("legacy keys rejected: %v", err)
+	}
+	if got.Services["go"].Dockerfile != "container/go/Dockerfile" {
+		t.Fatalf("service = %#v", got.Services["go"])
+	}
+}

@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
@@ -39,6 +41,12 @@ func (e *infraWriteError) Error() string { return e.err.Error() }
 func (e *infraWriteError) Unwrap() error { return e.err }
 
 func runInfra(root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer, quietMode ...bool) testplan.RunResult {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runInfraContext(ctx, root, flags, run, stream, quietMode...)
+}
+
+func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run func(context.Context, process.Request) process.Result, stream io.Writer, quietMode ...bool) testplan.RunResult {
 	compact := flags.FailedOnly || flags.Compact
 	quiet := compact || flags.JSONStream || (len(quietMode) > 0 && quietMode[0])
 	if compact {
@@ -91,11 +99,18 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 			},
 		}
 		var outcome testplan.PhaseResult
-		lifecycleErr := executor.Run(context.Background(), func() error {
+		lifecycleErr := executor.Run(ctx, func() error {
 			status, code := "passed", 0
 			var failures []string
 			var firstLog string
 			for index, command := range checks {
+				if err := ctx.Err(); err != nil {
+					if status == "passed" {
+						outcome = testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "infrastructure checks canceled: " + process.RedactDiagnostic(err.Error()), Command: "source-quality checks", Log: firstLog}
+						return err
+					}
+					break
+				}
 				logName := infraLogName(index + 1)
 				relLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
 				logFile, err := os.OpenFile(filepath.Join(logDir, logName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -108,7 +123,7 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 					live = &infraPrefixWriter{writer: stream, prefix: fmt.Sprintf("[infra-%02d] ", index+1)}
 				}
 				output := &infraOutputWriter{log: logFile, live: live}
-				child := run(context.Background(), process.Request{Args: command, Dir: root, Env: env, Stdout: output, Stderr: output, Timeout: infraChildTimeout})
+				child := run(ctx, process.Request{Args: command, Dir: root, Env: env, Stdout: output, Stderr: output, Timeout: infraChildTimeout})
 				if err := output.Close(); err != nil {
 					outcome = testplan.PhaseResult{Status: "failed", ExitCode: 1, Diagnostic: fmt.Sprintf("infrastructure output write failed (log: %s): %s", relLog, process.RedactDiagnostic(err.Error()))}
 					return errors.New(outcome.Diagnostic)
@@ -121,6 +136,9 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 					}
 					status = "failed"
 					failures = append(failures, fmt.Sprintf("%s: %s (log: %s)", process.RedactDiagnostic(strings.Join(command, " ")), child.Diagnostic(), relLog))
+				}
+				if ctx.Err() != nil {
+					break
 				}
 			}
 			outcome = testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: strings.Join(failures, "; "), Command: "source-quality checks", Log: firstLog}
@@ -136,8 +154,13 @@ func runInfra(root string, flags testplan.Flags, run func(context.Context, proce
 			}
 			status, code := lifecycleFailureStatus(lifecycleErr)
 			diagnostic := process.RedactDiagnostic(lifecycleErr.Error())
+			commandArgs := upArgs
+			var failure *lifecycle.Failure
+			if errors.As(lifecycleErr, &failure) && len(failure.Args) > 0 {
+				commandArgs = failure.Args
+			}
 			failureLogs = append(failureLogs, lifecycleRelLog)
-			return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: diagnostic, LifecycleError: diagnostic, Command: strings.Join(process.RedactArgs(upArgs), " "), Log: lifecycleRelLog}
+			return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: diagnostic, LifecycleError: diagnostic, Command: strings.Join(process.RedactArgs(commandArgs), " "), Log: lifecycleRelLog}
 		}
 		return outcome
 	}), stream, func(result *testplan.RunResult) {
