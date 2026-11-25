@@ -454,3 +454,30 @@ func TestPhaseStartupSucceededTracksOnlyPostUpOutcomes(t *testing.T) {
 		}
 	}
 }
+
+func TestCanceledContextBlocksWebGoAndMultiTargetBeforeStartup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	providerConfig := provider.Provider{Name: "fixture", Compose: []string{"nonexistent-compose"}, Capabilities: []string{"compose", "config", "up", "down", "ps"}}
+	project := config.Project{
+		Services: map[string]config.Service{
+			"api":          {Language: "go"},
+			"webdashboard": {Language: "typescript"},
+		},
+		Targets: map[string][]string{"web": {"webdashboard"}, "all": {"api", "webdashboard"}},
+		Dependencies: map[string][]string{
+			"unit-api": {"api"}, "int-api": {"api"}, "lint-api": {"api"},
+			"unit-web": {"webdashboard"}, "e2e-web": {"webdashboard"}, "lint-web": {"webdashboard"},
+		},
+	}
+	if got := runWebPhaseContext(ctx, t.TempDir(), "leedevkit-test-canceled", providerConfig, project, "webdashboard", "Unit Tests", testplan.Flags{}, true, io.Discard, io.Discard); got.Status != "blocked" || !strings.Contains(got.Diagnostic, "canceled") {
+		t.Fatalf("web canceled = %#v", got)
+	}
+	if got := runGoPhaseContext(ctx, t.TempDir(), "leedevkit-test-canceled", providerConfig, project, "api", "Unit Tests", testplan.Flags{}, true, io.Discard, io.Discard); got.Status != "blocked" || !strings.Contains(got.Diagnostic, "canceled") {
+		t.Fatalf("go canceled = %#v", got)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runMultiTargetTestContext(ctx, t.TempDir(), testplan.Flags{Target: "web", UnitOnly: true, JSON: true}, project, &stdout, &stderr, true); code == 0 {
+		t.Fatalf("multi-target canceled returned 0: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}

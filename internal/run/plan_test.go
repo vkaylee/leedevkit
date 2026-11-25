@@ -86,3 +86,26 @@ func TestPlanRejectsUnsafeArguments(t *testing.T) {
 		t.Fatal("expected unsafe argument error")
 	}
 }
+
+func TestCleanupBaseIncludesProjectProfilesWildcardAndFiles(t *testing.T) {
+	got := CleanupBase(Request{
+		Compose: []string{"docker", "compose"},
+		Project: "leedevkit-test-abc",
+		Files:   []string{"/repo/.compose/docker-compose.test.yml"},
+		Tool:    "cargo",
+		Args:    []string{"test"},
+		Service: "apiserver",
+		Pooler:  true,
+	})
+	want := []string{
+		"docker", "compose", "-p", "leedevkit-test-abc",
+		"--profile", "int-api", "--profile", "infra-db", "--profile", "infra-redis", "--profile", "infra-pooler", "--profile", "*",
+		"-f", "/repo/.compose/docker-compose.test.yml",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cleanup base = %#v, want %#v", got, want)
+	}
+	if CleanupBase(Request{Compose: []string{"docker", "compose"}}) != nil {
+		t.Fatal("expected nil cleanup base when project is empty")
+	}
+}

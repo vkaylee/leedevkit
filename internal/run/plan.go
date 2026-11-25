@@ -41,17 +41,7 @@ func Plan(request Request) ([]string, error) {
 		return nil, err
 	}
 
-	profiles := append([]string(nil), request.Profiles...)
-	providedProfiles := len(profiles) > 0
-	if len(profiles) == 0 {
-		profiles = defaultProfiles(request.Tool, request.Args, request.Pooler)
-	}
-	if providedProfiles && request.Tool == "cargo" && cargoNeedsDB(request.Args) {
-		profiles = append(profiles, "--profile", "infra-db", "--profile", "infra-redis")
-		if request.Pooler {
-			profiles = append(profiles, "--profile", "infra-pooler")
-		}
-	}
+	profiles := resolvedProfiles(request)
 	args := append([]string{}, request.Compose...)
 	args = append(args, "-p", request.Project)
 	args = append(args, profiles...)
@@ -119,6 +109,46 @@ func Plan(request Request) ([]string, error) {
 		return append(args, request.Args...), nil
 	}
 	panic("unreachable")
+}
+
+func resolvedProfiles(request Request) []string {
+	profiles := append([]string(nil), request.Profiles...)
+	providedProfiles := len(profiles) > 0
+	if len(profiles) == 0 {
+		profiles = defaultProfiles(request.Tool, request.Args, request.Pooler)
+	}
+	if providedProfiles && request.Tool == "cargo" && cargoNeedsDB(request.Args) {
+		profiles = append(profiles, "--profile", "infra-db", "--profile", "infra-redis")
+		if request.Pooler {
+			profiles = append(profiles, "--profile", "infra-pooler")
+		}
+	}
+	return profiles
+}
+
+// CleanupBase builds the Compose base argv needed to tear down an owned run project.
+func CleanupBase(request Request) []string {
+	if len(request.Compose) == 0 || request.Project == "" {
+		return nil
+	}
+	args := append([]string{}, request.Compose...)
+	args = append(args, "-p", request.Project)
+	profiles := resolvedProfiles(request)
+	args = append(args, profiles...)
+	hasWildcard := false
+	for index := 0; index+1 < len(profiles); index++ {
+		if profiles[index] == "--profile" && profiles[index+1] == "*" {
+			hasWildcard = true
+			break
+		}
+	}
+	if !hasWildcard {
+		args = append(args, "--profile", "*")
+	}
+	for _, file := range request.Files {
+		args = append(args, "-f", file)
+	}
+	return args
 }
 
 func defaultProfiles(tool string, toolArgs []string, pooler bool) []string {

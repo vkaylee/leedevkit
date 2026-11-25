@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vkaylee/leedevkit/internal/process"
 )
 
 func TestDoctorAssetRootForInstalledBinary(t *testing.T) {
@@ -147,5 +150,33 @@ func TestRepairDoctorRulesRejectsSymlinkedProjectRules(t *testing.T) {
 	}
 	if err := repairDoctorRulesFromAssets(root, assets); err == nil {
 		t.Fatal("symlinked project rules accepted")
+	}
+}
+
+func TestSweepDoctorStaleProjectsReportsCleanedAndErrors(t *testing.T) {
+	var stderr bytes.Buffer
+	res := sweepDoctorStaleProjectsWithRunner(context.Background(), []string{"docker"}, func(_ context.Context, request process.Request) process.Result {
+		joined := strings.Join(request.Args, " ")
+		switch {
+		case strings.Contains(joined, "--format"):
+			_, _ = request.Stdout.Write([]byte("leedevkit-test-old|2020-01-01T00:00:00Z\nleedevkit-dev|2020-01-01T00:00:00Z\n"))
+			return process.Result{}
+		case strings.Contains(joined, "ps -a -q"):
+			_, _ = request.Stdout.Write([]byte("c1\n"))
+			return process.Result{}
+		default:
+			return process.Result{}
+		}
+	}, &stderr)
+	if res.Cleaned != 1 || len(res.Errors) != 0 || !strings.Contains(stderr.String(), "Cleaned 1 stale test/infra project(s).") {
+		t.Fatalf("res = %#v, stderr = %q", res, stderr.String())
+	}
+
+	stderr.Reset()
+	errRes := sweepDoctorStaleProjectsWithRunner(context.Background(), []string{"docker"}, func(_ context.Context, _ process.Request) process.Result {
+		return process.Result{ExitCode: 1, Stderr: []byte("offline")}
+	}, &stderr)
+	if len(errRes.Errors) != 1 || !strings.Contains(stderr.String(), "warning: stale project sweep:") {
+		t.Fatalf("errRes = %#v, stderr = %q", errRes, stderr.String())
 	}
 }

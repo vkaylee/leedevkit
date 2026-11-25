@@ -109,3 +109,35 @@ func TestUpIncludesOverrideFile(t *testing.T) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}
 }
+
+func TestDownIncludesProfilesAndWildcardWithoutDuplicate(t *testing.T) {
+	withProfile, err := (Plan{
+		Provider:    testProvider(false),
+		Project:     "leedevkit-test-abc",
+		Files:       []string{"compose.yml"},
+		Profiles:    []string{"--profile", "e2e-web"},
+		OwnsProject: true,
+	}).Down()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docker", "compose", "-p", "leedevkit-test-abc", "-f", "compose.yml", "--profile", "e2e-web", "--profile", "*", "down", "--remove-orphans", "--timeout", "1"}
+	if !reflect.DeepEqual(withProfile, want) {
+		t.Fatalf("down = %#v, want %#v", withProfile, want)
+	}
+
+	withWildcard, err := (Plan{
+		Provider:    testProvider(false),
+		Project:     "leedevkit-test-abc",
+		Files:       []string{"compose.yml"},
+		Profiles:    []string{"--profile", "*"},
+		OwnsProject: true,
+	}).Down()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWildcard := []string{"docker", "compose", "-p", "leedevkit-test-abc", "-f", "compose.yml", "--profile", "*", "down", "--remove-orphans", "--timeout", "1"}
+	if !reflect.DeepEqual(withWildcard, wantWildcard) {
+		t.Fatalf("down wildcard = %#v, want %#v", withWildcard, wantWildcard)
+	}
+}

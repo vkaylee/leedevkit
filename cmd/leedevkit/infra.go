@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
+	"github.com/vkaylee/leedevkit/internal/ownership"
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/testplan"
 )
@@ -52,7 +53,10 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 	if compact {
 		flags.JSONStream = false
 	}
-	project := fmt.Sprintf("leedevkit-infra-%x-%x", fnv32a(root), os.Getpid())
+	project := uniqueInfraProject(root)
+	if session, err := ownership.Open(project, true); err == nil {
+		defer session.Close(nil)
+	}
 	composeFile := filepath.Join(root, "container", "go", "docker-compose.test.yml")
 	if !fileExists(composeFile) {
 		if assetRoot, err := runtimeAssetRoot(); err == nil {
@@ -174,6 +178,10 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 	return result
 }
 
+func uniqueInfraProject(root string) string {
+	return fmt.Sprintf("leedevkit-infra-%x-%x-%x", fnv32a(root), os.Getpid(), nextProjectNonce())
+}
+
 func infraUpCommand(project, composeFile string, build bool) []string {
 	args := []string{"docker", "compose", "-p", project, "-f", composeFile, "--profile", "infra", "up", "-d"}
 	if build {
@@ -183,7 +191,7 @@ func infraUpCommand(project, composeFile string, build bool) []string {
 }
 
 func infraDownCommand(project, composeFile string) []string {
-	return []string{"docker", "compose", "-p", project, "-f", composeFile, "down", "--remove-orphans", "--timeout", "1"}
+	return []string{"docker", "compose", "-p", project, "-f", composeFile, "--profile", "infra", "--profile", "*", "down", "--remove-orphans", "--timeout", "1"}
 }
 
 func runInfraCommands(root, project, composeFile string) [][]string {

@@ -89,3 +89,27 @@ func TestOpenRejectsInvalidProjectName(t *testing.T) {
 		}
 	}
 }
+
+func TestIsLockedReflectsActiveSessionAndReleasesOnClose(t *testing.T) {
+	project := "leedevkit-test-islocked-check"
+	if IsLocked(project) {
+		t.Fatal("unlocked project reported locked")
+	}
+	if IsLocked("../bad") {
+		t.Fatal("invalid project reported locked")
+	}
+	session, err := Open(project, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsLocked(project) {
+		session.Close(nil)
+		t.Fatal("active owned project reported unlocked")
+	}
+	if err := session.Close(nil); err != nil {
+		t.Fatal(err)
+	}
+	if IsLocked(project) {
+		t.Fatal("closed project still reported locked")
+	}
+}

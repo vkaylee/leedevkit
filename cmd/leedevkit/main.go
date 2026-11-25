@@ -9,10 +9,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/vkaylee/leedevkit/internal/config"
@@ -21,6 +24,7 @@ import (
 	"github.com/vkaylee/leedevkit/internal/gates"
 	"github.com/vkaylee/leedevkit/internal/lifecycle"
 	"github.com/vkaylee/leedevkit/internal/modes"
+	"github.com/vkaylee/leedevkit/internal/ownership"
 	"github.com/vkaylee/leedevkit/internal/process"
 	"github.com/vkaylee/leedevkit/internal/provider"
 	"github.com/vkaylee/leedevkit/internal/report"
@@ -490,8 +494,21 @@ func buildWebLifecyclePlan(root, project string, providerConfig provider.Provide
 	return lifecycle.Plan{Provider: providerConfig, Project: project, Files: []string{filepath.Join(root, ".compose", "docker-compose.test.yml")}, Profiles: []string{"--profile", phaseTarget}, Services: []string{serviceName}, Dependencies: append([]string(nil), dependencies[:len(dependencies)-1]...), Build: !skipBuild && flags.Build, SkipBuild: skipBuild, OwnsProject: true}, serviceName, workdir, nil
 }
 
+var projectNonceSeq atomic.Uint64
+
+func nextProjectNonce() int64 {
+	return time.Now().UnixNano() + int64(projectNonceSeq.Add(1))
+}
+
 func uniqueTestProject(root string) string {
-	return fmt.Sprintf("leedevkit-test-%x-%x-%x", fnv32a(root), os.Getpid(), time.Now().UnixNano())
+	return fmt.Sprintf("leedevkit-test-%x-%x-%x", fnv32a(root), os.Getpid(), nextProjectNonce())
+}
+
+func sweepStaleTestProjects(ctx context.Context, providerConfig provider.Provider) {
+	if len(providerConfig.CLI) == 0 || !hasCapability(providerConfig.Capabilities, "ps") || !hasCapability(providerConfig.Capabilities, "rm") {
+		return
+	}
+	_ = ownership.SweepRuntime(ctx, ownership.RuntimeSweepOptions{CLI: providerConfig.CLI, MaxAge: time.Hour})
 }
 
 func fnv32a(value string) uint32 {
@@ -507,6 +524,13 @@ func testProjectName(env map[string]string, root string) string {
 }
 
 func runWebPhase(root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	return runWebPhaseContext(context.Background(), root, project, providerConfig, projectConfig, target, phase, flags, quiet, stdout, stderr)
+}
+
+func runWebPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	if err := ctx.Err(); err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "web phase canceled: " + process.RedactDiagnostic(err.Error())}
+	}
 	plan, service, workdir, err := buildWebLifecyclePlan(root, project, providerConfig, projectConfig, target, phase, flags, flags.SkipBuild)
 	if err != nil {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
@@ -543,11 +567,15 @@ func runWebPhase(root, project string, providerConfig provider.Provider, project
 		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
 	}}
 	var result testplan.PhaseResult
-	err = runner.Run(context.Background(), func() error {
+	err = runner.Run(ctx, func() error {
 		compose := gates.ComposeRunner{Compose: providerConfig.Compose, Project: project, Service: service, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
 		compose.Compose = append(append([]string(nil), compose.Compose...), "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
 		for _, command := range webPhaseCommands(phase) {
-			processResult := compose.Run(context.Background(), command, nil)
+			if err := ctx.Err(); err != nil {
+				result = testplan.PhaseResult{Status: "blocked", ExitCode: 1, Command: strings.Join(process.RedactArgs(command), " "), Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), Diagnostic: "web phase canceled: " + process.RedactDiagnostic(err.Error())}
+				return err
+			}
+			processResult := compose.Run(ctx, command, nil)
 			if processResult.ExitCode != 0 {
 				result = testplan.PhaseResult{Status: "failed", ExitCode: processResult.ExitCode, Command: strings.Join(process.RedactArgs(command), " "), Log: filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName)), Diagnostic: fmt.Sprintf("web phase command failed with exit code %d", processResult.ExitCode)}
 				return fmt.Errorf("web phase failed")
@@ -612,6 +640,13 @@ func goPhaseWithCompose(ctx context.Context, execute func(context.Context, []str
 }
 
 func runGoPhase(root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	return runGoPhaseContext(context.Background(), root, project, providerConfig, configProject, target, phase, flags, quiet, stdout, stderr)
+}
+
+func runGoPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+	if err := ctx.Err(); err != nil {
+		return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "Go phase canceled: " + process.RedactDiagnostic(err.Error())}
+	}
 	name := map[string]string{"Unit Tests": "unit", "Integration Tests": "integration", "Linting": "lint"}[phase]
 	hasGate := false
 	for _, gate := range configProject.Gates {
@@ -665,7 +700,7 @@ func runGoPhase(root, project string, providerConfig provider.Provider, configPr
 	output := &infraOutputWriter{log: file, live: live}
 	composeArgs := append(append([]string(nil), providerConfig.Compose...), "-p", project, "-f", filepath.Join(root, ".compose", "docker-compose.test.yml"))
 	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: withProjectRoot(os.Environ(), root), Execute: process.Run, Output: output}
-	gateResult, lifecycleResult := goPhaseWithCompose(context.Background(), func(ctx context.Context, args []string) error {
+	gateResult, lifecycleResult := goPhaseWithCompose(ctx, func(ctx context.Context, args []string) error {
 		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: withProjectRoot(os.Environ(), root), Stdout: output, Stderr: output}).Execute(ctx, args)
 	}, up, down, func(ctx context.Context) gates.PhaseResult {
 		return gates.Executor{StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream), Run: func(ctx context.Context, request process.Request) process.Result {
@@ -736,6 +771,10 @@ func phaseStartupSucceeded(outcome testplan.PhaseResult) bool {
 }
 
 func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.Project, stdout, stderr io.Writer, quiet bool) int {
+	return runMultiTargetTestContext(context.Background(), root, flags, projectConfig, stdout, stderr, quiet)
+}
+
+func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.Flags, projectConfig config.Project, stdout, stderr io.Writer, quiet bool) int {
 	compact := flags.FailedOnly || flags.Compact
 	quiet = quiet || compact
 	flags.JSONStream = flags.JSONStream && !compact
@@ -778,7 +817,11 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 		fmt.Fprintf(stderr, "invalid provider: %v\n", err)
 		return 2
 	}
+	sweepStaleTestProjects(ctx, providerConfig)
 	project := testProjectName(env, root)
+	if session, err := ownership.Open(project, true); err == nil {
+		defer session.Close(nil)
+	}
 	if env["COMPOSE_PROJECT_NAME"] != "" {
 		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using isolated test project %q\n", project)
 	}
@@ -787,13 +830,19 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 		if phase.Status != "selected" {
 			return testplan.PhaseResult{Status: "skipped"}
 		}
+		if err := ctx.Err(); err != nil {
+			return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "test run canceled: " + process.RedactDiagnostic(err.Error())}
+		}
 		var partial *testplan.PhaseResult
 		for _, target := range goTargets {
+			if err := ctx.Err(); err != nil {
+				return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "test run canceled: " + process.RedactDiagnostic(err.Error())}
+			}
 			phaseFlags := flags
 			if phaseFlags.BuildPolicy == "once" && built[target] {
 				phaseFlags.Build = false
 			}
-			outcome := runGoPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			outcome := runGoPhaseContext(ctx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
 			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
 				built[target] = true
 			}
@@ -807,11 +856,14 @@ func runMultiTargetTest(root string, flags testplan.Flags, projectConfig config.
 			}
 		}
 		for _, target := range webTargets {
+			if err := ctx.Err(); err != nil {
+				return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "test run canceled: " + process.RedactDiagnostic(err.Error())}
+			}
 			phaseFlags := flags
 			if phaseFlags.BuildPolicy == "once" && built[target] {
 				phaseFlags.Build = false
 			}
-			outcome := runWebPhase(root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			outcome := runWebPhaseContext(ctx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
 			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
 				built[target] = true
 			}
@@ -1254,9 +1306,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "invalid run request: %v\n", err)
 			return 2
 		}
-		result := runplan.Execute(context.Background(), runplan.ExecuteRequest{
+		runCtx, stopRun := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stopRun()
+		result := runplan.Execute(runCtx, runplan.ExecuteRequest{
 			Plan: plan, Owned: plan.Owned,
-			CleanupBase: append([]string(nil), plan.Compose...),
+			CleanupBase: runplan.CleanupBase(plan),
 			LogRoot:     projectRootOrCWD(), LogName: "run.log",
 			Stdout: stdout, Stderr: stderr,
 			RunCompose: func(argv []string) error {
@@ -1365,8 +1419,10 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 		if flags.FailedOnly || flags.Compact {
 			flags.JSONStream = false
 		}
+		testCtx, stopTest := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stopTest()
 		if !isInfraTarget(projectConfig, flags.Target) && !shouldUseGoTest(projectConfig, flags.Target) {
-			code := runMultiTargetTest(projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
+			code := runMultiTargetTestContext(testCtx, projectRootOrCWD(), flags, projectConfig, stdout, stderr, quiet)
 			if code >= 0 {
 				return code
 			}
@@ -1380,7 +1436,8 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				fmt.Fprintln(stderr, err)
 				return 2
 			}
-			result := runInfra(projectRootOrCWD(), flags, process.Run, stdout, quiet)
+			sweepStaleTestProjects(testCtx, provider.Provider{CLI: []string{"docker"}, Capabilities: []string{"ps", "rm"}})
+			result := runInfraContext(testCtx, projectRootOrCWD(), flags, process.Run, stdout, quiet)
 			if !flags.JSONStream {
 				summary := result.Summary(args[1], "go-cli")
 				if err := json.NewEncoder(stdout).Encode(summary); err != nil {
@@ -1415,13 +1472,21 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				composeTool = []string{"docker", "compose"}
 			}
 			project := env["COMPOSE_PROJECT_NAME"]
+			ownedProject := false
 			if project == "" {
-				project = "leedevkit-test"
+				project = uniqueTestProject(projectRootOrCWD())
+				ownedProject = true
 			}
 			providerConfig, providerErr := resolveProviderForProject(projectRootOrCWD(), env)
 			if providerErr != nil {
 				fmt.Fprintf(stderr, "invalid provider: %v\n", providerErr)
 				return 2
+			}
+			sweepStaleTestProjects(testCtx, providerConfig)
+			if ownedProject {
+				if session, err := ownership.Open(project, true); err == nil {
+					defer session.Close(nil)
+				}
 			}
 			composeTool = providerConfig.Compose
 			lifecyclePlan, goService, lifecyclePlanErr := buildTestLifecyclePlan(projectRootOrCWD(), project, flags.Target, providerConfig, projectConfig, flags.Build, flags.SkipBuild)
@@ -1492,6 +1557,9 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				quiet = true
 			}
 			result := testplan.Run(flags, testplan.ExecutorFunc(func(phase testplan.Phase) testplan.PhaseResult {
+				if err := testCtx.Err(); err != nil {
+					return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "test run canceled: " + process.RedactDiagnostic(err.Error())}
+				}
 				phaseLifecycle := lifecycleExecutor
 				if projectConfig.BuildPolicy == "once" && built {
 					phaseLifecycle.UpArgs = nextUpArgs
@@ -1536,7 +1604,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 						}
 						return outcome
 					},
-				}).ExecuteContext(context.Background(), phase)
+				}).ExecuteContext(testCtx, phase)
 				return phaseResult
 			}), stdout, func(result *testplan.RunResult) {
 				var failureOutput io.Writer
@@ -1564,6 +1632,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 				fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
 				return 2
 			}
+			sweepDoctorStaleProjects(root, stderr)
 		}
 		return runDoctor(projectRootOrCWD(), stdout, stderr)
 	case "dev":

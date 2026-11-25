@@ -81,7 +81,7 @@ func TestInfraRunsGoQualityGatesThroughCompose(t *testing.T) {
 			t.Errorf("invalid Compose Go check invocation: %s", command)
 		}
 	}
-	if !strings.Contains(commands[len(commands)-1], "down --remove-orphans --timeout 1") {
+	if !strings.Contains(commands[len(commands)-1], "--profile infra --profile * down --remove-orphans --timeout 1") {
 		t.Errorf("invalid Compose down invocation: %s", commands[len(commands)-1])
 	}
 }
@@ -285,5 +285,19 @@ func TestGoTestBuildFlagControlsComposeBuildOnce(t *testing.T) {
 	}
 	if count := strings.Count(string(failLog), "up -d --build"); count != 1 {
 		t.Fatalf("build_policy=once with failing phase 1 ran `up -d --build` %d times, want 1:\n%s", count, failLog)
+	}
+	if !strings.Contains(string(defaultLog), "--profile go --profile * down --remove-orphans --timeout 1") {
+		t.Fatalf("Go test teardown missing profile wildcard:\n%s", defaultLog)
+	}
+	if strings.Contains(string(defaultLog), "-p leedevkit-test ") {
+		t.Fatalf("Go test used static project name instead of isolated project:\n%s", defaultLog)
+	}
+}
+
+func TestUniqueInfraProjectGeneratesDistinctNamesInSameProcess(t *testing.T) {
+	first := uniqueInfraProject("/repo")
+	second := uniqueInfraProject("/repo")
+	if first == second || !strings.HasPrefix(first, "leedevkit-infra-") || !strings.HasPrefix(second, "leedevkit-infra-") {
+		t.Fatalf("infra projects = %q, %q", first, second)
 	}
 }

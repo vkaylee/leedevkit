@@ -61,7 +61,20 @@ func (p Plan) Down() ([]string, error) {
 		return nil, nil
 	}
 	args := p.base()
+	args = append(args, p.Profiles...)
+	if !hasProfile(p.Profiles, "*") {
+		args = append(args, "--profile", "*")
+	}
 	return append(args, "down", "--remove-orphans", "--timeout", "1"), nil
+}
+
+func hasProfile(profiles []string, name string) bool {
+	for index := 0; index+1 < len(profiles); index++ {
+		if profiles[index] == "--profile" && profiles[index+1] == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (p Plan) Args() ([]string, error) {

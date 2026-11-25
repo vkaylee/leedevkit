@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vkaylee/leedevkit/internal/ownership"
 	"github.com/vkaylee/leedevkit/internal/process"
 )
 
@@ -85,6 +86,27 @@ func repairDoctorRulesFromAssets(root, assetRoot string) error {
 		}
 	}
 	return nil
+}
+
+func sweepDoctorStaleProjects(root string, stderr io.Writer) {
+	cli := []string{"docker"}
+	if resolved, err := resolveProviderForProject(root, environMap(os.Environ())); err == nil && len(resolved.CLI) > 0 {
+		cli = resolved.CLI
+	}
+	sweepDoctorStaleProjectsWithRunner(context.Background(), cli, process.Run, stderr)
+}
+
+func sweepDoctorStaleProjectsWithRunner(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, stderr io.Writer) ownership.SweepResult {
+	result := ownership.SweepRuntime(ctx, ownership.RuntimeSweepOptions{CLI: cli, MaxAge: 0, Run: run})
+	if stderr != nil {
+		if result.Cleaned > 0 {
+			fmt.Fprintf(stderr, "Cleaned %d stale test/infra project(s).\n", result.Cleaned)
+		}
+		for _, err := range result.Errors {
+			fmt.Fprintf(stderr, "warning: stale project sweep: %s\n", process.RedactDiagnostic(err.Error()))
+		}
+	}
+	return result
 }
 
 func runDoctor(root string, stdout, stderr io.Writer) int {
