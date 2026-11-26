@@ -2,6 +2,20 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.16.0] - 2026-11-26
+
+### Added
+- Focused infrastructure test flags `--lint-only` (`gofmt`, `go vet`, batched `bash -n`) and `--unit-only` (fast `go test` without `-coverpkg`) returning `status="partial"` and `full_regression=false`.
+- Opt-in `leedevkit doctor --prune-volumes` (`ownership.PruneTestVolumes`) to remove dangling unlocked `leedevkit-test-*` and `leedevkit-infra-*` volumes without affecting shared caches or dev volumes.
+- Local build helper `scripts/build-local.sh` (builds gitignored `build/leedevkit-go` via host Go or Compose) with auto-detection in `./leedevkit`.
+- Automatic `.test_logs/infra-*` log directory pruning (retaining the 20 newest non-symlink directories).
+
+### Changed
+- Run `go test -json` in quiet/compact/JSON-stream `infra` modes, merge full-run `go test` + 80% coverage gate into one Compose exec, batch all 7 `bash -n` checks (including `scripts/build-local.sh`) into one exec, and skip `go vet` when Go compilation fails.
+- Mark built-in Go and Rust Compose cache volumes (`leedevkit_go-module-cache`, `leedevkit_go-build-cache`, `leedevkit_cargo-registry`, `leedevkit_cargo-target`) as `external: true` and pre-create them idempotently before Compose runs.
+- Sync `phases[].failure`, `failed[].failure`, and `blocked[].failure` with parsed structured failures in `collectFailureDetails` and filter JSON event noise in compact log excerpts.
+- Decompose `cmd/leedevkit` and `internal/config` into focused modules (`test.go`, `db.go`, `dev_migrate.go`, `mcp_playwright_proxy.go`, `protocol.go`) and thread `context.Context` through `testplan.RunContext`.
+
 ## [0.15.0] - 2026-11-26
 
 ### Added
