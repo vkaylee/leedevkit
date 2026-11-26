@@ -177,3 +177,55 @@ esac
 		t.Fatalf("unexpected docker calls:\n%s", logged)
 	}
 }
+
+func TestPruneTestVolumesRemovesOnlyDanglingUnlockedManagedVolumes(t *testing.T) {
+	if res := PruneTestVolumes(context.Background(), RuntimeSweepOptions{}); res.Removed != 0 || len(res.Errors) != 0 {
+		t.Fatalf("empty cli result = %#v", res)
+	}
+	var calls [][]string
+	res := PruneTestVolumes(context.Background(), RuntimeSweepOptions{
+		CLI: []string{"docker"},
+		IsLocked: func(project string) bool {
+			return project == "leedevkit-test-locked"
+		},
+		Run: func(_ context.Context, request process.Request) process.Result {
+			calls = append(calls, append([]string(nil), request.Args...))
+			joined := strings.Join(request.Args, " ")
+			switch {
+			case strings.Contains(joined, "volume ls --filter dangling=true"):
+				return process.Result{Stdout: []byte(strings.Join([]string{
+					"leedevkit-test-abc_shared-data",
+					"leedevkit-infra-123_tmp",
+					"leedevkit-test-locked_shared-data",
+					"leedevkit_go-module-cache",
+					"leedevkit_cargo-registry",
+					"leedevkit-dev_standalone_storage",
+					"acme-test_db",
+					"leedevkit-go-mod",
+					"-bad-flag_vol",
+				}, "\n"))}
+			case strings.Contains(joined, "volume rm"):
+				return process.Result{Stdout: []byte("leedevkit-infra-123_tmp\nleedevkit-test-abc_shared-data\n")}
+			default:
+				return process.Result{}
+			}
+		},
+	})
+	if res.Removed != 2 || res.Kept != 7 || len(res.Errors) != 0 {
+		t.Fatalf("res = %#v, calls = %#v", res, calls)
+	}
+	wantRM := []string{"docker", "volume", "rm", "leedevkit-infra-123_tmp", "leedevkit-test-abc_shared-data"}
+	if len(calls) != 2 || !reflect.DeepEqual(calls[1], wantRM) {
+		t.Fatalf("calls = %#v, want rm %#v", calls, wantRM)
+	}
+
+	errRes := PruneTestVolumes(context.Background(), RuntimeSweepOptions{
+		CLI: []string{"docker"},
+		Run: func(_ context.Context, _ process.Request) process.Result {
+			return process.Result{ExitCode: 1, Stderr: []byte("daemon offline")}
+		},
+	})
+	if len(errRes.Errors) != 1 || !strings.Contains(errRes.Errors[0].Error(), "list dangling volumes") {
+		t.Fatalf("errRes = %#v", errRes)
+	}
+}

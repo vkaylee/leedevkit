@@ -29,8 +29,8 @@ func TestRunInfraLogsEveryCheckAndPrefixesLiveOutput(t *testing.T) {
 		}
 		return process.Result{}
 	}, &live)
-	if seen != 12 {
-		t.Fatalf("checks = %d, want all 12 checks", seen)
+	if seen != 6 {
+		t.Fatalf("checks = %d, want all 6 checks", seen)
 	}
 	if !strings.Contains(live.String(), "[infra-01] line one\n") || !strings.Contains(live.String(), "[infra-01] last line") {
 		t.Fatalf("live output lacks task prefixes or altered unterminated output: %q", live.String())
@@ -121,8 +121,8 @@ func TestRunInfraFailureIncludesTaskLogAndContinuesAllChecks(t *testing.T) {
 		}
 		return process.Result{}
 	}, nil)
-	if calls != 12 {
-		t.Fatalf("checks = %d, want all 12 despite failure", calls)
+	if calls != 6 {
+		t.Fatalf("checks = %d, want all 6 despite failure", calls)
 	}
 	if result.Status != "failed" || result.ExitCode != 7 {
 		t.Fatalf("result = %#v", result)
@@ -436,12 +436,15 @@ func TestRunInfraFocusedLintOnlyAndUnitOnly(t *testing.T) {
 		if len(result.Phases) != 1 || result.Phases[0].Phase != "Linting" {
 			t.Fatalf("phases = %#v, want Linting", result.Phases)
 		}
-		if len(cmds) != 8 {
-			t.Fatalf("lint-only ran %d checks, want 8: %v", len(cmds), cmds)
+		if len(cmds) != 3 {
+			t.Fatalf("lint-only ran %d checks, want 3: %v", len(cmds), cmds)
 		}
 		joined := strings.Join(cmds, "\n")
 		if strings.Contains(joined, "go test") || strings.Contains(joined, "bash tests/install-test.sh") {
 			t.Fatalf("lint-only unexpectedly ran test/script checks:\n%s", joined)
+		}
+		if !strings.Contains(joined, "scripts/build-local.sh") {
+			t.Fatalf("lint-only missing scripts/build-local.sh syntax check:\n%s", joined)
 		}
 	})
 
@@ -465,7 +468,7 @@ func TestRunInfraFocusedLintOnlyAndUnitOnly(t *testing.T) {
 	})
 }
 
-func TestRunInfraFailFastOnGoBuildFailureSkipsVetAndCoverage(t *testing.T) {
+func TestRunInfraFailFastOnGoBuildFailureSkipsVet(t *testing.T) {
 	root := t.TempDir()
 	var cmds []string
 	var compactOut strings.Builder
@@ -475,7 +478,7 @@ func TestRunInfraFailFastOnGoBuildFailureSkipsVetAndCoverage(t *testing.T) {
 		}
 		joined := strings.Join(request.Args, " ")
 		cmds = append(cmds, joined)
-		if strings.Contains(joined, "go test -json ./...") {
+		if strings.Contains(joined, "go test -json -coverpkg=./...") {
 			_, _ = request.Stdout.Write([]byte(
 				`{"Action":"build-output","ImportPath":"github.com/vkaylee/leedevkit/cmd/leedevkit","Output":"# github.com/vkaylee/leedevkit/cmd/leedevkit\ncmd/leedevkit/bad.go:10:5: undefined: missing\n"}` + "\n" +
 					`{"Action":"build-fail","ImportPath":"github.com/vkaylee/leedevkit/cmd/leedevkit"}` + "\n" +
@@ -489,50 +492,52 @@ func TestRunInfraFailFastOnGoBuildFailureSkipsVetAndCoverage(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	joined := strings.Join(cmds, "\n")
-	if strings.Contains(joined, "go vet ./...") || strings.Contains(joined, "go test -coverpkg=./...") {
-		t.Fatalf("compile failure should skip go vet and coverage, ran:\n%s", joined)
+	if strings.Contains(joined, "go vet ./...") {
+		t.Fatalf("compile failure should skip go vet, ran:\n%s", joined)
 	}
-	if !strings.Contains(joined, "gofmt -l") || !strings.Contains(joined, "bash -n install.sh") {
+	if !strings.Contains(joined, "gofmt -l") || !strings.Contains(joined, "bash -n") {
 		t.Fatalf("compile failure must still run independent checks, ran:\n%s", joined)
 	}
-	if len(cmds) != 10 {
-		t.Fatalf("ran %d checks, want 10 (12 - vet - coverage)", len(cmds))
+	if len(cmds) != 5 {
+		t.Fatalf("ran %d checks, want 5 (6 - vet)", len(cmds))
 	}
 	if !strings.Contains(compactOut.String(), "undefined: missing") {
 		t.Fatalf("compact output missing compile error: %q", compactOut.String())
 	}
 }
 
-func TestRunInfraFailFastOnGoUnitFailureSkipsCoverageOnly(t *testing.T) {
+func TestRunInfraCoverageFailureSurfacesTotalWithoutJSONNoise(t *testing.T) {
 	var cmds []string
+	var compactOut strings.Builder
 	result := runInfra(t.TempDir(), testplan.Flags{Target: "infra", Compact: true}, func(_ context.Context, request process.Request) process.Result {
 		if !hasArg(request.Args, "exec") {
 			return process.Result{}
 		}
 		joined := strings.Join(request.Args, " ")
 		cmds = append(cmds, joined)
-		if strings.Contains(joined, "go test -json ./...") {
+		if strings.Contains(joined, "go test -json -coverpkg=./...") {
 			_, _ = request.Stdout.Write([]byte(
-				`{"Action":"output","Package":"p","Test":"TestFail","Output":"x_test.go:3: boom\n"}` + "\n" +
-					`{"Action":"fail","Package":"p","Test":"TestFail"}` + "\n" +
-					`{"Action":"fail","Package":"p"}` + "\n",
+				`{"Time":"2026-11-26T00:00:00Z","Action":"run","Package":"p","Test":"TestPass"}` + "\n" +
+					`{"Time":"2026-11-26T00:00:00Z","Action":"pass","Package":"p","Test":"TestPass"}` + "\n" +
+					"total:\t(statements)\t75.0%\n",
 			))
 			return process.Result{ExitCode: 1}
 		}
 		return process.Result{}
-	}, nil)
+	}, &compactOut)
 	if result.Status != "failed" {
 		t.Fatalf("result = %#v", result)
 	}
 	joined := strings.Join(cmds, "\n")
 	if !strings.Contains(joined, "go vet ./...") {
-		t.Fatalf("non-build unit failure should still run go vet:\n%s", joined)
+		t.Fatalf("coverage failure should still run go vet:\n%s", joined)
 	}
-	if strings.Contains(joined, "go test -coverpkg=./...") {
-		t.Fatalf("unit test failure should skip redundant coverage run:\n%s", joined)
+	if len(cmds) != 6 {
+		t.Fatalf("ran %d checks, want 6", len(cmds))
 	}
-	if len(cmds) != 11 {
-		t.Fatalf("ran %d checks, want 11 (12 - coverage)", len(cmds))
+	out := compactOut.String()
+	if strings.Contains(out, `"Action":"run"`) || !strings.Contains(out, "total:\t(statements)\t75.0%") {
+		t.Fatalf("compact output should surface coverage line without JSON noise: %q", out)
 	}
 }
 

@@ -41,11 +41,11 @@ func TestInfraRunRequiresEveryCheckAndPropagatesFailure(t *testing.T) {
 	if result.Status != "failed" || result.ExitCode != 7 || result.FullRegression {
 		t.Fatalf("result = %#v", result)
 	}
-	if execCount != 12 {
-		t.Fatalf("ran %d exec checks, want 12", execCount)
+	if execCount != 6 {
+		t.Fatalf("ran %d exec checks, want 6", execCount)
 	}
-	if len(commands) != 14 {
-		t.Fatalf("ran %d compose commands (up + 12 exec + down), want 14", len(commands))
+	if len(commands) != 8 {
+		t.Fatalf("ran %d compose commands (up + 6 exec + down), want 8", len(commands))
 	}
 	if !hasArg(commands[0], "up") || hasArg(commands[0], "--build") {
 		t.Fatalf("first command = %v, want up without --build", commands[0])
@@ -62,13 +62,13 @@ func TestInfraRunsGoQualityGatesThroughCompose(t *testing.T) {
 		return process.Result{}
 	}, nil)
 	joined := strings.Join(commands, "\n")
-	for _, check := range []string{"go test ./...", "gofmt -l", "go vet ./...", "go test -coverpkg=./..."} {
+	for _, check := range []string{"go test -coverpkg=./...", "gofmt -l", "go vet ./...", "scripts/build-local.sh"} {
 		if !strings.Contains(joined, check) {
 			t.Errorf("missing %s gate", check)
 		}
 	}
-	if len(commands) != 14 {
-		t.Fatalf("commands = %d, want 14 (up + 12 exec + down)", len(commands))
+	if len(commands) != 8 {
+		t.Fatalf("commands = %d, want 8 (up + 6 exec + down)", len(commands))
 	}
 	if !strings.Contains(commands[0], "--profile infra up -d --wait --wait-timeout 120 infra") || strings.Contains(commands[0], "--build") {
 		t.Errorf("invalid Compose up invocation: %s", commands[0])
@@ -92,8 +92,8 @@ func TestInfraBuildFlagAddsBuildOnlyToUp(t *testing.T) {
 		commands = append(commands, strings.Join(request.Args, " "))
 		return process.Result{}
 	}, nil)
-	if len(commands) != 14 {
-		t.Fatalf("commands = %d, want 14", len(commands))
+	if len(commands) != 8 {
+		t.Fatalf("commands = %d, want 8", len(commands))
 	}
 	if !strings.Contains(commands[0], "--profile infra up -d --build --wait --wait-timeout 120 infra") {
 		t.Fatalf("up command missing --build: %s", commands[0])
@@ -119,8 +119,8 @@ func TestInfraComposeUsesProjectAndRoot(t *testing.T) {
 func TestInfraAllChecksUseComposeService(t *testing.T) {
 	root := t.TempDir()
 	commands := runInfraCommands(root, "leedevkit-infra-test", filepath.Join(root, "container", "go", "docker-compose.test.yml"))
-	if len(commands) != 12 {
-		t.Fatalf("checks = %d, want 12", len(commands))
+	if len(commands) != 6 {
+		t.Fatalf("checks = %d, want 6", len(commands))
 	}
 	for _, command := range commands {
 		joined := strings.Join(command, " ")

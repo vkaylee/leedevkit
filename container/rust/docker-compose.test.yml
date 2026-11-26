@@ -38,5 +38,7 @@ services:
 volumes:
   cargo-registry:
     name: leedevkit_cargo-registry
+    external: true
   cargo-target:
     name: leedevkit_cargo-target
+    external: true

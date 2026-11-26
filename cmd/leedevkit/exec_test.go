@@ -205,20 +205,23 @@ lint-web = ["bun_init", "webdashboard"]
 	})
 }
 
-func TestEnsureBuiltInGoCacheVolumes(t *testing.T) {
+func TestEnsureBuiltInCacheVolumes(t *testing.T) {
 	var created []string
 	runner := func(_ context.Context, req process.Request) process.Result {
 		created = append(created, strings.Join(req.Args, " "))
 		return process.Result{}
 	}
-	ensureBuiltInGoCacheVolumes(context.Background(), []string{"docker"}, []string{"/repo/.compose/docker-compose.test.yml"}, "/repo", nil, runner)
+	ensureBuiltInCacheVolumes(context.Background(), []string{"docker"}, []string{"/repo/.compose/docker-compose.test.yml"}, "/repo", nil, runner)
 	if len(created) != 0 {
 		t.Fatalf("custom compose file should not create built-in volumes: %v", created)
 	}
-	ensureBuiltInGoCacheVolumes(context.Background(), []string{"docker"}, []string{"/repo/container/go/docker-compose.test.yml"}, "/repo", nil, runner)
+	ensureBuiltInCacheVolumes(context.Background(), []string{"docker"}, []string{"/repo/container/go/docker-compose.test.yml"}, "/repo", nil, runner)
+	ensureBuiltInCacheVolumes(context.Background(), []string{"docker"}, []string{"/repo/container/rust/docker-compose.test.yml"}, "/repo", nil, runner)
 	want := strings.Join([]string{
 		"docker volume create leedevkit_go-module-cache",
 		"docker volume create leedevkit_go-build-cache",
+		"docker volume create leedevkit_cargo-registry",
+		"docker volume create leedevkit_cargo-target",
 	}, "\n")
 	if strings.Join(created, "\n") != want {
 		t.Fatalf("created = %v, want %q", created, want)

@@ -26,6 +26,12 @@ type SweepResult struct {
 	Errors  []error
 }
 
+type VolumePruneResult struct {
+	Removed int
+	Kept    int
+	Errors  []error
+}
+
 type RuntimeSweepOptions struct {
 	CLI       []string
 	Namespace string
@@ -197,4 +203,77 @@ func nonEmptyLines(raw string) []string {
 		}
 	}
 	return lines
+}
+
+func isManagedTestVolume(name string) (string, bool) {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return "", false
+	}
+	project, suffix, found := strings.Cut(name, "_")
+	if !found || suffix == "" {
+		return "", false
+	}
+	if !strings.HasPrefix(project, "leedevkit-test-") && !strings.HasPrefix(project, "leedevkit-infra-") {
+		return "", false
+	}
+	if err := validateProjectName(project); err != nil {
+		return "", false
+	}
+	return project, true
+}
+
+// PruneTestVolumes removes dangling, unlocked volumes owned by ephemeral
+// leedevkit-test-* and leedevkit-infra-* projects. Call only on explicit opt-in.
+func PruneTestVolumes(ctx context.Context, options RuntimeSweepOptions) VolumePruneResult {
+	if len(options.CLI) == 0 {
+		return VolumePruneResult{}
+	}
+	run := options.Run
+	if run == nil {
+		run = process.Run
+	}
+	isLocked := options.IsLocked
+	if isLocked == nil {
+		isLocked = IsLocked
+	}
+	listArgs := append(append([]string(nil), options.CLI...), "volume", "ls", "--filter", "dangling=true", "--format", "{{.Name}}")
+	output, listed := runCapture(ctx, run, listArgs, 15*time.Second)
+	if listed.ExitCode != 0 {
+		return VolumePruneResult{Errors: []error{fmt.Errorf("list dangling volumes: %s", listed.Diagnostic())}}
+	}
+	var candidates []string
+	var result VolumePruneResult
+	for _, name := range nonEmptyLines(output) {
+		project, ok := isManagedTestVolume(name)
+		if !ok || isLocked(project) {
+			result.Kept++
+			continue
+		}
+		candidates = append(candidates, name)
+	}
+	sort.Strings(candidates)
+	const batchSize = 50
+	for start := 0; start < len(candidates); start += batchSize {
+		end := start + batchSize
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		batch := candidates[start:end]
+		rmArgs := append(append([]string(nil), options.CLI...), "volume", "rm")
+		rmArgs = append(rmArgs, batch...)
+		rmOut, removed := runCapture(ctx, run, rmArgs, 30*time.Second)
+		removedNames := nonEmptyLines(rmOut)
+		if removed.ExitCode != 0 {
+			result.Removed += len(removedNames)
+			result.Kept += len(batch) - len(removedNames)
+			result.Errors = append(result.Errors, fmt.Errorf("remove test volumes: %s", removed.Diagnostic()))
+			continue
+		}
+		if len(removedNames) > 0 {
+			result.Removed += len(removedNames)
+		} else {
+			result.Removed += len(batch)
+		}
+	}
+	return result
 }

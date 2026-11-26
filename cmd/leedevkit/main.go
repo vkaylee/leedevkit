@@ -377,18 +377,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "exec":
 		return runExecCLI(args, root, stdin, stdout, stderr)
 	case "doctor":
-		if len(args) > 1 && args[1] == "--fix" {
-			if err := repairDoctorRules(root); err != nil {
-				fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
-				return 2
-			}
-			if err := repairDoctorProjectArtifacts(root, stderr); err != nil {
-				fmt.Fprintf(stderr, "doctor artifact repair failed: %v\n", err)
-				return 2
-			}
-			sweepDoctorStaleProjects(root, stderr)
-		}
-		return runDoctor(root, stdout, stderr)
+		return runDoctorCLI(args, root, stdout, stderr)
 	case "dev":
 		return runDevCLI(args, root, stdin, stdout, stderr)
 	case "skills":

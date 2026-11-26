@@ -123,11 +123,8 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 			status, code := "passed", 0
 			var failures []string
 			var firstLog string
-			var goUnitFailed, goBuildFailed bool
+			var goBuildFailed bool
 			for index, check := range checks {
-				if check.category == "coverage" && goUnitFailed {
-					continue
-				}
 				if check.name == "go vet ./..." && goBuildFailed {
 					continue
 				}
@@ -166,7 +163,6 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 						ExtractExcerpt: check.compactLog,
 					}
 					if check.category == "unit" {
-						goUnitFailed = true
 						if data, readErr := readLimitedFile(filepath.Join(logDir, logName), 1<<20); readErr == nil && hasGoBuildFailure(data) {
 							goBuildFailed = true
 						}
@@ -290,37 +286,32 @@ func infraDownCommandWith(compose []string, project, composeFile string) []strin
 
 func infraChecksForFlags(flags testplan.Flags, structuredGo bool) []infraCheck {
 	goTestArgs := []string{"go", "test", "./..."}
+	goTestCoverCmd := `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`
 	if structuredGo {
 		goTestArgs = []string{"go", "test", "-json", "./..."}
+		goTestCoverCmd = `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -json -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`
 	}
-	all := []infraCheck{
-		{name: "go test ./...", category: "unit", args: goTestArgs, compactLog: true},
-		{name: "gofmt", category: "lint", args: []string{"sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`}, compactLog: true},
-		{name: "go vet ./...", category: "lint", args: []string{"go", "vet", "./..."}, compactLog: true},
-		{name: "go coverage", category: "coverage", args: []string{"sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`}, compactLog: true},
-		{name: "bash -n install.sh", category: "lint", args: []string{"bash", "-n", "install.sh"}, compactLog: true},
-		{name: "bash -n bootstrap.sh", category: "lint", args: []string{"bash", "-n", "bootstrap.sh"}, compactLog: true},
-		{name: "bash -n bin/leedevkit", category: "lint", args: []string{"bash", "-n", "bin/leedevkit"}, compactLog: true},
-		{name: "bash -n leedevkit", category: "lint", args: []string{"bash", "-n", "leedevkit"}, compactLog: true},
-		{name: "bash -n tests/install-test.sh", category: "lint", args: []string{"bash", "-n", "tests/install-test.sh"}, compactLog: true},
-		{name: "bash -n scripts/test-skill-utilities.sh", category: "lint", args: []string{"bash", "-n", "scripts/test-skill-utilities.sh"}, compactLog: true},
-		{name: "bash tests/install-test.sh", category: "script", args: []string{"bash", "tests/install-test.sh"}, compactLog: true},
-		{name: "bash scripts/test-skill-utilities.sh", category: "script", args: []string{"bash", "scripts/test-skill-utilities.sh"}, compactLog: true},
-	}
-	if !flags.LintOnly && !flags.UnitOnly {
-		return all
-	}
-	wantCategory := "lint"
 	if flags.UnitOnly {
-		wantCategory = "unit"
-	}
-	selected := make([]infraCheck, 0, len(all))
-	for _, check := range all {
-		if check.category == wantCategory {
-			selected = append(selected, check)
+		return []infraCheck{
+			{name: "go test ./...", category: "unit", args: goTestArgs, compactLog: true},
 		}
 	}
-	return selected
+	lintChecks := []infraCheck{
+		{name: "gofmt", category: "lint", args: []string{"sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`}, compactLog: true},
+		{name: "go vet ./...", category: "lint", args: []string{"go", "vet", "./..."}, compactLog: true},
+		{name: "bash -n scripts", category: "lint", args: []string{"sh", "-c", `failed=0; for f in install.sh bootstrap.sh bin/leedevkit leedevkit tests/install-test.sh scripts/test-skill-utilities.sh scripts/build-local.sh; do bash -n "$f" || failed=1; done; exit $failed`}, compactLog: true},
+	}
+	if flags.LintOnly {
+		return lintChecks
+	}
+	all := make([]infraCheck, 0, 1+len(lintChecks)+2)
+	all = append(all, infraCheck{name: "go test + coverage", category: "unit", args: []string{"sh", "-c", goTestCoverCmd}, compactLog: true})
+	all = append(all, lintChecks...)
+	all = append(all,
+		infraCheck{name: "bash tests/install-test.sh", category: "script", args: []string{"bash", "tests/install-test.sh"}, compactLog: true},
+		infraCheck{name: "bash scripts/test-skill-utilities.sh", category: "script", args: []string{"bash", "scripts/test-skill-utilities.sh"}, compactLog: true},
+	)
+	return all
 }
 
 func runInfraCommands(root, project, composeFile string) [][]string {

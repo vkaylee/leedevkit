@@ -185,13 +185,69 @@ func warnLegacyProjectArtifacts(root string, stderr io.Writer) {
 	}
 }
 
-func sweepDoctorStaleProjects(root string, stderr io.Writer) {
+func resolveDoctorCLI(root string) []string {
 	cli := []string{"docker"}
 	if resolved, err := resolveProviderForProject(root, environMap(os.Environ())); err == nil && len(resolved.CLI) > 0 {
 		cli = resolved.CLI
 	}
+	return cli
+}
+
+func sweepDoctorStaleProjects(root string, stderr io.Writer) {
 	projectCfg, _ := config.Load(filepath.Join(root, "leedevkit.toml"))
-	sweepDoctorStaleProjectsWithNamespace(context.Background(), cli, projectCfg.Namespace, process.Run, stderr)
+	sweepDoctorStaleProjectsWithNamespace(context.Background(), resolveDoctorCLI(root), projectCfg.Namespace, process.Run, stderr)
+}
+
+func pruneDoctorTestVolumes(root string, stderr io.Writer) {
+	pruneDoctorTestVolumesWithRunner(context.Background(), resolveDoctorCLI(root), process.Run, stderr)
+}
+
+func pruneDoctorTestVolumesWithRunner(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, stderr io.Writer) ownership.VolumePruneResult {
+	result := ownership.PruneTestVolumes(ctx, ownership.RuntimeSweepOptions{CLI: cli, Run: run})
+	if stderr != nil {
+		if result.Removed > 0 {
+			fmt.Fprintf(stderr, "Pruned %d stale test/infra volume(s).\n", result.Removed)
+		} else if len(result.Errors) == 0 {
+			fmt.Fprintln(stderr, "No stale test/infra volumes to prune.")
+		}
+		for _, err := range result.Errors {
+			fmt.Fprintf(stderr, "warning: test volume prune: %s\n", process.RedactDiagnostic(err.Error()))
+		}
+	}
+	return result
+}
+
+func runDoctorCLI(args []string, root string, stdout, stderr io.Writer) int {
+	var fix, pruneVolumes bool
+	for _, flag := range args[1:] {
+		switch flag {
+		case "--help", "-h":
+			fmt.Fprintln(stdout, "Usage: leedevkit doctor [--fix] [--prune-volumes]")
+			return 0
+		case "--fix":
+			fix = true
+		case "--prune-volumes":
+			pruneVolumes = true
+		default:
+			fmt.Fprintf(stderr, "unsupported doctor flag: %s\n", flag)
+			return 2
+		}
+	}
+	if fix {
+		if err := repairDoctorRules(root); err != nil {
+			fmt.Fprintf(stderr, "doctor rule repair failed: %v\n", err)
+			return 2
+		}
+		if err := repairDoctorProjectArtifacts(root, stderr); err != nil {
+			fmt.Fprintf(stderr, "doctor artifact repair failed: %v\n", err)
+			return 2
+		}
+		sweepDoctorStaleProjects(root, stderr)
+	}
+	if pruneVolumes {
+		pruneDoctorTestVolumes(root, stderr)
+	}
+	return runDoctor(root, stdout, stderr)
 }
 
 func sweepDoctorStaleProjectsWithRunner(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, stderr io.Writer) ownership.SweepResult {

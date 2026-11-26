@@ -258,3 +258,43 @@ lang = "typescript"
 		t.Fatalf("unexpected repaired CLAUDE.md:\n%s", fixedClaude)
 	}
 }
+
+func TestPruneDoctorTestVolumesAndCLIFlags(t *testing.T) {
+	var stderr bytes.Buffer
+	res := pruneDoctorTestVolumesWithRunner(context.Background(), []string{"docker"}, func(_ context.Context, req process.Request) process.Result {
+		joined := strings.Join(req.Args, " ")
+		if strings.Contains(joined, "volume ls") {
+			return process.Result{Stdout: []byte("leedevkit-test-abc_shared-data\nleedevkit_go-module-cache\n")}
+		}
+		return process.Result{Stdout: []byte("leedevkit-test-abc_shared-data\n")}
+	}, &stderr)
+	if res.Removed != 1 || !strings.Contains(stderr.String(), "Pruned 1 stale test/infra volume(s).") {
+		t.Fatalf("res = %#v, stderr = %q", res, stderr.String())
+	}
+
+	stderr.Reset()
+	none := pruneDoctorTestVolumesWithRunner(context.Background(), []string{"docker"}, func(_ context.Context, _ process.Request) process.Result {
+		return process.Result{Stdout: []byte("leedevkit_go-module-cache\n")}
+	}, &stderr)
+	if none.Removed != 0 || !strings.Contains(stderr.String(), "No stale test/infra volumes to prune.") {
+		t.Fatalf("none = %#v, stderr = %q", none, stderr.String())
+	}
+
+	stderr.Reset()
+	errRes := pruneDoctorTestVolumesWithRunner(context.Background(), []string{"docker"}, func(_ context.Context, _ process.Request) process.Result {
+		return process.Result{ExitCode: 1, Stderr: []byte("offline")}
+	}, &stderr)
+	if len(errRes.Errors) != 1 || !strings.Contains(stderr.String(), "warning: test volume prune:") {
+		t.Fatalf("errRes = %#v, stderr = %q", errRes, stderr.String())
+	}
+
+	var stdout bytes.Buffer
+	stderr.Reset()
+	if code := runDoctorCLI([]string{"doctor", "--help"}, t.TempDir(), &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "--prune-volumes") {
+		t.Fatalf("help code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stderr.Reset()
+	if code := runDoctorCLI([]string{"doctor", "--unknown"}, t.TempDir(), &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unsupported doctor flag") {
+		t.Fatalf("unknown flag code=%d stderr=%q", code, stderr.String())
+	}
+}

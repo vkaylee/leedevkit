@@ -85,3 +85,35 @@ func TestCollectFailureDetailsFiltersPassingTests(t *testing.T) {
 		t.Fatalf("output = %q", output.String())
 	}
 }
+
+func TestCollectFailureDetailsSyncsPhaseFailures(t *testing.T) {
+	root := t.TempDir()
+	log := `{"Action":"run","Package":"example/p","Test":"TestSync"}` + "\n" +
+		`{"Action":"output","Package":"example/p","Test":"TestSync","Output":"sync_test.go:19: expected ok\n"}` + "\n" +
+		`{"Action":"fail","Package":"example/p","Test":"TestSync"}` + "\n" +
+		`{"Action":"fail","Package":"example/p"}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "failure.log"), []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	phase := report.Phase{
+		Phase:      "Unit Tests",
+		Status:     "failed",
+		Log:        "failure.log",
+		Diagnostic: "raw diagnostic string",
+		Failure:    &report.Failure{Phase: "Unit Tests", Message: "raw diagnostic string"},
+	}
+	result := testplan.RunResult{
+		Phases: []report.Phase{phase},
+		Failed: []report.Phase{phase},
+	}
+	collectFailureDetails(root, &result, nil)
+	if len(result.Failures) != 1 || result.Failures[0].TestName != "TestSync" {
+		t.Fatalf("failures = %#v", result.Failures)
+	}
+	if result.Phases[0].Failure == nil || result.Phases[0].Failure.TestName != "TestSync" || result.Phases[0].Failure.Line != 19 {
+		t.Fatalf("Phases[0].Failure not synced: %#v", result.Phases[0].Failure)
+	}
+	if result.Failed[0].Failure == nil || result.Failed[0].Failure.TestName != "TestSync" || result.Failed[0].Failure.Message == "raw diagnostic string" {
+		t.Fatalf("Failed[0].Failure not synced: %#v", result.Failed[0].Failure)
+	}
+}

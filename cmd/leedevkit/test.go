@@ -624,7 +624,8 @@ func extractCompactLogExcerpt(data []byte, maxLines int) string {
 			strings.HasPrefix(trimmed, "?\t") || strings.HasPrefix(trimmed, "?   ") ||
 			trimmed == "PASS" || strings.HasPrefix(trimmed, "--- PASS:") ||
 			strings.HasPrefix(trimmed, "=== RUN ") || strings.HasPrefix(trimmed, "=== PAUSE ") ||
-			strings.HasPrefix(trimmed, "=== CONT ") {
+			strings.HasPrefix(trimmed, "=== CONT ") ||
+			(strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") && strings.Contains(trimmed, `"Action":`)) {
 			continue
 		}
 		if len(lines) >= maxLines {
@@ -742,28 +743,73 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 			}
 		}
 	}
+	syncPhaseFailures(result)
 }
 
-var builtInGoCacheVolumes = []string{"leedevkit_go-module-cache", "leedevkit_go-build-cache"}
-
-func usesBuiltInGoCompose(files []string) bool {
-	for _, file := range files {
-		clean := filepath.ToSlash(filepath.Clean(file))
-		if strings.HasSuffix(clean, "/container/go/docker-compose.test.yml") || clean == "container/go/docker-compose.test.yml" {
-			return true
+func syncPhaseFailures(result *testplan.RunResult) {
+	firstByPhase := make(map[string]report.Failure, len(result.Failures))
+	for _, failure := range result.Failures {
+		if _, exists := firstByPhase[failure.Phase]; !exists {
+			firstByPhase[failure.Phase] = failure
 		}
 	}
-	return false
+	apply := func(phases []report.Phase) {
+		for i := range phases {
+			if phases[i].Status != "failed" && phases[i].Status != "blocked" {
+				continue
+			}
+			if failure, ok := firstByPhase[phases[i].Phase]; ok {
+				copy := failure
+				phases[i].Failure = &copy
+			}
+		}
+	}
+	apply(result.Phases)
+	apply(result.Failed)
+	apply(result.Blocked)
 }
 
-func ensureBuiltInGoCacheVolumes(ctx context.Context, cli, files []string, dir string, env []string, run func(context.Context, process.Request) process.Result) {
-	if len(cli) == 0 || !usesBuiltInGoCompose(files) {
+var (
+	builtInGoCacheVolumes   = []string{"leedevkit_go-module-cache", "leedevkit_go-build-cache"}
+	builtInRustCacheVolumes = []string{"leedevkit_cargo-registry", "leedevkit_cargo-target"}
+)
+
+func builtInCacheVolumesForFiles(files []string) []string {
+	var volumes []string
+	seen := map[string]bool{}
+	add := func(names []string) {
+		for _, name := range names {
+			if !seen[name] {
+				seen[name] = true
+				volumes = append(volumes, name)
+			}
+		}
+	}
+	for _, file := range files {
+		clean := filepath.ToSlash(filepath.Clean(file))
+		switch {
+		case strings.HasSuffix(clean, "/container/go/docker-compose.test.yml"),
+			clean == "container/go/docker-compose.test.yml",
+			strings.HasSuffix(clean, "/container/go/docker-compose.core.yml"),
+			clean == "container/go/docker-compose.core.yml":
+			add(builtInGoCacheVolumes)
+		case strings.HasSuffix(clean, "/container/rust/docker-compose.test.yml"),
+			clean == "container/rust/docker-compose.test.yml":
+			add(builtInRustCacheVolumes)
+		}
+	}
+	return volumes
+}
+
+func ensureBuiltInCacheVolumes(ctx context.Context, cli, files []string, dir string, env []string, run func(context.Context, process.Request) process.Result) {
+	volumes := builtInCacheVolumesForFiles(files)
+	if len(cli) == 0 || len(volumes) == 0 {
 		return
 	}
 	if run == nil {
 		run = process.Run
 	}
-	for _, volume := range builtInGoCacheVolumes {
+	for _, volume := range volumes {
 		args := append(append([]string(nil), cli...), "volume", "create", volume)
 		_ = run(ctx, process.Request{Args: args, Dir: dir, Env: env, Stdout: io.Discard, Stderr: io.Discard, Timeout: 15 * time.Second})
 	}
@@ -945,7 +991,7 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 		if resolved, err := resolveProviderForProject(root, environMap(os.Environ())); err == nil && len(resolved.CLI) > 0 {
 			cli = resolved.CLI
 		}
-		ensureBuiltInGoCacheVolumes(testCtx, cli, []string{resolveInfraComposeFile(root)}, root, os.Environ(), process.Run)
+		ensureBuiltInCacheVolumes(testCtx, cli, []string{resolveInfraComposeFile(root)}, root, os.Environ(), process.Run)
 		result := runInfraContext(testCtx, root, flags, process.Run, stdout, quiet)
 		if !flags.JSONStream {
 			summary := result.Summary(args[1], "go-cli")
@@ -1006,7 +1052,7 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		return 2
 	}
 	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
-	ensureBuiltInGoCacheVolumes(testCtx, providerConfig.CLI, lifecyclePlan.Files, root, testEnv, process.Run)
+	ensureBuiltInCacheVolumes(testCtx, providerConfig.CLI, lifecyclePlan.Files, root, testEnv, process.Run)
 	compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: root, Env: testEnv, Execute: process.Run}
 	if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 		workdir := "/workspace"
