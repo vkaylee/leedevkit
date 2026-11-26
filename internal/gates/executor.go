@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 
 type Executor struct {
 	Run                 func(context.Context, process.Request) process.Result
+	RunGate             func(context.Context, Gate, process.Request) process.Result
+	LookupEnv           func(name string) (present bool, forward bool)
 	Fix                 bool
 	Done                map[string]bool
 	BaseRef             string
@@ -44,16 +48,32 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 				return PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "required gate did not pass: " + required, Gate: gate.Name}
 			}
 		}
-		if err := checkVersion(ctx, run, gate); err != nil {
+		effectiveEnv, missing := e.resolveGateEnv(gate)
+		if len(missing) > 0 {
+			return PhaseResult{
+				Status:     "blocked",
+				ExitCode:   2,
+				Diagnostic: fmt.Sprintf("missing required environment variable(s) for gate %q: %s", gate.Name, strings.Join(missing, ", ")),
+				Gate:       gate.Name,
+			}
+		}
+		gateRun := run
+		if e.RunGate != nil {
+			currentGate := gate
+			gateRun = func(ctx context.Context, req process.Request) process.Result {
+				return e.RunGate(ctx, currentGate, req)
+			}
+		}
+		if err := checkVersion(ctx, gateRun, gate, effectiveEnv); err != nil {
 			return PhaseResult{Status: "failed", ExitCode: err.ExitCode, Diagnostic: err.Diagnostic, Gate: gate.Name}
 		}
-		if err := runCommand(ctx, run, gate, gate.SetupCommand); err != nil {
-			_ = runCommand(ctx, run, gate, gate.TeardownCommand)
+		if err := runCommand(ctx, gateRun, gate, gate.SetupCommand, effectiveEnv); err != nil {
+			_ = runCommand(ctx, gateRun, gate, gate.TeardownCommand, effectiveEnv)
 			return PhaseResult{Status: "failed", ExitCode: err.ExitCode, Diagnostic: err.Diagnostic, Gate: gate.Name}
 		}
 		func() {
 			defer func() {
-				if teardown := runCommand(ctx, run, gate, gate.TeardownCommand); teardown != nil && result.Status == "passed" {
+				if teardown := runCommand(ctx, gateRun, gate, gate.TeardownCommand, effectiveEnv); teardown != nil && result.Status == "passed" {
 					result = PhaseResult{Status: "failed", ExitCode: teardown.ExitCode, Diagnostic: teardown.Diagnostic, Gate: gate.Name}
 				}
 			}()
@@ -67,7 +87,7 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 				command = append(command, gate.NewFindingsFlag...)
 				command = append(command, e.BaseRef)
 			}
-			if commandResult := runCommandWith(ctx, run, gate, command); commandResult != nil {
+			if commandResult := runCommandWith(ctx, gateRun, gate, command, effectiveEnv); commandResult != nil {
 				result = PhaseResult{Status: "failed", ExitCode: commandResult.ExitCode, Diagnostic: commandResult.Diagnostic, Gate: gate.Name}
 			} else {
 				result = PhaseResult{Status: "passed", Gate: gate.Name}
@@ -89,12 +109,69 @@ func (e Executor) RunPhase(ctx context.Context, phase string, definitions []Gate
 	return PhaseResult{Status: "passed"}
 }
 
+func (e Executor) resolveGateEnv(gate Gate) ([]string, []string) {
+	var missing []string
+	var extraForward []string
+	for _, name := range gate.RequiredEnv {
+		if val, ok := gate.Env[name]; ok && val != "" {
+			continue
+		}
+		if e.LookupEnv != nil {
+			present, forward := e.LookupEnv(name)
+			if !present {
+				missing = append(missing, name)
+			} else if forward {
+				extraForward = append(extraForward, name)
+			}
+			continue
+		}
+		if val, ok := os.LookupEnv(name); ok && val != "" {
+			extraForward = append(extraForward, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, missing
+	}
+	if len(gate.Env) == 0 && len(extraForward) == 0 {
+		return gate.Environment, nil
+	}
+	seen := map[string]bool{}
+	env := make([]string, 0, len(gate.Environment)+len(extraForward)+len(gate.Env))
+	for _, name := range gate.Environment {
+		if _, hasStatic := gate.Env[name]; hasStatic || seen[name] {
+			continue
+		}
+		seen[name] = true
+		env = append(env, name)
+	}
+	for _, name := range extraForward {
+		if _, hasStatic := gate.Env[name]; hasStatic || seen[name] {
+			continue
+		}
+		seen[name] = true
+		env = append(env, name)
+	}
+	if len(gate.Env) > 0 {
+		keys := make([]string, 0, len(gate.Env))
+		for key := range gate.Env {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			env = append(env, key+"="+gate.Env[key])
+		}
+	}
+	return env, nil
+}
+
 type commandResult struct {
 	ExitCode   int
 	Diagnostic string
 }
 
-func checkVersion(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate) *commandResult {
+func checkVersion(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, env []string) *commandResult {
 	if gate.ExpectedVersion == nil && len(gate.VersionCommand) == 0 {
 		return nil
 	}
@@ -108,9 +185,13 @@ func checkVersion(ctx context.Context, run func(context.Context, process.Request
 	}
 	defer cancel()
 	var stdout bytes.Buffer
-	version := run(commandCtx, process.Request{Args: gate.VersionCommand, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Stdout: &stdout, Stderr: &stdout, Timeout: timeoutDuration(gate.Timeout)})
-	if version.ExitCode != 0 {
-		return &commandResult{ExitCode: version.ExitCode, Diagnostic: errorText(version.Err)}
+	version := run(commandCtx, process.Request{Args: gate.VersionCommand, Dir: filepath.Clean(gate.WorkingDir), Env: env, Stdout: &stdout, Stderr: &stdout, Timeout: timeoutDuration(gate.Timeout)})
+	if version.ExitCode != 0 || version.Err != nil {
+		code := version.ExitCode
+		if code == 0 {
+			code = 1
+		}
+		return &commandResult{ExitCode: code, Diagnostic: errorText(version.Err)}
 	}
 	output := version.Stdout
 	if len(output) == 0 {
@@ -124,14 +205,14 @@ func checkVersion(ctx context.Context, run func(context.Context, process.Request
 	return nil
 }
 
-func runCommand(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string) *commandResult {
+func runCommand(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string, env []string) *commandResult {
 	if len(command) == 0 {
 		return nil
 	}
-	return runCommandWith(ctx, run, gate, command)
+	return runCommandWith(ctx, run, gate, command, env)
 }
 
-func runCommandWith(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string) *commandResult {
+func runCommandWith(ctx context.Context, run func(context.Context, process.Request) process.Result, gate Gate, command []string, env []string) *commandResult {
 	commandCtx := ctx
 	cancel := func() {}
 	if gate.Timeout != nil && *gate.Timeout > 0 {
@@ -139,14 +220,18 @@ func runCommandWith(ctx context.Context, run func(context.Context, process.Reque
 	}
 	defer cancel()
 	var checkOut bytes.Buffer
-	request := process.Request{Args: command, Dir: filepath.Clean(gate.WorkingDir), Env: gate.Environment, Timeout: timeoutDuration(gate.Timeout)}
+	request := process.Request{Args: command, Dir: filepath.Clean(gate.WorkingDir), Env: env, Timeout: timeoutDuration(gate.Timeout)}
 	failOnOutput := gate.FailOnOutput || (gate.Mode == "check" && gate.Name == "gofmt")
 	if failOnOutput {
 		request.Stdout = &checkOut
 	}
 	result := run(commandCtx, request)
-	if result.ExitCode != 0 {
-		return &commandResult{ExitCode: result.ExitCode, Diagnostic: errorText(result.Err)}
+	if result.ExitCode != 0 || result.Err != nil {
+		code := result.ExitCode
+		if code == 0 {
+			code = 1
+		}
+		return &commandResult{ExitCode: code, Diagnostic: errorText(result.Err)}
 	}
 	if failOnOutput {
 		out := result.Stdout

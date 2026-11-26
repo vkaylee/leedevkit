@@ -181,7 +181,61 @@ leedevkit test all --json-stream --quiet  # JSONL events; logs stay in .test_log
 
 Human mode streams parallel task output as `[task-name]` lines and tees it to `.test_logs/`. `--quiet` suppresses live task output but keeps complete task logs for failure diagnosis. JSONL streams emit `run_started`, `phase_started`, `phase_finished`, and `run_finished` events; skipped phases also emit start and finish events.
 
-For TypeScript services, configure phase dependencies such as `unit-web`, `e2e-web`, and `lint-web` in `[test.dependencies]` and corresponding Compose profiles. Web phases run `bun run test`, `bun run test:e2e`, and `bun run lint`, `bun run type-check`, `bun run check-i18n`. Go services with `int-*` in `[test.dependencies]` run `go test -tags=integration ./...` by default (or explicit `[test.gates.<key>]` / `[services.<name>.test]` overrides), and fail closed if a declared phase cannot resolve a gate or if a required phase is unexpectedly skipped. Compose test runs unify on `<namespace>-test` from `[project].namespace` and export `LEEDEVKIT_TEST_PROJECT` and `COMPOSE_PROJECT_NAME`. Web targets reject `--pattern`, `--coverage`, `--fix`, and `--base-ref`.
+For TypeScript services, configure phase dependencies such as `unit-web`, `e2e-web`, and `lint-web` in `[test.dependencies]` and corresponding Compose profiles. Web phases run `bun run test`, `bun run test:e2e`, and `bun run lint`, `bun run type-check`, `bun run check-i18n`. Web targets reject `--pattern`, `--coverage`, `--fix`, and `--base-ref`.
+
+### Configuring Go DB integration tests & isolation
+
+Go services with `int-*` in `[test.dependencies]` automatically enable `go test -tags=integration ./...` (or explicit `[test.gates.<key>]` / `[services.<name>.test]` overrides).
+
+```toml
+# leedevkit.toml
+[project]
+name = "MyApp"
+namespace = "myapp"
+languages = ["go"]
+
+[services.apiserver]
+lang = "go"
+workdir = "apiserver"
+
+[targets]
+api = ["apiserver"]
+all = ["apiserver"]
+
+[test.dependencies]
+# Last service in each list is the runner container; keys match Compose profiles.
+unit-api = ["apiserver"]
+int-api = ["postgres", "redis", "apiserver"]
+lint-api = ["apiserver"]
+
+[test.env]
+# Optional base static env vars applied to all test gates (gate `env` wins).
+TZ = "UTC"
+
+[test.gates.int-api]
+# `command` is optional for Go integration gates (inherits `go test -tags=integration ./...`).
+setup_command = ["go", "run", "./cmd/migrate", "up"]   # runs inside disposable test container before tests
+env = { MYAPP_DB_INTEGRATION = "1" }                   # injected via process env + `-e KEY` (never in argv)
+environment = ["GOFLAGS"]                              # pass-through host env var names only
+required_env = ["MYAPP_DB_INTEGRATION", "DATABASE_URL"] # fail closed if missing in gate.env, host env, or Compose service env
+```
+
+```yaml
+# .compose/docker-compose.test.yml (volume conventions)
+volumes:
+  # Omit fixed `name:` for disposable DB volumes so parallel runs stay isolated per run.
+  postgres_test_data: {}
+  # Mark intentional shared caches `external: true` to avoid ownership warnings.
+  go_mod_cache:
+    name: myapp_go_mod_cache
+    external: true
+```
+
+Behavior summary:
+- **Env propagation & secrets**: `env` values travel via subprocess `Env` with `-e KEY` only on `argv` (never `-e KEY=VALUE`). Diagnostics redact URI credentials (`postgres://`, `redis://`, `https://`, etc.) and secret key/value pairs.
+- **Fail-closed checks**: `required_env` is verified against `gate.env` → host env → Compose `services.<svc>.environment` before `setup_command` or tests run. Missing required env, failed `setup_command`, unresolvable declared phases, or unexpected required-phase skips exit non-zero and never report `passed`.
+- **Per-run isolation & locking**: Each `leedevkit test` run uses an isolated `<namespace>-test-<runid>` Compose project (exporting `LEEDEVKIT_TEST_PROJECT` and `COMPOSE_PROJECT_NAME`) and refuses dev stacks (`<namespace>-dev`, `leedevkit-dev`, `$LEEDEVKIT_DEV_PROJECT`). Pinned `LEEDEVKIT_TEST_PROJECT` runs and non-external fixed-name volumes acquire exclusive locks and fail closed on concurrent overlap. Pre-existing foreign-owned fixed volumes are mounted `external: true` via a temporary override without deleting user data. Automatic teardown never runs `down -v`; prune stale ephemeral test volumes only with `leedevkit doctor --prune-volumes`.
+- **Distinct phase reporting**: `Unit Tests`, `Integration Tests`, and `Linting` report independent `passed`/`failed`/`blocked`/`skipped` statuses; overall `status: "passed"` and exit `0` require every required phase to pass.
 
 For hermetic non-test commands (codegen, typecheck, build, `go generate`), use `leedevkit exec`:
 

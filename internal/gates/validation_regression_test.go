@@ -23,6 +23,9 @@ func TestSelectRejectsUnsafeGateDefinitions(t *testing.T) {
 		{"incomplete version", func(g *Gate) { g.ExpectedVersion = &version }, "version_command"},
 		{"unsupported condition", func(g *Gate) { g.Condition = "sometimes" }, "condition"},
 		{"invalid environment", func(g *Gate) { g.Environment = []string{"SECRET=value"} }, "environment"},
+		{"invalid env key", func(g *Gate) { g.Env = map[string]string{"BAD=KEY": "1"} }, "env"},
+		{"nul in env value", func(g *Gate) { g.Env = map[string]string{"GOOD_KEY": "a\x00b"} }, "NUL"},
+		{"invalid required_env", func(g *Gate) { g.RequiredEnv = []string{"BAD=NAME"} }, "required_env"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gate := valid

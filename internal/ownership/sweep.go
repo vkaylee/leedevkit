@@ -49,7 +49,7 @@ func isManagedSweepProjectForNamespace(name, namespace string) bool {
 	if strings.HasPrefix(name, "leedevkit-test-") || strings.HasPrefix(name, "leedevkit-infra-") {
 		return true
 	}
-	return namespace != "" && name == namespace+"-test"
+	return namespace != "" && (name == namespace+"-test" || strings.HasPrefix(name, namespace+"-test-"))
 }
 
 // Sweep removes only old, identifiable, unlocked test and infra projects.
@@ -206,6 +206,10 @@ func nonEmptyLines(raw string) []string {
 }
 
 func isManagedTestVolume(name string) (string, bool) {
+	return isManagedTestVolumeForNamespace(name, "")
+}
+
+func isManagedTestVolumeForNamespace(name, namespace string) (string, bool) {
 	if name == "" || strings.HasPrefix(name, "-") {
 		return "", false
 	}
@@ -213,7 +217,11 @@ func isManagedTestVolume(name string) (string, bool) {
 	if !found || suffix == "" {
 		return "", false
 	}
-	if !strings.HasPrefix(project, "leedevkit-test-") && !strings.HasPrefix(project, "leedevkit-infra-") {
+	managed := strings.HasPrefix(project, "leedevkit-test-") || strings.HasPrefix(project, "leedevkit-infra-")
+	if !managed && namespace != "" {
+		managed = strings.HasPrefix(project, namespace+"-test-")
+	}
+	if !managed {
 		return "", false
 	}
 	if err := validateProjectName(project); err != nil {
@@ -223,7 +231,7 @@ func isManagedTestVolume(name string) (string, bool) {
 }
 
 // PruneTestVolumes removes dangling, unlocked volumes owned by ephemeral
-// leedevkit-test-* and leedevkit-infra-* projects. Call only on explicit opt-in.
+// leedevkit-test-*, leedevkit-infra-*, and <namespace>-test-* projects. Call only on explicit opt-in.
 func PruneTestVolumes(ctx context.Context, options RuntimeSweepOptions) VolumePruneResult {
 	if len(options.CLI) == 0 {
 		return VolumePruneResult{}
@@ -244,7 +252,7 @@ func PruneTestVolumes(ctx context.Context, options RuntimeSweepOptions) VolumePr
 	var candidates []string
 	var result VolumePruneResult
 	for _, name := range nonEmptyLines(output) {
-		project, ok := isManagedTestVolume(name)
+		project, ok := isManagedTestVolumeForNamespace(name, options.Namespace)
 		if !ok || isLocked(project) {
 			result.Kept++
 			continue

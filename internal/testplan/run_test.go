@@ -113,4 +113,43 @@ func TestRunFailedPhaseWithZeroExitCodeFallsBackToOne(t *testing.T) {
 	if result.Status != "failed" || result.ExitCode != 1 {
 		t.Fatalf("expected failed exit=1, got %#v", result)
 	}
+	for _, phase := range result.Phases {
+		if phase.Phase == "Linting" && (phase.ExitCode == nil || *phase.ExitCode != 1) {
+			t.Fatalf("expected normalized exit_code=1 on failed phase, got %#v", phase)
+		}
+	}
+}
+
+func TestRunUnknownOrEmptyPhaseStatusNeverReportsPassed(t *testing.T) {
+	result := Run(Flags{Target: "api"}, ExecutorFunc(func(phase Phase) PhaseResult {
+		if phase.Name == "Integration Tests" {
+			return PhaseResult{} // empty status must fail closed
+		}
+		return PhaseResult{Status: "passed"}
+	}), nil)
+	if result.Status != "failed" || result.FullRegression || result.ExitCode != 1 {
+		t.Fatalf("empty phase status must fail closed, got %#v", result)
+	}
+	if result.Counts.Passed != 2 || result.Counts.Failed != 1 {
+		t.Fatalf("counts = %#v", result.Counts)
+	}
+}
+
+func TestRunReportsDistinctPassFailSkipAcrossLintUnitIntegration(t *testing.T) {
+	result := Run(Flags{Target: "api", SkipLint: true}, ExecutorFunc(func(phase Phase) PhaseResult {
+		switch phase.Name {
+		case "Unit Tests":
+			return PhaseResult{Status: "passed"}
+		case "Integration Tests":
+			return PhaseResult{Status: "failed", ExitCode: 3, Diagnostic: "db integration failed"}
+		default:
+			return PhaseResult{Status: phase.Status}
+		}
+	}), nil)
+	if result.Status != "failed" || result.FullRegression || result.ExitCode != 3 {
+		t.Fatalf("expected failed exit=3, got %#v", result)
+	}
+	if result.Counts.Passed != 1 || result.Counts.Failed != 1 || result.Counts.Skipped != 1 {
+		t.Fatalf("expected passed=1 failed=1 skipped=1, got %#v", result.Counts)
+	}
 }

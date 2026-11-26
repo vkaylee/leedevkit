@@ -112,6 +112,7 @@ type Project struct {
 	Services       map[string]Service
 	Targets        map[string][]string
 	Dependencies   map[string][]string
+	TestEnv        map[string]string
 	BuildPolicy    string
 	Gates          []gates.Gate
 	DefaultGoGates bool
@@ -122,23 +123,25 @@ type Project struct {
 }
 
 type rawTestGate struct {
-	Phase           string   `toml:"phase"`
-	Command         []string `toml:"command"`
-	Mode            string   `toml:"mode"`
-	WorkingDir      string   `toml:"working_dir"`
-	Service         string   `toml:"service"`
-	Timeout         *float64 `toml:"timeout"`
-	Required        *bool    `toml:"required"`
-	Condition       string   `toml:"condition"`
-	FailurePolicy   string   `toml:"failure_policy"`
-	Environment     []string `toml:"environment"`
-	Requires        []string `toml:"requires"`
-	ExpectedVersion *string  `toml:"expected_version"`
-	VersionCommand  []string `toml:"version_command"`
-	FixCommand      []string `toml:"fix_command"`
-	NewFindingsFlag []string `toml:"new_findings_flag"`
-	SetupCommand    []string `toml:"setup_command"`
-	TeardownCommand []string `toml:"teardown_command"`
+	Phase           string            `toml:"phase"`
+	Command         []string          `toml:"command"`
+	Mode            string            `toml:"mode"`
+	WorkingDir      string            `toml:"working_dir"`
+	Service         string            `toml:"service"`
+	Timeout         *float64          `toml:"timeout"`
+	Required        *bool             `toml:"required"`
+	Condition       string            `toml:"condition"`
+	FailurePolicy   string            `toml:"failure_policy"`
+	Environment     []string          `toml:"environment"`
+	Env             map[string]string `toml:"env"`
+	RequiredEnv     []string          `toml:"required_env"`
+	Requires        []string          `toml:"requires"`
+	ExpectedVersion *string           `toml:"expected_version"`
+	VersionCommand  []string          `toml:"version_command"`
+	FixCommand      []string          `toml:"fix_command"`
+	NewFindingsFlag []string          `toml:"new_findings_flag"`
+	SetupCommand    []string          `toml:"setup_command"`
+	TeardownCommand []string          `toml:"teardown_command"`
 }
 
 type rawServiceConfig struct {
@@ -169,6 +172,7 @@ type rawProjectConfig struct {
 	Test     struct {
 		BuildPolicy  string                 `toml:"build_policy"`
 		Dependencies map[string][]string    `toml:"dependencies"`
+		Env          map[string]string      `toml:"env"`
 		Gates        map[string]rawTestGate `toml:"gates"`
 	} `toml:"test"`
 	Dev struct {
@@ -234,6 +238,9 @@ func Load(path string) (Project, error) {
 	if err := loadDependencies(&project, raw.Test.Dependencies); err != nil {
 		return project, err
 	}
+	if err := loadTestEnv(&project, raw.Test.Env); err != nil {
+		return project, err
+	}
 	if err := loadQualityGates(&project, &raw); err != nil {
 		return project, err
 	}
@@ -247,6 +254,18 @@ func Load(path string) (Project, error) {
 	// and [test.dependencies] declares a Go integration phase without an existing global integration gate.
 	if project.DefaultGoGates && project.hasGoIntegrationDependency() && !hasGlobalPhaseGate(project.Gates, "integration") {
 		project.Gates = append(project.Gates, gates.DefaultIntegration())
+	}
+	if len(project.TestEnv) > 0 {
+		for i := range project.Gates {
+			merged := make(map[string]string, len(project.TestEnv)+len(project.Gates[i].Env))
+			for key, value := range project.TestEnv {
+				merged[key] = value
+			}
+			for key, value := range project.Gates[i].Env {
+				merged[key] = value
+			}
+			project.Gates[i].Env = merged
+		}
 	}
 	if raw.Test.BuildPolicy != "" {
 		if raw.Test.BuildPolicy != "once" && raw.Test.BuildPolicy != "phase" {
@@ -388,6 +407,24 @@ func loadServiceTestGates(project *Project, serviceNames []string, rawServices m
 	return nil
 }
 
+func loadTestEnv(project *Project, envMap map[string]string) error {
+	if len(envMap) == 0 {
+		return nil
+	}
+	copied := make(map[string]string, len(envMap))
+	for name, value := range envMap {
+		if !gates.IsValidEnvName(name) {
+			return fmt.Errorf("test.env key %q must be a valid variable name", name)
+		}
+		if strings.ContainsRune(value, 0) {
+			return fmt.Errorf("test.env value for %q must not contain NUL bytes", name)
+		}
+		copied[name] = value
+	}
+	project.TestEnv = copied
+	return nil
+}
+
 func loadExplicitTestGates(project *Project, rawGates map[string]rawTestGate) error {
 	testGateKeys := make([]string, 0, len(rawGates))
 	for key := range rawGates {
@@ -408,26 +445,43 @@ func loadExplicitTestGates(project *Project, rawGates map[string]rawTestGate) er
 		if failurePolicy == "" && !required {
 			failurePolicy = "optional"
 		}
+		command := append([]string(nil), rawGate.Command...)
+		var structuredCommand []string
+		if len(command) == 0 && phase == "integration" && project.DefaultGoGates {
+			def := gates.DefaultIntegration()
+			command = def.Command
+			structuredCommand = def.StructuredCommand
+		}
+		var envCopy map[string]string
+		if len(rawGate.Env) > 0 {
+			envCopy = make(map[string]string, len(rawGate.Env))
+			for k, v := range rawGate.Env {
+				envCopy[k] = v
+			}
+		}
 		gate := gates.Normalize(gates.Gate{
-			Name:            key,
-			Phase:           phase,
-			Target:          targetHint,
-			Command:         append([]string(nil), rawGate.Command...),
-			Mode:            rawGate.Mode,
-			WorkingDir:      rawGate.WorkingDir,
-			Service:         rawGate.Service,
-			Timeout:         rawGate.Timeout,
-			Required:        required,
-			Condition:       rawGate.Condition,
-			FailurePolicy:   failurePolicy,
-			Environment:     rawGate.Environment,
-			Requires:        rawGate.Requires,
-			ExpectedVersion: rawGate.ExpectedVersion,
-			VersionCommand:  rawGate.VersionCommand,
-			FixCommand:      rawGate.FixCommand,
-			NewFindingsFlag: rawGate.NewFindingsFlag,
-			SetupCommand:    rawGate.SetupCommand,
-			TeardownCommand: rawGate.TeardownCommand,
+			Name:              key,
+			Phase:             phase,
+			Target:            targetHint,
+			Command:           command,
+			StructuredCommand: structuredCommand,
+			Mode:              rawGate.Mode,
+			WorkingDir:        rawGate.WorkingDir,
+			Service:           rawGate.Service,
+			Timeout:           rawGate.Timeout,
+			Required:          required,
+			Condition:         rawGate.Condition,
+			FailurePolicy:     failurePolicy,
+			Environment:       append([]string(nil), rawGate.Environment...),
+			Env:               envCopy,
+			RequiredEnv:       append([]string(nil), rawGate.RequiredEnv...),
+			Requires:          append([]string(nil), rawGate.Requires...),
+			ExpectedVersion:   rawGate.ExpectedVersion,
+			VersionCommand:    append([]string(nil), rawGate.VersionCommand...),
+			FixCommand:        append([]string(nil), rawGate.FixCommand...),
+			NewFindingsFlag:   append([]string(nil), rawGate.NewFindingsFlag...),
+			SetupCommand:      append([]string(nil), rawGate.SetupCommand...),
+			TeardownCommand:   append([]string(nil), rawGate.TeardownCommand...),
 		})
 		if err := gates.Validate(gate); err != nil {
 			return fmt.Errorf("test gate %q is invalid: %w", key, err)

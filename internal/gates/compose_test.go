@@ -73,13 +73,33 @@ func TestComposeRunnerAllowsTruncationWhenStreamingOnly(t *testing.T) {
 
 func TestComposeRunnerAddsEnvironment(t *testing.T) {
 	var got []string
+	var gotEnv []string
 	runner := ComposeRunner{Compose: []string{"compose"}, Project: "test", Service: "go", Env: []string{"GOFLAGS=-race", "PRIVATE_VALUE=not-forwarded"}, Execute: func(_ context.Context, request process.Request) process.Result {
 		got = request.Args
+		gotEnv = request.Env
 		return process.Result{}
 	}}
-	runner.Run(context.Background(), []string{"go", "vet", "./..."}, []string{"GOFLAGS"})
-	want := []string{"compose", "-p", "test", "exec", "-T", "-e", "GOFLAGS", "go", "go", "vet", "./..."}
+	runner.Run(context.Background(), []string{"go", "vet", "./..."}, []string{"GOFLAGS", "APP_DB_INTEGRATION=1", "API_TOKEN=supersecret"})
+	want := []string{"compose", "-p", "test", "exec", "-T", "-e", "GOFLAGS", "-e", "APP_DB_INTEGRATION", "-e", "API_TOKEN", "go", "go", "vet", "./..."}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("argv = %#v, want %#v", got, want)
+	}
+	for _, arg := range got {
+		if arg == "supersecret" || arg == "API_TOKEN=supersecret" || arg == "APP_DB_INTEGRATION=1" {
+			t.Fatalf("argv must never contain env values or secrets: %#v", got)
+		}
+	}
+	foundFlag := false
+	foundSecret := false
+	for _, entry := range gotEnv {
+		if entry == "APP_DB_INTEGRATION=1" {
+			foundFlag = true
+		}
+		if entry == "API_TOKEN=supersecret" {
+			foundSecret = true
+		}
+	}
+	if !foundFlag || !foundSecret {
+		t.Fatalf("expected static env pairs in child process Env, got %#v", gotEnv)
 	}
 }

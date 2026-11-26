@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/vkaylee/leedevkit/internal/process"
 )
@@ -37,8 +38,18 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 	if r.Workdir != "" {
 		args = append(args, "-w", r.Workdir)
 	}
-	for _, name := range environment {
-		args = append(args, "-e", name)
+	childEnv := append([]string(nil), r.Env...)
+	forwarded := map[string]bool{}
+	for _, entry := range environment {
+		name, value, hasValue := strings.Cut(entry, "=")
+		if hasValue {
+			childEnv = setEnvEntry(childEnv, name, value)
+		}
+		if name != "" && !forwarded[name] {
+			forwarded[name] = true
+			// Pass only variable names on argv; values travel exclusively via childEnv so secrets never appear in command lines or logs.
+			args = append(args, "-e", name)
+		}
 	}
 	args = append(args, r.Service)
 	args = append(args, command...)
@@ -51,7 +62,7 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 	if r.Output != nil {
 		out, errOut = io.MultiWriter(r.Output, &stdout), io.MultiWriter(r.Output, &stderr)
 	}
-	result := run(ctx, process.Request{Args: args, Dir: r.Dir, Env: append([]string(nil), r.Env...), Stdout: out, Stderr: errOut})
+	result := run(ctx, process.Request{Args: args, Dir: r.Dir, Env: childEnv, Stdout: out, Stderr: errOut})
 	if len(result.Stdout) == 0 {
 		result.Stdout = append([]byte(nil), stdout.Bytes()...)
 	}
@@ -63,6 +74,18 @@ func (r ComposeRunner) Run(ctx context.Context, command []string, environment []
 		result.Err = fmt.Errorf("compose output exceeds capture limit; see task log")
 	}
 	return result
+}
+
+func setEnvEntry(env []string, name, value string) []string {
+	prefix := name + "="
+	entry := prefix + value
+	for i, existing := range env {
+		if strings.HasPrefix(existing, prefix) {
+			env[i] = entry
+			return env
+		}
+	}
+	return append(env, entry)
 }
 
 // ponytail: version and pattern output is capped at 1 MiB per stream; use streaming parsing to lift the limit.

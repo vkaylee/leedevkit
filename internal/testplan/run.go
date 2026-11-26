@@ -43,6 +43,8 @@ func (f ContextExecutorFunc) ExecuteContext(ctx context.Context, phase Phase) Ph
 type GatePhaseExecutor struct {
 	Definitions         []gates.Gate
 	Run                 func(context.Context, process.Request) process.Result
+	RunGate             func(context.Context, gates.Gate, process.Request) process.Result
+	LookupEnv           func(name string) (present bool, forward bool)
 	ComposeRun          func(context.Context, []string, []string) process.Result
 	Fix                 bool
 	Done                map[string]bool
@@ -61,7 +63,7 @@ func (e GatePhaseExecutor) ExecuteContext(ctx context.Context, phase Phase) Phas
 			return e.ComposeRun(ctx, request.Args, request.Env)
 		}
 	}
-	result := gates.Executor{Run: run, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef, StructuredDefaultGo: e.StructuredDefaultGo}.RunPhase(ctx, PhaseKey(phase.Name), e.Definitions)
+	result := gates.Executor{Run: run, RunGate: e.RunGate, LookupEnv: e.LookupEnv, Fix: e.Fix, Done: e.Done, BaseRef: e.BaseRef, StructuredDefaultGo: e.StructuredDefaultGo}.RunPhase(ctx, PhaseKey(phase.Name), e.Definitions)
 	return PhaseResult{Status: result.Status, ExitCode: result.ExitCode, Diagnostic: result.Diagnostic}
 }
 
@@ -198,14 +200,29 @@ func RunContext(ctx context.Context, flags Flags, executor Executor, streamWrite
 				record.Log = outcome.Log
 				record.Diagnostic = outcome.Diagnostic
 				record.LifecycleError = outcome.LifecycleError
-				if outcome.Status == "failed" || outcome.Status == "blocked" {
-					record.Failure = &report.Failure{Phase: record.Phase, Message: outcome.Diagnostic}
+				code := outcome.ExitCode
+				switch record.Status {
+				case "passed", "skipped":
+				case "failed", "blocked":
+					if code == 0 {
+						code = 1
+					}
+				default:
+					record.Status = "failed"
+					if record.Diagnostic == "" {
+						record.Diagnostic = fmt.Sprintf("phase returned invalid status %q", outcome.Status)
+					}
+					if code == 0 {
+						code = 1
+					}
+				}
+				if record.Status == "failed" || record.Status == "blocked" {
+					record.Failure = &report.Failure{Phase: record.Phase, Message: record.Diagnostic}
 					result.Failures = append(result.Failures, *record.Failure)
 				}
 				if outcome.LifecycleError != "" {
 					result.LifecycleError = outcome.LifecycleError
 				}
-				code := outcome.ExitCode
 				record.ExitCode = &code
 			}
 		}
@@ -254,6 +271,9 @@ func RunContext(ctx context.Context, flags Flags, executor Executor, streamWrite
 		}
 	case result.Counts.Skipped > 0 || !fullRegression:
 		result.Status = "partial"
+	case result.Counts.Passed == 0:
+		result.Status = "blocked"
+		result.ExitCode = 1
 	default:
 		result.Status = "passed"
 		result.FullRegression = true

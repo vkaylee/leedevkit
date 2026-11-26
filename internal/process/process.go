@@ -32,7 +32,7 @@ type Result struct {
 
 var diagnosticSecret = regexp.MustCompile(`(?i)(password|passwd|token|secret|credential|api[-_]?key|private[-_]?key)`)
 var diagnosticKeyValue = regexp.MustCompile(`(?i)(password|passwd|token|secret|credential|api[-_]?key|private[-_]?key)(\s*[=:]\s*)[^\s,;]+`)
-var diagnosticURLCredential = regexp.MustCompile(`(?i)(https?://)[^/@\s]+:[^/@\s]+@`)
+var diagnosticURLCredential = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/@\s]*:[^/@\s]+@`)
 var diagnosticPath = regexp.MustCompile(`(?m)(^|[[:space:]"'])/(?:home|tmp|workspace|root)/[^[:space:]"']+`)
 
 func (r Result) Diagnostic() string {

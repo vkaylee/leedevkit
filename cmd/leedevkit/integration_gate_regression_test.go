@@ -115,8 +115,8 @@ lint-web = ["bun_init", "webdashboard"]
 		t.Fatal(err)
 	}
 	cmds := string(cmdsBytes)
-	if !strings.Contains(cmds, "-p leeattend-test") || strings.Contains(cmds, "leedevkit-test-") {
-		t.Fatalf("expected unified project name leeattend-test without hashed project:\n%s", cmds)
+	if !strings.Contains(cmds, "-p leeattend-test-") || strings.Contains(cmds, "leedevkit-test-") {
+		t.Fatalf("expected isolated namespace project leeattend-test-<runid> without leedevkit-test-:\n%s", cmds)
 	}
 	if !strings.Contains(cmds, "--profile int-api up -d apiserver postgres redis") {
 		t.Fatalf("expected int-api disposable stack up with postgres+redis+apiserver:\n%s", cmds)
@@ -128,8 +128,13 @@ lint-web = ["bun_init", "webdashboard"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(envBytes), "TEST_PROJECT=leeattend-test|COMPOSE_PROJECT=leeattend-test|NAMESPACE=leeattend") {
-		t.Fatalf("expected exported LEEDEVKIT_TEST_PROJECT & COMPOSE_PROJECT_NAME:\n%s", envBytes)
+	firstEnvLine := strings.Split(strings.TrimSpace(string(envBytes)), "\n")[0]
+	if !strings.HasPrefix(firstEnvLine, "TEST_PROJECT=leeattend-test-") || !strings.HasSuffix(firstEnvLine, "|NAMESPACE=leeattend") {
+		t.Fatalf("expected exported isolated LEEDEVKIT_TEST_PROJECT & NAMESPACE, got %q", firstEnvLine)
+	}
+	parts := strings.Split(firstEnvLine, "|")
+	if len(parts) != 3 || strings.TrimPrefix(parts[0], "TEST_PROJECT=") != strings.TrimPrefix(parts[1], "COMPOSE_PROJECT=") {
+		t.Fatalf("expected matching TEST_PROJECT and COMPOSE_PROJECT, got %q", firstEnvLine)
 	}
 }
 

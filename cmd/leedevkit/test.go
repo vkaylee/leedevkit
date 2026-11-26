@@ -233,13 +233,20 @@ func runWebPhase(root, project string, providerConfig provider.Provider, project
 	return runWebPhaseContext(context.Background(), root, project, providerConfig, projectConfig, target, phase, flags, quiet, stdout, stderr)
 }
 
-func runWebPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+func runWebPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, projectConfig config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer, composeRuntime ...*composeTestRuntime) testplan.PhaseResult {
 	if err := ctx.Err(); err != nil {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "web phase canceled: " + process.RedactDiagnostic(err.Error())}
+	}
+	var rt *composeTestRuntime
+	if len(composeRuntime) > 0 {
+		rt = composeRuntime[0]
 	}
 	plan, service, workdir, err := buildWebLifecyclePlan(root, project, providerConfig, projectConfig, target, phase, flags, flags.SkipBuild)
 	if err != nil {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
+	}
+	if rt != nil && rt.OverrideFile != "" {
+		plan.OverrideFile = rt.OverrideFile
 	}
 	upArgs, err := plan.Up()
 	if err != nil {
@@ -260,16 +267,16 @@ func runWebPhaseContext(ctx context.Context, root, project string, providerConfi
 	}
 	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
 	composeFile := filepath.Join(root, ".compose", "docker-compose.test.yml")
-	readinessArgs := composePSJSONArgs(providerConfig.Compose, project, []string{composeFile})
+	composeFiles := rt.ComposeFiles([]string{composeFile})
+	readinessArgs := composePSJSONArgs(providerConfig.Compose, project, composeFiles)
 	runner := lifecycle.Executor{UpArgs: upArgs, DownArgs: downArgs, ReadinessArgs: readinessArgs, Readiness: func(ctx context.Context) error {
-		return waitComposeServiceReady(ctx, process.Run, providerConfig.Compose, project, []string{composeFile}, service, root, testEnv, 120*time.Second)
+		return waitComposeServiceReady(ctx, process.Run, providerConfig.Compose, project, composeFiles, service, root, testEnv, 120*time.Second)
 	}, Execute: func(ctx context.Context, args []string) error {
 		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: testEnv, Stdout: output, Stderr: output}).Execute(ctx, args)
 	}}
 	var result testplan.PhaseResult
 	err = runner.Run(ctx, func() error {
-		compose := gates.ComposeRunner{Compose: providerConfig.Compose, Project: project, Service: service, Workdir: workdir, Dir: root, Env: testEnv, Execute: process.Run, Output: output}
-		compose.Compose = append(append([]string(nil), compose.Compose...), "-f", composeFile)
+		compose := gates.ComposeRunner{Compose: composeFileArgs(providerConfig.Compose, composeFiles), Project: project, Service: service, Workdir: workdir, Dir: root, Env: testEnv, Execute: process.Run, Output: output}
 		for _, command := range webPhaseCommands(phase) {
 			if err := ctx.Err(); err != nil {
 				result = testplan.PhaseResult{Status: "blocked", ExitCode: 1, Command: strings.Join(process.RedactArgs(command), " "), Log: relLog, Diagnostic: "web phase canceled: " + process.RedactDiagnostic(err.Error())}
@@ -343,9 +350,13 @@ func runGoPhase(root, project string, providerConfig provider.Provider, configPr
 	return runGoPhaseContext(context.Background(), root, project, providerConfig, configProject, target, phase, flags, quiet, stdout, stderr)
 }
 
-func runGoPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer) testplan.PhaseResult {
+func runGoPhaseContext(ctx context.Context, root, project string, providerConfig provider.Provider, configProject config.Project, target, phase string, flags testplan.Flags, quiet bool, stdout, stderr io.Writer, composeRuntime ...*composeTestRuntime) testplan.PhaseResult {
 	if err := ctx.Err(); err != nil {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "Go phase canceled: " + process.RedactDiagnostic(err.Error())}
+	}
+	var rt *composeTestRuntime
+	if len(composeRuntime) > 0 {
+		rt = composeRuntime[0]
 	}
 	name := testplan.PhaseKey(phase)
 	phaseGates := configProject.GatesForService(target, name)
@@ -373,6 +384,9 @@ func runGoPhaseContext(ctx context.Context, root, project string, providerConfig
 		workdir = filepath.Join(workdir, filepath.ToSlash(service.Workdir))
 	}
 	plan := buildGoLifecyclePlanForPhase(root, project, providerConfig, configProject, target, phase, flags, flags.SkipBuild)
+	if rt != nil && rt.OverrideFile != "" {
+		plan.OverrideFile = rt.OverrideFile
+	}
 	up, err := plan.Up()
 	if err != nil {
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: err.Error()}
@@ -391,22 +405,34 @@ func runGoPhaseContext(ctx context.Context, root, project string, providerConfig
 		return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable"}
 	}
 	testEnv := withTestProjectEnv(os.Environ(), root, project, configProject.Namespace)
+	hostEnv := environMap(testEnv)
 	composeFile := filepath.Join(root, ".compose", "docker-compose.test.yml")
-	composeArgs := composeBaseArgs(providerConfig.Compose, project, []string{composeFile})
+	composeFiles := rt.ComposeFiles([]string{composeFile})
+	composeArgs := composeFileArgs(providerConfig.Compose, composeFiles)
 	compose := gates.ComposeRunner{Compose: composeArgs, Project: project, Service: goService, Workdir: workdir, Dir: root, Env: testEnv, Execute: process.Run, Output: output}
+	var lastCommand string
 	gateResult, lifecycleResult := goPhaseWithCompose(ctx, func(ctx context.Context, args []string) error {
 		return (lifecycle.ComposeExecutor{Run: process.Run, Dir: root, Env: testEnv, Stdout: output, Stderr: output}).Execute(ctx, args)
 	}, up, down, func(ctx context.Context) gates.PhaseResult {
-		return gates.Executor{StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream), Fix: flags.Fix, BaseRef: flags.BaseRef, Run: func(ctx context.Context, request process.Request) process.Result {
-			runner := compose
-			if request.Dir != "" && request.Dir != "." {
-				runner = runner.WithService("", filepath.ToSlash(filepath.Join("/workspace", request.Dir)))
-			}
-			runner.AllowTruncatedCapture = configProject.DefaultGoGates && (quiet || flags.JSONStream) && (name == "unit" || name == "integration") && len(request.Args) >= 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json"
-			return runner.Run(ctx, request.Args, request.Env)
-		}}.RunPhase(ctx, name, phaseGates)
+		return gates.Executor{
+			StructuredDefaultGo: configProject.DefaultGoGates && (quiet || flags.JSONStream),
+			Fix:                 flags.Fix,
+			BaseRef:             flags.BaseRef,
+			LookupEnv:           rt.LookupEnvFor(goService, hostEnv),
+			RunGate: func(ctx context.Context, gate gates.Gate, request process.Request) process.Result {
+				runner := compose
+				targetDir := ""
+				if request.Dir != "" && request.Dir != "." {
+					targetDir = filepath.ToSlash(filepath.Join("/workspace", request.Dir))
+				}
+				runner = runner.WithService(gate.Service, targetDir)
+				runner.AllowTruncatedCapture = configProject.DefaultGoGates && (quiet || flags.JSONStream) && (name == "unit" || name == "integration") && len(request.Args) >= 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json"
+				lastCommand = strings.Join(process.RedactArgs(request.Args), " ")
+				return runner.Run(ctx, request.Args, request.Env)
+			},
+		}.RunPhase(ctx, name, phaseGates)
 	}, func(ctx context.Context) error {
-		return waitComposeServiceReady(ctx, process.Run, providerConfig.Compose, project, []string{composeFile}, goService, root, testEnv, 120*time.Second)
+		return waitComposeServiceReady(ctx, process.Run, providerConfig.Compose, project, composeFiles, goService, root, testEnv, 120*time.Second)
 	})
 	closeErr := output.Close()
 	if lifecycleResult != nil || gateResult.Status != "passed" || closeErr != nil {
@@ -423,20 +449,20 @@ func runGoPhaseContext(ctx context.Context, root, project string, providerConfig
 			diagnostic = process.RedactDiagnostic(lifecycleResult.Error())
 		}
 		if gateResult.Diagnostic != "" {
-			diagnostic = gateResult.Diagnostic
+			diagnostic = process.RedactDiagnostic(gateResult.Diagnostic)
 		}
 		if closeErr != nil {
 			status, exitCode = "failed", 1
 			diagnostic = "test output write failed"
 		}
-		result := testplan.PhaseResult{Status: status, ExitCode: exitCode, Diagnostic: diagnostic, Log: log}
+		result := testplan.PhaseResult{Status: status, ExitCode: exitCode, Diagnostic: diagnostic, Command: lastCommand, Log: log}
 		var lifecycleErr *lifecycle.Failure
 		if errors.As(lifecycleResult, &lifecycleErr) {
 			result.LifecycleError = process.RedactDiagnostic(lifecycleResult.Error())
 		}
 		return result
 	}
-	return testplan.PhaseResult{Status: "passed"}
+	return testplan.PhaseResult{Status: "passed", Command: lastCommand}
 }
 
 func validateWebLifecycle(project config.Project, targets []string, flags testplan.Flags) error {
@@ -514,14 +540,28 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 		return 2
 	}
 	sweepStaleTestProjects(ctx, providerConfig, projectConfig.Namespace)
-	project := resolveTestProjectName(env, projectConfig, root)
-	ownedProject := !ownership.IsLocked(project)
-	if session, err := ownership.Open(project, ownedProject); err == nil {
-		defer session.Close(nil)
+	project, pinned, err := resolveTestRunProject(env, projectConfig)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
 	}
+	session, err := openExclusiveTestSession(project, pinned)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	defer session.Close(nil)
 	if env["COMPOSE_PROJECT_NAME"] != "" && env["COMPOSE_PROJECT_NAME"] != project {
 		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using test project %q\n", project)
 	}
+	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
+	composeFile := filepath.Join(root, ".compose", "docker-compose.test.yml")
+	composeRT, err := prepareComposeTestRuntime(ctx, providerConfig, project, []string{composeFile}, root, testEnv, process.Run)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	defer composeRT.Close()
 	built := map[string]bool{}
 	result := testplan.RunContext(ctx, flags, testplan.ContextExecutorFunc(func(phaseCtx context.Context, phase testplan.Phase) testplan.PhaseResult {
 		if phase.Status != "selected" {
@@ -539,7 +579,7 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 			if phaseFlags.BuildPolicy == "once" && built[target] {
 				phaseFlags.Build = false
 			}
-			outcome := runGoPhaseContext(phaseCtx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			outcome := runGoPhaseContext(phaseCtx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr, composeRT)
 			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
 				built[target] = true
 			}
@@ -560,7 +600,7 @@ func runMultiTargetTestContext(ctx context.Context, root string, flags testplan.
 			if phaseFlags.BuildPolicy == "once" && built[target] {
 				phaseFlags.Build = false
 			}
-			outcome := runWebPhaseContext(phaseCtx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr)
+			outcome := runWebPhaseContext(phaseCtx, root, project, providerConfig, projectConfig, target, phase.Name, phaseFlags, quiet, stdout, stderr, composeRT)
 			if phaseFlags.BuildPolicy == "once" && phaseStartupSucceeded(outcome) {
 				built[target] = true
 			}
@@ -945,7 +985,8 @@ func runTestCLI(args []string, root string, stdout, stderr io.Writer) int {
 	if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
 		fmt.Fprintln(stdout, `Usage: leedevkit test <target> [flags]
 
-Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet --failed-only --compact`)
+Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-e2e --fix --base-ref <ref> --pattern <regex> --json-stream --json --quiet --failed-only --compact
+Run 'leedevkit targets' to inspect configured targets, services, and phases.`)
 		return 0
 	}
 	if len(args) < 2 {
@@ -970,7 +1011,11 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 	testCtx, stopTest := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopTest()
 	if !isInfraTarget(projectConfig, flags.Target) {
-		if !shouldUseGoTest(projectConfig, flags.Target) || (flags.Pattern == "" && !flags.Coverage && hasGoPerPhaseComposeConfig(root, projectConfig, []string{flags.Target})) {
+		perPhaseTargets := []string{flags.Target}
+		if resolved, resolveErr := configuredTargets(projectConfig, flags.Target); resolveErr == nil && len(resolved) > 0 {
+			perPhaseTargets = resolved
+		}
+		if !shouldUseGoTest(projectConfig, flags.Target) || (flags.Pattern == "" && !flags.Coverage && hasGoPerPhaseComposeConfig(root, projectConfig, perPhaseTargets)) {
 			code := runMultiTargetTestContext(testCtx, root, flags, projectConfig, stdout, stderr, quiet)
 			if code >= 0 {
 				return code
@@ -1025,14 +1070,10 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		return 2
 	}
 	env := environMap(os.Environ())
-	project := strings.TrimSpace(env["LEEDEVKIT_TEST_PROJECT"])
-	if project == "" {
-		project = strings.TrimSpace(env["COMPOSE_PROJECT_NAME"])
-	}
-	ownedProject := false
-	if project == "" {
-		project = resolveTestProjectName(env, projectConfig, root)
-		ownedProject = !ownership.IsLocked(project)
+	project, pinned, projErr := resolveTestRunProject(env, projectConfig)
+	if projErr != nil {
+		fmt.Fprintln(stderr, projErr)
+		return 2
 	}
 	providerConfig, providerErr := resolveProviderForProject(root, env)
 	if providerErr != nil {
@@ -1040,10 +1081,14 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		return 2
 	}
 	sweepStaleTestProjects(testCtx, providerConfig, projectConfig.Namespace)
-	if ownedProject {
-		if session, err := ownership.Open(project, true); err == nil {
-			defer session.Close(nil)
-		}
+	session, lockErr := openExclusiveTestSession(project, pinned)
+	if lockErr != nil {
+		fmt.Fprintln(stderr, lockErr)
+		return 2
+	}
+	defer session.Close(nil)
+	if env["COMPOSE_PROJECT_NAME"] != "" && env["COMPOSE_PROJECT_NAME"] != project {
+		fmt.Fprintf(stderr, "COMPOSE_PROJECT_NAME is set; using test project %q\n", project)
 	}
 	composeTool := providerConfig.Compose
 	lifecyclePlan, goService, lifecyclePlanErr := buildTestLifecyclePlan(root, project, flags.Target, providerConfig, projectConfig, flags.Build, flags.SkipBuild)
@@ -1052,8 +1097,19 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		return 2
 	}
 	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
+	hostEnv := environMap(testEnv)
+	composeRT, rtErr := prepareComposeTestRuntime(testCtx, providerConfig, project, lifecyclePlan.Files, root, testEnv, process.Run)
+	if rtErr != nil {
+		fmt.Fprintln(stderr, rtErr)
+		return 2
+	}
+	defer composeRT.Close()
+	if composeRT.OverrideFile != "" {
+		lifecyclePlan.OverrideFile = composeRT.OverrideFile
+	}
 	ensureBuiltInCacheVolumes(testCtx, providerConfig.CLI, lifecyclePlan.Files, root, testEnv, process.Run)
-	compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: root, Env: testEnv, Execute: process.Run}
+	composeFiles := composeRT.ComposeFiles(lifecyclePlan.Files)
+	compose := gates.ComposeRunner{Compose: composeFileArgs(composeTool, composeFiles), Project: project, Service: goService, Workdir: "/workspace", Dir: root, Env: testEnv, Execute: process.Run}
 	if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 		workdir := "/workspace"
 		if service.Workdir != "" {
@@ -1075,7 +1131,7 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		fmt.Fprintf(stderr, "invalid lifecycle plan: %v %v %v\n", upErr, nextUpErr, downErr)
 		return 2
 	}
-	readinessArgs := composePSJSONArgs(composeTool, project, lifecyclePlan.Files)
+	readinessArgs := composePSJSONArgs(composeTool, project, composeFiles)
 	built := false
 	lifecycleExecutor := lifecycle.Executor{
 		UpArgs: upArgs, DownArgs: downArgs, Execute: func(ctx context.Context, args []string) error {
@@ -1092,7 +1148,7 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 			}
 			return err
 		}, Readiness: func(ctx context.Context) error {
-			return waitComposeServiceReady(ctx, process.Run, composeTool, project, lifecyclePlan.Files, compose.Service, root, testEnv, 120*time.Second)
+			return waitComposeServiceReady(ctx, process.Run, composeTool, project, composeFiles, compose.Service, root, testEnv, 120*time.Second)
 		}, ReadinessArgs: readinessArgs, Report: func(phase string, args []string, err error) {
 			if err != nil {
 				fmt.Fprintf(stderr, "lifecycle %s failed: argv=%q error=%s\n", phase, process.RedactArgs(args), process.RedactDiagnostic(err.Error()))
@@ -1142,11 +1198,17 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 				if err != nil {
 					return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "test logging unavailable: " + process.RedactDiagnostic(err.Error())}
 				}
-				runner := compose
-				runner.Output = output
-				runGate := func(ctx context.Context, args []string, environment []string) process.Result {
-					runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(args) >= 4 && args[0] == "go" && args[1] == "test" && args[2] == "-json"
-					result := runner.Run(ctx, args, environment)
+				baseRunner := compose
+				baseRunner.Output = output
+				runGate := func(ctx context.Context, gate gates.Gate, request process.Request) process.Result {
+					runner := baseRunner
+					targetDir := ""
+					if request.Dir != "" && request.Dir != "." {
+						targetDir = filepath.ToSlash(filepath.Join("/workspace", request.Dir))
+					}
+					runner = runner.WithService(gate.Service, targetDir)
+					runner.AllowTruncatedCapture = projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "" && len(request.Args) >= 4 && request.Args[0] == "go" && request.Args[1] == "test" && request.Args[2] == "-json"
+					result := runner.Run(ctx, request.Args, request.Env)
 					if flags.Pattern != "" && result.ExitCode == 0 {
 						matched, err := patternGoEvents(bytes.NewReader(result.Stdout))
 						if err != nil {
@@ -1157,7 +1219,14 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 					}
 					return result
 				}
-				outcome := (testplan.GatePhaseExecutor{Definitions: phaseGates, ComposeRun: runGate, Fix: flags.Fix, BaseRef: flags.BaseRef, StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == ""}).ExecuteContext(ctx, phase)
+				outcome := (testplan.GatePhaseExecutor{
+					Definitions:         phaseGates,
+					RunGate:             runGate,
+					LookupEnv:           composeRT.LookupEnvFor(compose.Service, hostEnv),
+					Fix:                 flags.Fix,
+					BaseRef:             flags.BaseRef,
+					StructuredDefaultGo: projectConfig.DefaultGoGates && (quiet || flags.JSONStream) && flags.Pattern == "",
+				}).ExecuteContext(ctx, phase)
 				if err := output.Close(); err != nil {
 					return testplan.PhaseResult{Status: "failed", ExitCode: 1, Log: relativeLog, Diagnostic: "test output write failed: " + process.RedactDiagnostic(err.Error())}
 				}

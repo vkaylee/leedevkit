@@ -6,7 +6,7 @@
 
 [project]
 name = "MyProject"               # display name
-namespace = "myproject"           # unified Compose prefix (<namespace>-test / <namespace>-dev; exported as LEEDEVKIT_TEST_PROJECT)
+namespace = "myproject"           # Compose prefix (per-run <namespace>-test-<runid> for tests, <namespace>-dev for dev; exported as LEEDEVKIT_TEST_PROJECT)
 languages = ["rust", "typescript"] # Go projects use ["go"] or ["go", "typescript"]
 
 # Container selection is explicit. This config declares commands only; runtime
@@ -73,10 +73,24 @@ build_policy = "once"
 # "e2e-web" = ["bun_init", "webdashboard"]
 # "lint-web" = ["bun_init", "webdashboard"]
 
-# ── Explicit test gate overrides (optional) ───────────────────────────────
-# Override phase commands per phase-key or per service (`[services.<name>.test]`):
+# ── Explicit test env & gate overrides (optional) ──────────────────────────
+# [test.env] sets shared static env vars across all test gates (gate-level `env` wins).
+# In `.compose/docker-compose.test.yml`, omit fixed `name:` on disposable DB volumes
+# (`pgdata: {}`) for parallel per-run isolation and mark shared caches `external: true`.
+# [test.env]
+# TZ = "UTC"
+#
+# Override phase commands/env per phase-key or per service (`[services.<name>.test]`):
 # [test.gates.int-api]
+# # command is optional for Go integration gates (defaults to `go test -tags=integration ./...`)
 # command = ["go", "test", "-tags=integration", "-count=1", "./..."]
+# # setup_command = ["go", "run", "./cmd/migrate", "up"]   # runs inside disposable test stack before tests
+# # teardown_command = []                                  # optional cleanup inside test container
+# # env = { MY_DB_INTEGRATION = "1" }                      # injected via compose exec env (values never in argv)
+# # environment = ["GOFLAGS"]                              # pass-through host env var names only
+# # required_env = ["MY_DB_INTEGRATION", "DATABASE_URL"]   # fail closed if missing in gate.env/host/Compose service env
+# # service = "apiserver"                                  # optional runner Compose service override
+# # working_dir = "apiserver"                              # optional project-relative override inside /workspace
 #
 # [services.apiserver.test]
 # integration = ["go", "test", "-tags=integration", "-race", "./..."]

@@ -18,10 +18,25 @@ go = true
 # integration = ["go", "test", "-tags=integration", "./..."]
 #
 # [test.dependencies]
+# # Last service in each list is the runner container; keys match Compose profiles.
+# # In .compose/docker-compose.test.yml, omit fixed `name:` on disposable DB volumes
+# # for per-run parallel isolation (<namespace>-test-<runid>), and mark shared caches `external: true`.
 # int-go = ["postgres", "redis", "go"]
 #
+# [test.env]
+# # Shared static env vars applied to all test gates (gate-level `env` wins).
+# # TZ = "UTC"
+#
 # [test.gates.int-go]
-# command = ["go", "test", "-tags=integration", "-count=1", "./..."]
+# # command is optional for Go integration gates (defaults to `go test -tags=integration ./...`)
+# # command = ["go", "test", "-tags=integration", "-count=1", "./..."]
+# # setup_command = ["go", "run", "./cmd/migrate", "up"]     # runs inside disposable test stack before tests
+# # teardown_command = []                                    # optional cleanup inside test container
+# # env = { MY_DB_INTEGRATION = "1" }                        # passed via process env + `-e KEY` (never in argv)
+# # environment = ["GOFLAGS"]                                # pass-through host env var names only
+# # required_env = ["MY_DB_INTEGRATION", "DATABASE_URL"]     # fail closed if missing in gate.env/host/Compose service env
+# # service = "go"                                           # optional override of runner Compose service
+# # working_dir = ""                                         # optional project-relative override inside /workspace
 
 [targets]
 go = ["go"]

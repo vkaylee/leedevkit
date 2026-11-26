@@ -159,11 +159,63 @@ integration = ["go", "test", "-tags=integration", "-race", "./..."]
 		}
 	})
 
+	t.Run("integration gate inherits default command when only env/setup_command/required_env are set", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "leedevkit.toml")
+		content := `[services.apiserver]
+lang = "go"
+[targets]
+api = ["apiserver"]
+[test.dependencies]
+int-api = ["postgres", "apiserver"]
+[test.env]
+SHARED_FLAG = "base"
+APP_DB_INTEGRATION = "0"
+[test.gates.int-api]
+env = { APP_DB_INTEGRATION = "1" }
+required_env = ["APP_DB_INTEGRATION", "DATABASE_URL"]
+setup_command = ["go", "run", "./cmd/migrate", "up"]
+`
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intGates := got.GatesForService("apiserver", "integration")
+		if len(intGates) != 1 {
+			t.Fatalf("intGates = %#v", intGates)
+		}
+		g := intGates[0]
+		if !reflect.DeepEqual(g.Command, []string{"go", "test", "-tags=integration", "./..."}) {
+			t.Fatalf("command = %#v", g.Command)
+		}
+		if !reflect.DeepEqual(g.StructuredCommand, []string{"go", "test", "-json", "-tags=integration", "./..."}) {
+			t.Fatalf("structured command = %#v", g.StructuredCommand)
+		}
+		if g.Env["APP_DB_INTEGRATION"] != "1" || g.Env["SHARED_FLAG"] != "base" {
+			t.Fatalf("merged env = %#v", g.Env)
+		}
+		if !reflect.DeepEqual(g.RequiredEnv, []string{"APP_DB_INTEGRATION", "DATABASE_URL"}) {
+			t.Fatalf("required_env = %#v", g.RequiredEnv)
+		}
+		if !reflect.DeepEqual(g.SetupCommand, []string{"go", "run", "./cmd/migrate", "up"}) {
+			t.Fatalf("setup_command = %#v", g.SetupCommand)
+		}
+		unitGates := got.GatesForService("apiserver", "unit")
+		if len(unitGates) != 1 || unitGates[0].Env["APP_DB_INTEGRATION"] != "0" {
+			t.Fatalf("unit gate env should get base test.env without int-api override: %#v", unitGates)
+		}
+	})
+
 	t.Run("rejects invalid namespace, empty dependencies, and bad gate definitions", func(t *testing.T) {
 		for _, snippet := range []string{
 			"[project]\nnamespace = '../bad'\n",
 			"[test.dependencies]\nint-api = []\n",
+			"[test.env]\n\"BAD=KEY\" = '1'\n",
 			"[test.gates.unknown_name]\ncommand = ['go', 'test']\n",
+			"[test.gates.int-api]\nenv = { \"BAD KEY\" = '1' }\n",
+			"[test.gates.int-api]\nrequired_env = ['BAD=NAME']\n",
 			"[services.api]\nlang = 'go'\n[services.api.test]\nintegration = []\n",
 		} {
 			path := filepath.Join(t.TempDir(), "bad.toml")

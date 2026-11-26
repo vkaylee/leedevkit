@@ -27,12 +27,15 @@ func TestRunForwardsSeparateStreamsAndExitCode(t *testing.T) {
 }
 
 func TestDiagnosticRedactsSecretsCredentialsAndEmail(t *testing.T) {
-	text := "password=secret https://user:pass@example.test admin@example.test token: abc123"
+	text := "password=secret https://user:pass@example.test postgres://app:dbpass@postgres:5432/testdb redis://:redispass@redis:6379/0 admin@example.test token: abc123"
 	got := RedactDiagnostic(text)
-	for _, forbidden := range []string{"secret", "user:pass", "admin@example.test", "abc123"} {
+	for _, forbidden := range []string{"secret", "user:pass", "dbpass", "redispass", "admin@example.test", "abc123"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("diagnostic leaked %q: %q", forbidden, got)
 		}
+	}
+	if !strings.Contains(got, "postgres://<redacted>@postgres:5432/testdb") {
+		t.Fatalf("expected redacted postgres DSN preserving host/db, got %q", got)
 	}
 }
 

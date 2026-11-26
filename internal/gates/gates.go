@@ -3,33 +3,43 @@ package gates
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 )
 
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// IsValidEnvName reports whether name is a valid POSIX environment variable identifier.
+func IsValidEnvName(name string) bool {
+	return envNamePattern.MatchString(name)
+}
+
 type Gate struct {
-	Name              string   `json:"name" toml:"name"`
-	Phase             string   `json:"phase" toml:"phase"`
-	Target            string   `json:"target,omitempty" toml:"target"`
-	Command           []string `json:"command" toml:"command"`
-	Mode              string   `json:"mode" toml:"mode"`
-	WorkingDir        string   `json:"working_dir" toml:"working_dir"`
-	Service           string   `json:"service" toml:"service"`
-	Timeout           *float64 `json:"timeout" toml:"timeout"`
-	Required          bool     `json:"required" toml:"required"`
-	Condition         string   `json:"condition" toml:"condition"`
-	FailurePolicy     string   `json:"failure_policy" toml:"failure_policy"`
-	Environment       []string `json:"environment" toml:"environment"`
-	Requires          []string `json:"requires" toml:"requires"`
-	ExpectedVersion   *string  `json:"expected_version" toml:"expected_version"`
-	VersionCommand    []string `json:"version_command" toml:"version_command"`
-	FixCommand        []string `json:"fix_command" toml:"fix_command"`
-	NewFindingsFlag   []string `json:"new_findings_flag" toml:"new_findings_flag"`
-	SetupCommand      []string `json:"setup_command" toml:"setup_command"`
-	TeardownCommand   []string `json:"teardown_command" toml:"teardown_command"`
-	FailOnOutput      bool     `json:"fail_on_output,omitempty" toml:"fail_on_output"`
-	StructuredCommand []string `json:"structured_command,omitempty" toml:"structured_command"`
+	Name              string            `json:"name" toml:"name"`
+	Phase             string            `json:"phase" toml:"phase"`
+	Target            string            `json:"target,omitempty" toml:"target"`
+	Command           []string          `json:"command" toml:"command"`
+	Mode              string            `json:"mode" toml:"mode"`
+	WorkingDir        string            `json:"working_dir" toml:"working_dir"`
+	Service           string            `json:"service" toml:"service"`
+	Timeout           *float64          `json:"timeout" toml:"timeout"`
+	Required          bool              `json:"required" toml:"required"`
+	Condition         string            `json:"condition" toml:"condition"`
+	FailurePolicy     string            `json:"failure_policy" toml:"failure_policy"`
+	Environment       []string          `json:"environment" toml:"environment"`
+	Env               map[string]string `json:"env,omitempty" toml:"env"`
+	RequiredEnv       []string          `json:"required_env,omitempty" toml:"required_env"`
+	Requires          []string          `json:"requires" toml:"requires"`
+	ExpectedVersion   *string           `json:"expected_version" toml:"expected_version"`
+	VersionCommand    []string          `json:"version_command" toml:"version_command"`
+	FixCommand        []string          `json:"fix_command" toml:"fix_command"`
+	NewFindingsFlag   []string          `json:"new_findings_flag" toml:"new_findings_flag"`
+	SetupCommand      []string          `json:"setup_command" toml:"setup_command"`
+	TeardownCommand   []string          `json:"teardown_command" toml:"teardown_command"`
+	FailOnOutput      bool              `json:"fail_on_output,omitempty" toml:"fail_on_output"`
+	StructuredCommand []string          `json:"structured_command,omitempty" toml:"structured_command"`
 }
 
 func DefaultIntegration() Gate {
@@ -164,8 +174,21 @@ func Validate(gate Gate) error {
 		return fmt.Errorf("condition %q is unsupported", gate.Condition)
 	}
 	for _, name := range gate.Environment {
-		if name == "" || strings.Contains(name, "=") {
+		if !IsValidEnvName(name) {
 			return fmt.Errorf("environment must contain variable names")
+		}
+	}
+	for name, value := range gate.Env {
+		if !IsValidEnvName(name) {
+			return fmt.Errorf("env must contain valid variable names")
+		}
+		if strings.ContainsRune(value, 0) {
+			return fmt.Errorf("env value for %q must not contain NUL bytes", name)
+		}
+	}
+	for _, name := range gate.RequiredEnv {
+		if !IsValidEnvName(name) {
+			return fmt.Errorf("required_env must contain variable names")
 		}
 	}
 	return nil

@@ -229,3 +229,48 @@ func TestPruneTestVolumesRemovesOnlyDanglingUnlockedManagedVolumes(t *testing.T)
 		t.Fatalf("errRes = %#v", errRes)
 	}
 }
+
+func TestNamespaceIsolatedProjectsSweepAndPruneProtectDevAndSharedVolumes(t *testing.T) {
+	now := time.Unix(10_000, 0)
+	var swept []string
+	res := sweepWithNamespace([]SweepProject{
+		{Name: "acme-test-1a2b3c4d", Created: now.Add(-2 * time.Hour)},
+		{Name: "acme-test", Created: now.Add(-2 * time.Hour)},
+		{Name: "acme-dev", Created: now.Add(-2 * time.Hour)},
+		{Name: "acme-test-locked", Created: now.Add(-2 * time.Hour), Locked: true},
+	}, "acme", now, time.Hour, func(name string) error {
+		swept = append(swept, name)
+		return nil
+	})
+	if res.Cleaned != 2 || !reflect.DeepEqual(swept, []string{"acme-test-1a2b3c4d", "acme-test"}) {
+		t.Fatalf("swept = %#v, res = %#v", swept, res)
+	}
+
+	var rmArgs []string
+	pruneRes := PruneTestVolumes(context.Background(), RuntimeSweepOptions{
+		CLI:       []string{"docker"},
+		Namespace: "acme",
+		IsLocked:  func(project string) bool { return project == "acme-test-locked" },
+		Run: func(_ context.Context, request process.Request) process.Result {
+			joined := strings.Join(request.Args, " ")
+			switch {
+			case strings.Contains(joined, "volume ls"):
+				return process.Result{Stdout: []byte(strings.Join([]string{
+					"acme-test-1a2b3c4d_pgdata",
+					"acme-test-locked_pgdata",
+					"acme-test_pgdata",
+					"acme-dev_pgdata",
+					"acme_shared_cache",
+				}, "\n"))}
+			case strings.Contains(joined, "volume rm"):
+				rmArgs = append([]string(nil), request.Args...)
+				return process.Result{Stdout: []byte("acme-test-1a2b3c4d_pgdata\n")}
+			default:
+				return process.Result{}
+			}
+		},
+	})
+	if pruneRes.Removed != 1 || pruneRes.Kept != 4 || !reflect.DeepEqual(rmArgs, []string{"docker", "volume", "rm", "acme-test-1a2b3c4d_pgdata"}) {
+		t.Fatalf("pruneRes = %#v, rmArgs = %#v", pruneRes, rmArgs)
+	}
+}

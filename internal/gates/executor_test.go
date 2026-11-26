@@ -224,6 +224,72 @@ func TestValidateRejectsIncompleteVersionConfiguration(t *testing.T) {
 	}
 }
 
+func TestExecutorPropagatesGateEnvAndFailsClosedOnMissingRequiredEnv(t *testing.T) {
+	t.Run("fails closed before setup or command when required_env is missing", func(t *testing.T) {
+		calls := 0
+		executor := Executor{
+			LookupEnv: func(name string) (bool, bool) { return false, false },
+			Run: func(_ context.Context, _ process.Request) process.Result {
+				calls++
+				return process.Result{ExitCode: 0}
+			},
+		}
+		result := executor.RunPhase(context.Background(), "integration", []Gate{{
+			Name:         "int-api",
+			Phase:        "integration",
+			SetupCommand: []string{"migrate"},
+			Command:      []string{"go", "test", "-tags=integration", "./..."},
+			Env:          map[string]string{"APP_DB_INTEGRATION": "1"},
+			RequiredEnv:  []string{"APP_DB_INTEGRATION", "DATABASE_URL"},
+		}})
+		if result.Status != "blocked" || result.ExitCode != 2 || calls != 0 {
+			t.Fatalf("result = %#v, calls = %d", result, calls)
+		}
+		if !slices.Contains([]string{result.Diagnostic}, `missing required environment variable(s) for gate "int-api": DATABASE_URL`) {
+			t.Fatalf("unexpected diagnostic: %q", result.Diagnostic)
+		}
+	})
+
+	t.Run("propagates static env, host env, and respects container-provided required_env", func(t *testing.T) {
+		var seenEnvs [][]string
+		executor := Executor{
+			LookupEnv: func(name string) (bool, bool) {
+				switch name {
+				case "HOST_TOKEN":
+					return true, true
+				case "DATABASE_URL":
+					return true, false // present inside container; must not be overwritten with -e
+				default:
+					return false, false
+				}
+			},
+			Run: func(_ context.Context, request process.Request) process.Result {
+				seenEnvs = append(seenEnvs, append([]string(nil), request.Env...))
+				return process.Result{ExitCode: 0}
+			},
+		}
+		result := executor.RunPhase(context.Background(), "integration", []Gate{{
+			Name:            "int-api",
+			Phase:           "integration",
+			SetupCommand:    []string{"migrate"},
+			Command:         []string{"go", "test", "-tags=integration", "./..."},
+			TeardownCommand: []string{"cleanup"},
+			Environment:     []string{"GOFLAGS"},
+			Env:             map[string]string{"APP_DB_INTEGRATION": "1"},
+			RequiredEnv:     []string{"APP_DB_INTEGRATION", "HOST_TOKEN", "DATABASE_URL"},
+		}})
+		if result.Status != "passed" || len(seenEnvs) != 3 {
+			t.Fatalf("result = %#v, seenEnvs = %#v", result, seenEnvs)
+		}
+		wantEnv := []string{"GOFLAGS", "HOST_TOKEN", "APP_DB_INTEGRATION=1"}
+		for i, env := range seenEnvs {
+			if !sameStrings(env, wantEnv) {
+				t.Fatalf("call %d env = %#v, want %#v", i, env, wantEnv)
+			}
+		}
+	})
+}
+
 func TestExecutorFailsGofmtCheckWhenUnformattedFilesReported(t *testing.T) {
 	executor := Executor{Run: func(_ context.Context, _ process.Request) process.Result {
 		return process.Result{ExitCode: 0, Stdout: []byte("cmd/main.go\n")}

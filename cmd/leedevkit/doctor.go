@@ -199,11 +199,16 @@ func sweepDoctorStaleProjects(root string, stderr io.Writer) {
 }
 
 func pruneDoctorTestVolumes(root string, stderr io.Writer) {
-	pruneDoctorTestVolumesWithRunner(context.Background(), resolveDoctorCLI(root), process.Run, stderr)
+	projectCfg, _ := config.Load(filepath.Join(root, "leedevkit.toml"))
+	pruneDoctorTestVolumesWithRunner(context.Background(), resolveDoctorCLI(root), process.Run, stderr, projectCfg.Namespace)
 }
 
-func pruneDoctorTestVolumesWithRunner(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, stderr io.Writer) ownership.VolumePruneResult {
-	result := ownership.PruneTestVolumes(ctx, ownership.RuntimeSweepOptions{CLI: cli, Run: run})
+func pruneDoctorTestVolumesWithRunner(ctx context.Context, cli []string, run func(context.Context, process.Request) process.Result, stderr io.Writer, namespace ...string) ownership.VolumePruneResult {
+	ns := ""
+	if len(namespace) > 0 {
+		ns = namespace[0]
+	}
+	result := ownership.PruneTestVolumes(ctx, ownership.RuntimeSweepOptions{CLI: cli, Namespace: ns, Run: run})
 	if stderr != nil {
 		if result.Removed > 0 {
 			fmt.Fprintf(stderr, "Pruned %d stale test/infra volume(s).\n", result.Removed)
