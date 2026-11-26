@@ -2,6 +2,22 @@
 
 All notable changes to LeeDevKit are recorded here. This changelog follows the Keep a Changelog format.
 
+## [0.17.0] - 2026-11-26
+
+### Added
+- Generic test environment configuration (`[test.env]`, `[test.gates.<key>].env`, `environment`, and `required_env`) with secret-safe injection into `docker compose exec -T` (values passed only via child process env with `-e NAME` on `argv`).
+- Per-run Docker Compose project isolation under `<namespace>-test-<runid>` (exporting `LEEDEVKIT_TEST_PROJECT` and `COMPOSE_PROJECT_NAME`), exclusive ownership locking for pinned `LEEDEVKIT_TEST_PROJECT` or non-external fixed-name volumes, and non-destructive temporary `external: true` overrides for pre-existing volumes owned by another Compose project.
+- Regression tests covering Go DB integration env propagation, secret hygiene and URI DSN credential redaction, missing `required_env` / failed setup fail-closed behavior, concurrent run isolation, lock collision, foreign-owned volume preservation, and phase status aggregation.
+
+### Changed
+- Default Go integration command (`go test -tags=integration ./...`, or `-json` in structured modes) is inherited by `[test.gates.int-*]` entries that omit `command`, and `setup_command`/`teardown_command` run inside the disposable test stack.
+- Extend `process.RedactDiagnostic` to redact credentials in any URI scheme (`postgres://`, `postgresql://`, `redis://`, `https://`, etc.) and update `ownership` sweep/prune patterns for `<namespace>-test-*` while protecting `<namespace>-dev` and shared volumes.
+- Document `[test.env]`, `[test.gates.<key>]`, Compose volume rules, and `leedevkit targets` across `templates/CLAUDE.base.md`, `templates/leedevkit.go.toml`, `templates/leedevkit.default.toml`, `README.md`, and `leedevkit test --help`.
+
+### Fixed
+- Fail closed (exit non-zero, never `passed`) when `required_env` is missing, `setup_command`/command returns an execution error, an unexpected zero exit occurs on a failed/blocked phase, or zero phases execute (`Counts.Passed == 0`).
+- Reject dev Compose stacks (`<namespace>-dev`, `leedevkit-dev`, `$LEEDEVKIT_DEV_PROJECT`) on `leedevkit test` invocations, including single-target runs affected by ambient `COMPOSE_PROJECT_NAME`.
+
 ## [0.16.0] - 2026-11-26
 
 ### Added
