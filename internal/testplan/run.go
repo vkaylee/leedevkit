@@ -100,6 +100,12 @@ func PhaseDependencyPrefix(displayName, language string) string {
 
 func (f ExecutorFunc) Execute(phase Phase) PhaseResult { return f(phase) }
 
+type FailureLogDetail struct {
+	Label          string
+	Diagnostic     string
+	ExtractExcerpt bool
+}
+
 type RunResult struct {
 	Status         string
 	FullRegression bool
@@ -112,6 +118,7 @@ type RunResult struct {
 	Failures       []report.Failure
 	LifecycleError string
 	FailureLogs    []string
+	FailureDetails map[string]FailureLogDetail
 }
 
 func (r RunResult) Summary(target, runID string) report.Summary {

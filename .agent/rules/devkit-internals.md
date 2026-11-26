@@ -18,14 +18,14 @@ Changes here ship through release artifacts installed globally under `${DEVKIT_H
 
 ## Key Commands
 
-leedevkit test go --lint-only   # focused feedback only
-leedevkit test go --unit-only   # focused feedback only
-leedevkit test go                # Go verification
-leedevkit test all              # all configured targets
-leedevkit test all --json           # stable final JSON report
+leedevkit test all --lint-only --compact  # focused lint feedback (gofmt, go vet, bash -n)
+leedevkit test all --unit-only --compact  # focused unit feedback (go test)
+leedevkit test all --compact              # full infra regression with compact failure output
+leedevkit test all --json                 # stable final JSON report
 leedevkit test all --json-stream --quiet  # JSONL events for AI agents
+scripts/build-local.sh                    # build gitignored build/leedevkit-go for ./leedevkit
 
-Use the globally installed `leedevkit` for routine repository checks. This repository's `./leedevkit` launcher requires a local Go binary and is not the default; use it only when that binary exists and is executable.
+Use the globally installed `leedevkit` for routine repository checks. To test current-source CLI behavior, run `scripts/build-local.sh` (builds `build/leedevkit-go` via host Go or Compose without dirtying git status) and then run `./leedevkit ...`.
 
 Human mode streams parallel task output live with `[task-name]` prefixes and tees stdout/stderr into `.test_logs/` (or `.test_logs/<compose-project>/`). `--quiet` suppresses live task output but preserves complete logs. AI agents MUST use JSON/JSONL fields and failure `log` paths, not scrape human terminal text.
 

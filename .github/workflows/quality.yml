@@ -44,6 +44,8 @@ jobs:
           LEEDEVKIT_PROJECT_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
+          docker volume create leedevkit_go-module-cache >/dev/null
+          docker volume create leedevkit_go-build-cache >/dev/null
           mkdir -p .leedevkit-go-build
           docker compose -p leedevkit-source-quality -f container/go/docker-compose.test.yml run --rm -T --no-deps --build -e CGO_ENABLED=0 -e GOPROXY=off go go build -buildvcs=false -o /workspace/.leedevkit-go-build/leedevkit-go ./cmd/leedevkit
           cp .leedevkit-go-build/leedevkit-go "${{ runner.temp }}/leedevkit-go"

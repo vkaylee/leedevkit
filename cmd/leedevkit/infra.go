@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,12 +32,29 @@ func validateInfraProject(root string) error {
 }
 
 func validateInfraFlags(args []string) error {
+	var lintOnly, unitOnly bool
 	for _, flag := range args {
-		if flag != "--json" && flag != "--quiet" && flag != "--json-stream" && flag != "--failed-only" && flag != "--compact" && flag != "--build" {
+		switch flag {
+		case "--json", "--quiet", "--json-stream", "--failed-only", "--compact", "--build":
+		case "--lint-only":
+			lintOnly = true
+		case "--unit-only":
+			unitOnly = true
+		default:
 			return fmt.Errorf("unsupported flag for infrastructure checks: %s", flag)
 		}
 	}
+	if lintOnly && unitOnly {
+		return fmt.Errorf("infra cannot combine --lint-only and --unit-only")
+	}
 	return nil
+}
+
+type infraCheck struct {
+	name       string
+	category   string
+	args       []string
+	compactLog bool
 }
 
 type infraWriteError struct{ err error }
@@ -57,23 +78,19 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 	if session, err := ownership.Open(project, true); err == nil {
 		defer session.Close(nil)
 	}
-	composeFile := filepath.Join(root, "container", "go", "docker-compose.test.yml")
-	if !fileExists(composeFile) {
-		if assetRoot, err := runtimeAssetRoot(); err == nil {
-			composeFile = filepath.Join(assetRoot, "container", "go", "docker-compose.test.yml")
-		}
-	}
+	composeFile := resolveInfraComposeFile(root)
 	compose := []string{"docker", "compose"}
 	if resolved, err := resolveProviderForProject(root, environMap(os.Environ())); err == nil && len(resolved.Compose) > 0 {
 		compose = resolved.Compose
 	}
 	upArgs := infraUpCommandWith(compose, project, composeFile, flags.Build)
 	downArgs := infraDownCommandWith(compose, project, composeFile)
-	checks := runInfraCommandsWith(compose, root, project, composeFile)
+	checks := infraChecksForFlags(flags, quiet)
 	flags.Target = "infra"
 	var failureLogs []string
+	failureDetails := make(map[string]testplan.FailureLogDetail)
 	result := testplan.RunContext(ctx, flags, testplan.ContextExecutorFunc(func(phaseCtx context.Context, phase testplan.Phase) testplan.PhaseResult {
-		if phase.Name != "Infrastructure" {
+		if phase.Name != "Infrastructure" && phase.Name != "Linting" && phase.Name != "Unit Tests" {
 			return testplan.PhaseResult{Status: "blocked", ExitCode: 2, Diagnostic: "focused infrastructure checks are not supported"}
 		}
 		logDir, err := createInfraLogDir(root)
@@ -106,7 +123,14 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 			status, code := "passed", 0
 			var failures []string
 			var firstLog string
-			for index, command := range checks {
+			var goUnitFailed, goBuildFailed bool
+			for index, check := range checks {
+				if check.category == "coverage" && goUnitFailed {
+					continue
+				}
+				if check.name == "go vet ./..." && goBuildFailed {
+					continue
+				}
 				if err := phaseCtx.Err(); err != nil {
 					if status == "passed" {
 						outcome = testplan.PhaseResult{Status: "blocked", ExitCode: 1, Diagnostic: "infrastructure checks canceled: " + process.RedactDiagnostic(err.Error()), Command: "source-quality checks", Log: firstLog}
@@ -114,6 +138,7 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 					}
 					break
 				}
+				command := infraComposeCommandWith(compose, root, project, composeFile, check.args)
 				logName := infraLogName(index + 1)
 				relLog := filepath.ToSlash(filepath.Join(".test_logs", filepath.Base(logDir), logName))
 				output, _, err := openPhaseOutput(logDir, logName, fmt.Sprintf("[infra-%02d] ", index+1), quiet, stream, false)
@@ -133,7 +158,19 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 						firstLog = relLog
 					}
 					status = "failed"
-					failures = append(failures, fmt.Sprintf("%s: %s (log: %s)", process.RedactDiagnostic(strings.Join(command, " ")), child.Diagnostic(), relLog))
+					checkDiag := fmt.Sprintf("%s: %s (log: %s)", check.name, child.Diagnostic(), relLog)
+					failures = append(failures, checkDiag)
+					failureDetails[relLog] = testplan.FailureLogDetail{
+						Label:          check.name,
+						Diagnostic:     checkDiag,
+						ExtractExcerpt: check.compactLog,
+					}
+					if check.category == "unit" {
+						goUnitFailed = true
+						if data, readErr := readLimitedFile(filepath.Join(logDir, logName), 1<<20); readErr == nil && hasGoBuildFailure(data) {
+							goBuildFailed = true
+						}
+					}
 				}
 				if phaseCtx.Err() != nil {
 					break
@@ -158,11 +195,17 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 				commandArgs = failure.Args
 			}
 			failureLogs = append(failureLogs, lifecycleRelLog)
+			failureDetails[lifecycleRelLog] = testplan.FailureLogDetail{
+				Label:          "infra lifecycle",
+				Diagnostic:     diagnostic,
+				ExtractExcerpt: true,
+			}
 			return testplan.PhaseResult{Status: status, ExitCode: code, Diagnostic: diagnostic, LifecycleError: diagnostic, Command: strings.Join(process.RedactArgs(commandArgs), " "), Log: lifecycleRelLog}
 		}
 		return outcome
 	}), stream, func(result *testplan.RunResult) {
 		result.FailureLogs = failureLogs
+		result.FailureDetails = failureDetails
 		var failureOutput io.Writer
 		if compact {
 			failureOutput = stream
@@ -170,6 +213,55 @@ func runInfraContext(ctx context.Context, root string, flags testplan.Flags, run
 		collectFailureDetails(root, result, failureOutput)
 	})
 	return result
+}
+
+func resolveInfraComposeFile(root string) string {
+	composeFile := filepath.Join(root, "container", "go", "docker-compose.test.yml")
+	if !fileExists(composeFile) {
+		if assetRoot, err := runtimeAssetRoot(); err == nil {
+			composeFile = filepath.Join(assetRoot, "container", "go", "docker-compose.test.yml")
+		}
+	}
+	return composeFile
+}
+
+func readLimitedFile(path string, maxBytes int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return data, err
+}
+
+func hasGoBuildFailure(data []byte) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "{") {
+			var event struct {
+				Action      string `json:"Action"`
+				FailedBuild string `json:"FailedBuild"`
+			}
+			if json.Unmarshal([]byte(line), &event) == nil {
+				if event.Action == "build-fail" || event.FailedBuild != "" {
+					return true
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "FAIL\t") && (strings.HasSuffix(line, "[build failed]") || strings.HasSuffix(line, "[setup failed]")) {
+			return true
+		}
+	}
+	return false
 }
 
 func uniqueInfraProject(root string) string {
@@ -196,28 +288,50 @@ func infraDownCommandWith(compose []string, project, composeFile string) []strin
 	return append(composeBaseArgs(compose, project, []string{composeFile}), "--profile", "infra", "--profile", "*", "down", "--remove-orphans", "--timeout", "1")
 }
 
+func infraChecksForFlags(flags testplan.Flags, structuredGo bool) []infraCheck {
+	goTestArgs := []string{"go", "test", "./..."}
+	if structuredGo {
+		goTestArgs = []string{"go", "test", "-json", "./..."}
+	}
+	all := []infraCheck{
+		{name: "go test ./...", category: "unit", args: goTestArgs, compactLog: true},
+		{name: "gofmt", category: "lint", args: []string{"sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`}, compactLog: true},
+		{name: "go vet ./...", category: "lint", args: []string{"go", "vet", "./..."}, compactLog: true},
+		{name: "go coverage", category: "coverage", args: []string{"sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`}, compactLog: true},
+		{name: "bash -n install.sh", category: "lint", args: []string{"bash", "-n", "install.sh"}, compactLog: true},
+		{name: "bash -n bootstrap.sh", category: "lint", args: []string{"bash", "-n", "bootstrap.sh"}, compactLog: true},
+		{name: "bash -n bin/leedevkit", category: "lint", args: []string{"bash", "-n", "bin/leedevkit"}, compactLog: true},
+		{name: "bash -n leedevkit", category: "lint", args: []string{"bash", "-n", "leedevkit"}, compactLog: true},
+		{name: "bash -n tests/install-test.sh", category: "lint", args: []string{"bash", "-n", "tests/install-test.sh"}, compactLog: true},
+		{name: "bash -n scripts/test-skill-utilities.sh", category: "lint", args: []string{"bash", "-n", "scripts/test-skill-utilities.sh"}, compactLog: true},
+		{name: "bash tests/install-test.sh", category: "script", args: []string{"bash", "tests/install-test.sh"}, compactLog: true},
+		{name: "bash scripts/test-skill-utilities.sh", category: "script", args: []string{"bash", "scripts/test-skill-utilities.sh"}, compactLog: true},
+	}
+	if !flags.LintOnly && !flags.UnitOnly {
+		return all
+	}
+	wantCategory := "lint"
+	if flags.UnitOnly {
+		wantCategory = "unit"
+	}
+	selected := make([]infraCheck, 0, len(all))
+	for _, check := range all {
+		if check.category == wantCategory {
+			selected = append(selected, check)
+		}
+	}
+	return selected
+}
+
 func runInfraCommands(root, project, composeFile string) [][]string {
 	return runInfraCommandsWith([]string{"docker", "compose"}, root, project, composeFile)
 }
 
 func runInfraCommandsWith(compose []string, root, project, composeFile string) [][]string {
-	checks := [][]string{
-		{"go", "test", "./..."},
-		{"sh", "-c", `files=$(gofmt -l $(find cmd internal -name '*.go' -type f)); if [ -n "$files" ]; then printf 'unformatted Go files:\n%s\n' "$files"; exit 1; fi`},
-		{"go", "vet", "./..."},
-		{"sh", "-c", `set -eu; profile=$(mktemp); trap 'rm -f "$profile"' EXIT; go test -coverpkg=./... -coverprofile="$profile" ./...; go tool cover -func="$profile" | awk '/^total:/ {found=1; print; if ($3+0 < 80) exit 1} END {if (!found) exit 1}'`},
-		{"bash", "-n", "install.sh"},
-		{"bash", "-n", "bootstrap.sh"},
-		{"bash", "-n", "bin/leedevkit"},
-		{"bash", "-n", "leedevkit"},
-		{"bash", "-n", "tests/install-test.sh"},
-		{"bash", "-n", "scripts/test-skill-utilities.sh"},
-		{"bash", "tests/install-test.sh"},
-		{"bash", "scripts/test-skill-utilities.sh"},
-	}
+	checks := infraChecksForFlags(testplan.Flags{}, false)
 	commands := make([][]string, len(checks))
 	for index, check := range checks {
-		commands[index] = infraComposeCommandWith(compose, root, project, composeFile, check)
+		commands[index] = infraComposeCommandWith(compose, root, project, composeFile, check.args)
 	}
 	return commands
 }
@@ -231,7 +345,10 @@ func infraComposeCommandWith(compose []string, root, project, composeFile string
 	return append(args, command...)
 }
 
-const infraChildTimeout = 30 * time.Minute
+const (
+	infraChildTimeout = 30 * time.Minute
+	maxInfraLogDirs   = 20
+)
 
 func infraLogName(index int) string { return fmt.Sprintf("infra-%02d.log", index) }
 
@@ -259,7 +376,50 @@ func createInfraLogDir(root string) (string, error) {
 	if err := os.Chmod(path, 0o700); err != nil {
 		return "", fmt.Errorf("secure run log directory: %w", err)
 	}
+	pruneInfraLogDirs(logsRoot, filepath.Base(path), maxInfraLogDirs)
 	return path, nil
+}
+
+func pruneInfraLogDirs(logsRoot, keepName string, maxKeep int) {
+	if maxKeep <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(logsRoot)
+	if err != nil {
+		return
+	}
+	type dirEntry struct {
+		name    string
+		path    string
+		modTime time.Time
+	}
+	var candidates []dirEntry
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "infra-") || name == keepName {
+			continue
+		}
+		fullPath := filepath.Join(logsRoot, name)
+		info, statErr := os.Lstat(fullPath)
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			continue
+		}
+		candidates = append(candidates, dirEntry{name: name, path: fullPath, modTime: info.ModTime()})
+	}
+	keepOthers := maxKeep - 1
+	if len(candidates) <= keepOthers {
+		return
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if !candidates[i].modTime.Equal(candidates[j].modTime) {
+			return candidates[i].modTime.After(candidates[j].modTime)
+		}
+		return candidates[i].name > candidates[j].name
+	})
+	// ponytail: relies on directory ModTime and fixed retention count; add lockfile liveness checks if >20 concurrent runs are needed.
+	for _, old := range candidates[keepOthers:] {
+		_ = os.RemoveAll(old.path)
+	}
 }
 
 type infraPrefixWriter struct {

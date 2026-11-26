@@ -608,12 +608,43 @@ func hasGoPerPhaseComposeConfig(root string, project config.Project, goTargets [
 	return false
 }
 
+func extractCompactLogExcerpt(data []byte, maxLines int) string {
+	if maxLines <= 0 {
+		maxLines = 25
+	}
+	clean := report.StripANSI(string(data))
+	var lines []string
+	truncated := false
+	for _, raw := range strings.Split(clean, "\n") {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "ok\t") || strings.HasPrefix(trimmed, "ok  ") ||
+			strings.HasPrefix(trimmed, "?\t") || strings.HasPrefix(trimmed, "?   ") ||
+			trimmed == "PASS" || strings.HasPrefix(trimmed, "--- PASS:") ||
+			strings.HasPrefix(trimmed, "=== RUN ") || strings.HasPrefix(trimmed, "=== PAUSE ") ||
+			strings.HasPrefix(trimmed, "=== CONT ") {
+			continue
+		}
+		if len(lines) >= maxLines {
+			truncated = true
+			break
+		}
+		lines = append(lines, strings.TrimRight(raw, "\r"))
+	}
+	if truncated {
+		lines = append(lines, "... (truncated; see full log)")
+	}
+	return strings.Join(lines, "\n")
+}
+
 func collectFailureDetails(root string, result *testplan.RunResult, output io.Writer) {
 	result.Failures = []report.Failure{}
 	seen := map[string]bool{}
 	for _, phase := range append(append([]report.Phase(nil), result.Failed...), result.Blocked...) {
 		paths := []string{phase.Log}
-		if phase.Phase == "Infrastructure" && len(result.FailureLogs) > 0 {
+		if len(result.FailureLogs) > 0 {
 			paths = result.FailureLogs
 		}
 		found := false
@@ -625,6 +656,11 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 				continue
 			}
 			seen[path] = true
+			detail, hasDetail := result.FailureDetails[path]
+			diag := phase.Diagnostic
+			if hasDetail && detail.Diagnostic != "" {
+				diag = detail.Diagnostic
+			}
 			// ponytail: larger logs use the diagnostic fallback; stream parsing to lift this ceiling.
 			const maxFailureLog = 16 << 20
 			file, err := os.Open(filepath.Join(root, path))
@@ -636,10 +672,10 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 				}
 			}
 			if err == nil && len(data) > maxFailureLog {
-				result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: "log exceeds parsing limit; inspect " + path + ": " + report.StripANSI(phase.Diagnostic)})
+				result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: "log exceeds parsing limit; inspect " + path + ": " + report.StripANSI(diag)})
 				found = true
 				if output != nil {
-					fmt.Fprintf(output, "[%s] Log exceeds parsing limit; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(phase.Diagnostic))
+					fmt.Fprintf(output, "[%s] Log exceeds parsing limit; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(diag))
 				}
 				continue
 			}
@@ -654,13 +690,40 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 				found = true
 				result.Failures = append(result.Failures, failures...)
 			}
-			if output != nil {
-				if reliable && len(failures) > 0 && strings.TrimSpace(filtered) != "" {
+			if reliable && len(failures) > 0 && strings.TrimSpace(filtered) != "" {
+				if output != nil {
 					fmt.Fprintf(output, "[%s] %s\n", phase.Phase, strings.TrimRight(filtered, "\n"))
-				} else {
-					// ponytail: unknown runners cannot be filtered reliably; add a structured adapter when supported.
-					fmt.Fprintf(output, "[%s] Cannot filter this log accurately; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(phase.Diagnostic))
 				}
+				continue
+			}
+			if hasDetail && detail.ExtractExcerpt {
+				excerpt := extractCompactLogExcerpt(data, 25)
+				if excerpt != "" {
+					if len(failures) == 0 {
+						found = true
+						msg := excerpt
+						if detail.Label != "" {
+							msg = detail.Label + ": " + excerpt
+						}
+						result.Failures = append(result.Failures, report.Failure{Phase: phase.Phase, Message: msg})
+					}
+					if output != nil {
+						if detail.Label != "" {
+							fmt.Fprintf(output, "[%s] %s (%s):\n%s\n", phase.Phase, detail.Label, path, excerpt)
+						} else {
+							fmt.Fprintf(output, "[%s] %s\n", phase.Phase, excerpt)
+						}
+					}
+					continue
+				}
+				if output != nil {
+					fmt.Fprintf(output, "[%s] %s\n", phase.Phase, report.StripANSI(diag))
+				}
+				continue
+			}
+			if output != nil {
+				// ponytail: unknown runners cannot be filtered reliably; add a structured adapter when supported.
+				fmt.Fprintf(output, "[%s] Cannot filter this log accurately; inspect %s and rerun the reported command. %s\n", phase.Phase, path, report.StripANSI(diag))
 			}
 		}
 		if !found {
@@ -678,6 +741,31 @@ func collectFailureDetails(root string, result *testplan.RunResult, output io.Wr
 				fmt.Fprintf(output, "[%s] %s\n", skipped.Phase, msg)
 			}
 		}
+	}
+}
+
+var builtInGoCacheVolumes = []string{"leedevkit_go-module-cache", "leedevkit_go-build-cache"}
+
+func usesBuiltInGoCompose(files []string) bool {
+	for _, file := range files {
+		clean := filepath.ToSlash(filepath.Clean(file))
+		if strings.HasSuffix(clean, "/container/go/docker-compose.test.yml") || clean == "container/go/docker-compose.test.yml" {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureBuiltInGoCacheVolumes(ctx context.Context, cli, files []string, dir string, env []string, run func(context.Context, process.Request) process.Result) {
+	if len(cli) == 0 || !usesBuiltInGoCompose(files) {
+		return
+	}
+	if run == nil {
+		run = process.Run
+	}
+	for _, volume := range builtInGoCacheVolumes {
+		args := append(append([]string(nil), cli...), "volume", "create", volume)
+		_ = run(ctx, process.Request{Args: args, Dir: dir, Env: env, Stdout: io.Discard, Stderr: io.Discard, Timeout: 15 * time.Second})
 	}
 }
 
@@ -853,6 +941,11 @@ Flags: --build --lint-only --unit-only --e2e-only --coverage --skip-lint --skip-
 			return 2
 		}
 		sweepStaleTestProjects(testCtx, provider.Provider{CLI: []string{"docker"}, Capabilities: []string{"ps", "rm"}})
+		cli := []string{"docker"}
+		if resolved, err := resolveProviderForProject(root, environMap(os.Environ())); err == nil && len(resolved.CLI) > 0 {
+			cli = resolved.CLI
+		}
+		ensureBuiltInGoCacheVolumes(testCtx, cli, []string{resolveInfraComposeFile(root)}, root, os.Environ(), process.Run)
 		result := runInfraContext(testCtx, root, flags, process.Run, stdout, quiet)
 		if !flags.JSONStream {
 			summary := result.Summary(args[1], "go-cli")
@@ -913,6 +1006,7 @@ func runSingleTargetGoTest(testCtx context.Context, root string, flags testplan.
 		return 2
 	}
 	testEnv := withTestProjectEnv(os.Environ(), root, project, projectConfig.Namespace)
+	ensureBuiltInGoCacheVolumes(testCtx, providerConfig.CLI, lifecyclePlan.Files, root, testEnv, process.Run)
 	compose := gates.ComposeRunner{Compose: composeTool, Project: project, Service: goService, Workdir: "/workspace", Dir: root, Env: testEnv, Execute: process.Run}
 	if service, ok := projectConfig.ServiceForLanguage("go"); ok {
 		workdir := "/workspace"

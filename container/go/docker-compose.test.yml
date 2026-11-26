@@ -51,5 +51,7 @@ services:
 volumes:
   go-module-cache:
     name: leedevkit_go-module-cache
+    external: true
   go-build-cache:
     name: leedevkit_go-build-cache
+    external: true

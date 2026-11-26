@@ -322,6 +322,7 @@ func runExecContext(ctx context.Context, args []string, root string, rawEnv []st
 			defer func() {
 				_ = (lifecycle.ComposeExecutor{Run: runner, Dir: root, Env: childEnv, Stdout: io.Discard, Stderr: io.Discard}).Execute(context.WithoutCancel(ctx), downArgs)
 			}()
+			ensureBuiltInGoCacheVolumes(ctx, providerConfig.CLI, target.Files, root, childEnv, runner)
 			if execErr := (lifecycle.ComposeExecutor{Run: runner, Dir: root, Env: childEnv, Stdout: stderr, Stderr: stderr}).Execute(ctx, upArgs); execErr != nil {
 				fmt.Fprintf(stderr, "exec container startup failed: %s\n", process.RedactDiagnostic(execErr.Error()))
 				return 1

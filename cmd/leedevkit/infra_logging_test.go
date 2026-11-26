@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -342,5 +343,261 @@ func TestRunInfraPassesBoundedChildTimeout(t *testing.T) {
 	}, nil)
 	if timeout <= 0 || timeout > 30*time.Minute {
 		t.Fatalf("timeout = %s, want (0, 30m]", timeout)
+	}
+}
+
+func TestRunInfraCompactUsesGoTestJSONAndShowsDirectError(t *testing.T) {
+	root := t.TempDir()
+	var compactOut strings.Builder
+	var sawGoTestJSON bool
+	result := runInfra(root, testplan.Flags{Target: "infra", Compact: true, UnitOnly: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
+		joined := strings.Join(request.Args, " ")
+		if strings.Contains(joined, "go test -json ./...") {
+			sawGoTestJSON = true
+			_, _ = request.Stdout.Write([]byte(
+				`{"Action":"run","Package":"example/p","Test":"TestBroken"}` + "\n" +
+					`{"Action":"output","Package":"example/p","Test":"TestBroken","Output":"broken_test.go:17: expected 2 got 1\n"}` + "\n" +
+					`{"Action":"fail","Package":"example/p","Test":"TestBroken"}` + "\n" +
+					`{"Action":"fail","Package":"example/p"}` + "\n",
+			))
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, &compactOut)
+	if !sawGoTestJSON {
+		t.Fatal("compact infra run did not invoke go test -json ./...")
+	}
+	if result.Status != "failed" || result.ExitCode != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	out := compactOut.String()
+	if strings.Contains(out, "Cannot filter") {
+		t.Fatalf("compact output fell back to Cannot filter: %q", out)
+	}
+	if !strings.Contains(out, "broken_test.go:17: expected 2 got 1") {
+		t.Fatalf("compact output missing direct failure: %q", out)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].TestName != "TestBroken" {
+		t.Fatalf("failures = %#v", result.Failures)
+	}
+}
+
+func TestRunInfraCompactMultipleFailuresDoNotRepeatMegaDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	var compactOut strings.Builder
+	result := runInfra(root, testplan.Flags{Target: "infra", Compact: true, LintOnly: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
+		joined := strings.Join(request.Args, " ")
+		if strings.Contains(joined, "gofmt -l") {
+			_, _ = request.Stdout.Write([]byte("unformatted Go files:\ncmd/leedevkit/infra.go\n"))
+			return process.Result{ExitCode: 1}
+		}
+		if strings.Contains(joined, "go vet ./...") {
+			_, _ = request.Stderr.Write([]byte("./cmd/leedevkit/infra.go:42:2: unreachable code\n"))
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, &compactOut)
+	if result.Status != "failed" || len(result.FailureLogs) != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+	out := compactOut.String()
+	if strings.Contains(out, "Cannot filter") {
+		t.Fatalf("compact output fell back to Cannot filter: %q", out)
+	}
+	if strings.Count(out, "infra-01.log") != 1 || strings.Count(out, "infra-02.log") != 1 {
+		t.Fatalf("expected each failed log path once, got: %q", out)
+	}
+	if !strings.Contains(out, "unformatted Go files:") || !strings.Contains(out, "unreachable code") {
+		t.Fatalf("compact output missing concise error excerpts: %q", out)
+	}
+	if len(result.Failures) != 2 {
+		t.Fatalf("failures = %#v, want 2 per-check failures", result.Failures)
+	}
+}
+
+func TestRunInfraFocusedLintOnlyAndUnitOnly(t *testing.T) {
+	t.Run("lint-only", func(t *testing.T) {
+		var cmds []string
+		result := runInfra(t.TempDir(), testplan.Flags{Target: "infra", LintOnly: true, Compact: true}, func(_ context.Context, request process.Request) process.Result {
+			if hasArg(request.Args, "exec") {
+				cmds = append(cmds, strings.Join(request.Args, " "))
+			}
+			return process.Result{}
+		}, nil)
+		if result.Status != "partial" || result.FullRegression || result.ExitCode != 0 {
+			t.Fatalf("lint-only result = %#v, want partial/non-full/exit 0", result)
+		}
+		if len(result.Phases) != 1 || result.Phases[0].Phase != "Linting" {
+			t.Fatalf("phases = %#v, want Linting", result.Phases)
+		}
+		if len(cmds) != 8 {
+			t.Fatalf("lint-only ran %d checks, want 8: %v", len(cmds), cmds)
+		}
+		joined := strings.Join(cmds, "\n")
+		if strings.Contains(joined, "go test") || strings.Contains(joined, "bash tests/install-test.sh") {
+			t.Fatalf("lint-only unexpectedly ran test/script checks:\n%s", joined)
+		}
+	})
+
+	t.Run("unit-only", func(t *testing.T) {
+		var cmds []string
+		result := runInfra(t.TempDir(), testplan.Flags{Target: "infra", UnitOnly: true, Compact: true}, func(_ context.Context, request process.Request) process.Result {
+			if hasArg(request.Args, "exec") {
+				cmds = append(cmds, strings.Join(request.Args, " "))
+			}
+			return process.Result{}
+		}, nil)
+		if result.Status != "partial" || result.FullRegression || result.ExitCode != 0 {
+			t.Fatalf("unit-only result = %#v, want partial/non-full/exit 0", result)
+		}
+		if len(result.Phases) != 1 || result.Phases[0].Phase != "Unit Tests" {
+			t.Fatalf("phases = %#v, want Unit Tests", result.Phases)
+		}
+		if len(cmds) != 1 || !strings.Contains(cmds[0], "go test -json ./...") {
+			t.Fatalf("unit-only cmds = %v, want single go test -json", cmds)
+		}
+	})
+}
+
+func TestRunInfraFailFastOnGoBuildFailureSkipsVetAndCoverage(t *testing.T) {
+	root := t.TempDir()
+	var cmds []string
+	var compactOut strings.Builder
+	result := runInfra(root, testplan.Flags{Target: "infra", Compact: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
+		joined := strings.Join(request.Args, " ")
+		cmds = append(cmds, joined)
+		if strings.Contains(joined, "go test -json ./...") {
+			_, _ = request.Stdout.Write([]byte(
+				`{"Action":"build-output","ImportPath":"github.com/vkaylee/leedevkit/cmd/leedevkit","Output":"# github.com/vkaylee/leedevkit/cmd/leedevkit\ncmd/leedevkit/bad.go:10:5: undefined: missing\n"}` + "\n" +
+					`{"Action":"build-fail","ImportPath":"github.com/vkaylee/leedevkit/cmd/leedevkit"}` + "\n" +
+					`{"Action":"fail","Package":"github.com/vkaylee/leedevkit/cmd/leedevkit","FailedBuild":"github.com/vkaylee/leedevkit/cmd/leedevkit"}` + "\n",
+			))
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, &compactOut)
+	if result.Status != "failed" || result.ExitCode != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	joined := strings.Join(cmds, "\n")
+	if strings.Contains(joined, "go vet ./...") || strings.Contains(joined, "go test -coverpkg=./...") {
+		t.Fatalf("compile failure should skip go vet and coverage, ran:\n%s", joined)
+	}
+	if !strings.Contains(joined, "gofmt -l") || !strings.Contains(joined, "bash -n install.sh") {
+		t.Fatalf("compile failure must still run independent checks, ran:\n%s", joined)
+	}
+	if len(cmds) != 10 {
+		t.Fatalf("ran %d checks, want 10 (12 - vet - coverage)", len(cmds))
+	}
+	if !strings.Contains(compactOut.String(), "undefined: missing") {
+		t.Fatalf("compact output missing compile error: %q", compactOut.String())
+	}
+}
+
+func TestRunInfraFailFastOnGoUnitFailureSkipsCoverageOnly(t *testing.T) {
+	var cmds []string
+	result := runInfra(t.TempDir(), testplan.Flags{Target: "infra", Compact: true}, func(_ context.Context, request process.Request) process.Result {
+		if !hasArg(request.Args, "exec") {
+			return process.Result{}
+		}
+		joined := strings.Join(request.Args, " ")
+		cmds = append(cmds, joined)
+		if strings.Contains(joined, "go test -json ./...") {
+			_, _ = request.Stdout.Write([]byte(
+				`{"Action":"output","Package":"p","Test":"TestFail","Output":"x_test.go:3: boom\n"}` + "\n" +
+					`{"Action":"fail","Package":"p","Test":"TestFail"}` + "\n" +
+					`{"Action":"fail","Package":"p"}` + "\n",
+			))
+			return process.Result{ExitCode: 1}
+		}
+		return process.Result{}
+	}, nil)
+	if result.Status != "failed" {
+		t.Fatalf("result = %#v", result)
+	}
+	joined := strings.Join(cmds, "\n")
+	if !strings.Contains(joined, "go vet ./...") {
+		t.Fatalf("non-build unit failure should still run go vet:\n%s", joined)
+	}
+	if strings.Contains(joined, "go test -coverpkg=./...") {
+		t.Fatalf("unit test failure should skip redundant coverage run:\n%s", joined)
+	}
+	if len(cmds) != 11 {
+		t.Fatalf("ran %d checks, want 11 (12 - coverage)", len(cmds))
+	}
+}
+
+func TestCreateInfraLogDirPrunesOldDirsSafely(t *testing.T) {
+	root := t.TempDir()
+	logsRoot := filepath.Join(root, ".test_logs")
+	if err := os.MkdirAll(logsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	symlinkPath := filepath.Join(logsRoot, "infra-symlink")
+	if err := os.Symlink(outside, symlinkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	otherDir := filepath.Join(logsRoot, "coverage-keep")
+	if err := os.Mkdir(otherDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	otherFile := filepath.Join(logsRoot, "infra-file.log")
+	if err := os.WriteFile(otherFile, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().Add(-time.Hour)
+	for i := 0; i < maxInfraLogDirs+5; i++ {
+		dir := filepath.Join(logsRoot, fmt.Sprintf("infra-old-%02d", i))
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		ts := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(dir, ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	newest, err := createInfraLogDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(newest); err != nil {
+		t.Fatalf("newest log dir removed: %v", err)
+	}
+	if info, err := os.Lstat(symlinkPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was altered or deleted: info=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(otherDir); err != nil {
+		t.Fatalf("non-infra dir removed: %v", err)
+	}
+	if _, err := os.Stat(otherFile); err != nil {
+		t.Fatalf("non-dir file removed: %v", err)
+	}
+	entries, err := os.ReadDir(logsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infraDirCount := 0
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "infra-") {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(logsRoot, entry.Name()))
+		if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			infraDirCount++
+		}
+	}
+	if infraDirCount != maxInfraLogDirs {
+		t.Fatalf("retained %d infra-* dirs, want %d", infraDirCount, maxInfraLogDirs)
 	}
 }

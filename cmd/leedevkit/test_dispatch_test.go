@@ -131,12 +131,15 @@ func TestInfraAllChecksUseComposeService(t *testing.T) {
 }
 
 func TestInfraRejectsUnrecognizedFlags(t *testing.T) {
-	for _, flag := range []string{"--typo", "--dry-run", "--unit-only", "--skip-build"} {
+	for _, flag := range []string{"--typo", "--dry-run", "--e2e-only", "--skip-build"} {
 		if err := validateInfraFlags([]string{flag}); err == nil {
 			t.Errorf("accepted %s", flag)
 		}
 	}
-	for _, flag := range []string{"--json", "--quiet", "--json-stream", "--build"} {
+	if err := validateInfraFlags([]string{"--lint-only", "--unit-only"}); err == nil {
+		t.Error("accepted conflicting --lint-only and --unit-only")
+	}
+	for _, flag := range []string{"--json", "--quiet", "--json-stream", "--build", "--compact", "--failed-only", "--lint-only", "--unit-only"} {
 		if err := validateInfraFlags([]string{flag}); err != nil {
 			t.Errorf("rejected %s: %v", flag, err)
 		}
